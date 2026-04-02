@@ -66,7 +66,7 @@ function ComposerButton({
       {...props}
       type="button"
       className={cn(
-        "flex items-center gap-2 rounded-xl text-app-composer-muted transition-colors hover:text-app-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-app-border-strong",
+        "flex items-center gap-1.5 rounded-lg text-app-foreground-soft transition-colors hover:text-app-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-app-border-strong",
         className,
       )}
     >
@@ -79,7 +79,7 @@ function WorkspaceComposer() {
   return (
     <div
       aria-label="Workspace composer"
-      className="flex min-h-[156px] flex-col rounded-[16px] border border-app-composer-border bg-app-composer-surface px-6 pb-4 pt-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+      className="flex min-h-[132px] flex-col rounded-[14px] border border-app-border-strong bg-app-sidebar px-4 pb-3 pt-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
     >
       <label htmlFor="workspace-input" className="sr-only">
         Workspace input
@@ -89,63 +89,63 @@ function WorkspaceComposer() {
         id="workspace-input"
         aria-label="Workspace input"
         placeholder="Ask to make changes, @mention files, run /commands"
-        className="min-h-[84px] flex-1 resize-none bg-transparent text-[15px] leading-6 tracking-[-0.01em] text-app-foreground outline-none placeholder:text-app-composer-placeholder"
+        className="min-h-[64px] flex-1 resize-none bg-transparent text-[14px] leading-5 tracking-[-0.01em] text-app-foreground outline-none placeholder:text-app-muted"
       />
 
-      <div className="mt-3 flex items-end justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-1.5">
+      <div className="mt-2.5 flex items-end justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-1">
           <ComposerButton
             aria-label="Model selector"
-            className="gap-2 px-1.5 py-1 text-[14px] font-medium"
+            className="gap-1.5 px-1 py-0.5 text-[13px] font-medium"
           >
-            <Sparkles className="size-4" strokeWidth={1.8} />
+            <Sparkles className="size-[14px]" strokeWidth={1.8} />
             <span>Opus 4.6</span>
           </ComposerButton>
 
           <ComposerButton
             aria-label="Quick command"
-            className="justify-center p-1.5"
+            className="justify-center p-1"
           >
-            <Zap className="size-[17px]" strokeWidth={1.9} />
+            <Zap className="size-[15px]" strokeWidth={1.9} />
           </ComposerButton>
 
           <ComposerButton
             aria-label="Reasoning mode"
-            className="gap-2 bg-app-composer-pill px-3 py-1.5 text-[14px] font-medium text-app-composer-pill-text hover:text-app-composer-pill-text"
+            className="gap-1.5 rounded-md bg-app-sidebar-strong px-2.5 py-1 text-[13px] font-medium text-app-foreground-soft hover:text-app-foreground"
           >
-            <BrainCircuit className="size-4" strokeWidth={1.8} />
+            <BrainCircuit className="size-[14px]" strokeWidth={1.8} />
             <span>Thinking</span>
           </ComposerButton>
 
           <ComposerButton
             aria-label="References"
-            className="justify-center p-1.5"
+            className="justify-center p-1"
           >
-            <BookOpen className="size-[17px]" strokeWidth={1.8} />
+            <BookOpen className="size-[15px]" strokeWidth={1.8} />
           </ComposerButton>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <ComposerButton
             aria-label="Activity"
-            className="justify-center p-1.5"
+            className="justify-center p-1"
           >
-            <LoaderCircle className="size-[17px]" strokeWidth={1.8} />
+            <LoaderCircle className="size-[15px]" strokeWidth={1.8} />
           </ComposerButton>
 
           <ComposerButton
             aria-label="Add attachment"
-            className="justify-center p-1.5"
+            className="justify-center p-1"
           >
-            <Plus className="size-[18px]" strokeWidth={1.8} />
+            <Plus className="size-4" strokeWidth={1.8} />
           </ComposerButton>
 
           <button
             type="button"
             aria-label="Send"
-            className="flex size-10 items-center justify-center rounded-[10px] bg-app-composer-send text-app-composer-send-foreground transition-transform hover:-translate-y-px focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-app-border-strong"
+            className="flex size-8 items-center justify-center rounded-[9px] border border-app-border-strong bg-app-sidebar-strong text-app-foreground transition-transform hover:-translate-y-px focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-app-border-strong"
           >
-            <ArrowUp className="size-[18px]" strokeWidth={2.2} />
+            <ArrowUp className="size-[15px]" strokeWidth={2.2} />
           </button>
         </div>
       </div>
@@ -285,7 +285,7 @@ function App() {
             aria-label="Workspace viewport"
             className="flex min-h-0 flex-1 flex-col bg-app-elevated"
           >
-            <div className="mt-auto px-4 pb-4 pt-6">
+            <div className="mt-auto px-3 pb-3 pt-5">
               <WorkspaceComposer />
             </div>
           </div>

@@ -118,14 +118,6 @@
   --color-app-accent-cyan: var(--color-info-400);
   --color-app-accent-pink: var(--color-important-400);
   --color-app-warm: var(--color-warning-500);
-  --color-app-composer-surface: #211d1b;
-  --color-app-composer-border: rgba(255, 255, 255, 0.1);
-  --color-app-composer-placeholder: #7c7470;
-  --color-app-composer-muted: #c9c2bd;
-  --color-app-composer-pill: #312220;
-  --color-app-composer-pill-text: #d2a28f;
-  --color-app-composer-send: #625c5b;
-  --color-app-composer-send-foreground: #1f1a19;
 }
 
 :root {
