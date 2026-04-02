@@ -1,4 +1,4 @@
-# Conductors
+# Helmor
 
 Brush version 1 of a local-first desktop app built with Tauri, React, Vite, and
 Vitest.
