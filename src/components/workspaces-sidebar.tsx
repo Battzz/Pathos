@@ -5,6 +5,7 @@ import {
   XCircleFillIcon,
 } from "@primer/octicons-react";
 import {
+  useEffect,
   useState,
   type ButtonHTMLAttributes,
   type ReactNode,
@@ -16,117 +17,16 @@ import {
   GitBranch,
   Plus,
 } from "lucide-react";
+import {
+  DEFAULT_WORKSPACE_GROUPS,
+  loadWorkspaceGroups,
+  type GroupTone,
+  type WorkspaceGroup,
+  type WorkspaceRow,
+} from "../lib/conductor";
 import { cn } from "../lib/utils";
 import { TooltipProvider } from "./ui/tooltip";
 import { BaseTooltip } from "./ui/base-tooltip";
-
-type GroupTone = "done" | "review" | "progress" | "backlog" | "canceled";
-
-type WorkspaceRow = {
-  id: string;
-  title: string;
-  avatar: string;
-  active?: boolean;
-};
-
-type WorkspaceGroup = {
-  id: string;
-  label: string;
-  tone: GroupTone;
-  rows: WorkspaceRow[];
-};
-
-const groups: WorkspaceGroup[] = [
-  {
-    id: "done",
-    label: "Done",
-    tone: "done",
-    rows: [
-      {
-        id: "task-detail",
-        title: "feat: task detail window with e...",
-        avatar: "F",
-      },
-    ],
-  },
-  {
-    id: "review",
-    label: "In review",
-    tone: "review",
-    rows: [
-      {
-        id: "coda-publish",
-        title: "feat: add Coda publish function...",
-        avatar: "F",
-      },
-      {
-        id: "marketing-site",
-        title: "Implement new marketing site ...",
-        avatar: "I",
-      },
-      {
-        id: "gitlab-publish",
-        title: "feat: add GitLab publish suppor...",
-        avatar: "F",
-      },
-    ],
-  },
-  {
-    id: "progress",
-    label: "In progress",
-    tone: "progress",
-    rows: [
-      {
-        id: "cambridge",
-        title: "Cambridge",
-        avatar: "C",
-      },
-      {
-        id: "project-paths",
-        title: "Show project paths",
-        avatar: "S",
-        active: true,
-      },
-      {
-        id: "mermaid",
-        title: "Investigate mermaid confluence",
-        avatar: "I",
-      },
-      {
-        id: "seo",
-        title: "Feat seo optimization",
-        avatar: "F",
-      },
-      {
-        id: "autoresearch",
-        title: "Explore autoresearch",
-        avatar: "E",
-      },
-      {
-        id: "chat-list",
-        title: "Fix chat list pending",
-        avatar: "F",
-      },
-      {
-        id: "doc-sync",
-        title: "Investigate doc sync",
-        avatar: "I",
-      },
-    ],
-  },
-  {
-    id: "backlog",
-    label: "Backlog",
-    tone: "backlog",
-    rows: [],
-  },
-  {
-    id: "canceled",
-    label: "Canceled",
-    tone: "canceled",
-    rows: [],
-  },
-];
 
 const rowVariants = cva(
   "group relative flex h-9 select-none items-center gap-2 rounded-md px-3 text-[13px] cursor-pointer",
@@ -280,6 +180,7 @@ function WorkspaceRowItem({ row }: { row: WorkspaceRow }) {
 }
 
 export function WorkspacesSidebar() {
+  const [groups, setGroups] = useState<WorkspaceGroup[]>(DEFAULT_WORKSPACE_GROUPS);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     done: true,
     review: true,
@@ -287,6 +188,27 @@ export function WorkspacesSidebar() {
     backlog: true,
     canceled: true,
   });
+
+  useEffect(() => {
+    let isDisposed = false;
+
+    void loadWorkspaceGroups().then((loadedGroups) => {
+      if (isDisposed) {
+        return;
+      }
+
+      setGroups(loadedGroups);
+      setOpenGroups((current) =>
+        Object.fromEntries(
+          loadedGroups.map((group) => [group.id, current[group.id] ?? true]),
+        ),
+      );
+    });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, []);
 
   return (
     <TooltipProvider>
