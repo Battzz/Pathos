@@ -153,18 +153,18 @@ function App() {
 
         <section
           aria-label="Workspace panel"
-          className="relative flex min-h-screen flex-1 flex-col bg-app-canvas"
+          className="relative flex min-h-screen flex-1 flex-col bg-app-elevated"
         >
           <div
             aria-label="Workspace panel drag region"
-            className="absolute inset-x-0 top-0 z-10 h-12 bg-transparent"
+            className="absolute inset-x-0 top-0 z-10 h-[2.4rem] bg-transparent"
             data-tauri-drag-region
           />
+          
+          {/* 这是内容区顶部 1 栏 */}
+            <div className="h-[2.4rem] w-full border-b border-app-border bg-transparent text-xs text-red-300">
 
-          <div
-            aria-label="Workspace viewport"
-            className="flex-1 bg-app-elevated"
-          />
+            </div>
         </section>
       </div>
     </main>

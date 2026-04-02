@@ -1,5 +1,9 @@
 import { cva } from "class-variance-authority";
-import { useState, type ReactNode } from "react";
+import {
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from "react";
 import {
   Archive,
   CheckCircle2,
@@ -7,17 +11,13 @@ import {
   Circle,
   CircleDashed,
   CircleX,
-  FilePlus2,
+  BookMarked,
   GitBranch,
   Plus,
 } from "lucide-react";
 import { cn } from "../lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
+import { TooltipProvider } from "./ui/tooltip";
+import { BaseTooltip } from "./ui/base-tooltip";
 
 type GroupTone = "done" | "review" | "progress" | "backlog" | "canceled";
 
@@ -128,7 +128,7 @@ const groups: WorkspaceGroup[] = [
 ];
 
 const rowVariants = cva(
-  "group relative flex h-9 items-center gap-2 rounded-md px-3 text-[13px] cursor-pointer",
+  "group relative flex h-9 select-none items-center gap-2 rounded-md px-3 text-[13px] cursor-pointer",
   {
     variants: {
       active: {
@@ -150,25 +150,16 @@ const groupToneClasses: Record<GroupTone, string> = {
   canceled: "text-app-canceled",
 };
 
-function ShortcutHint({ keys }: { keys: string }) {
-  return (
-    <span className="ml-4 shrink-0 text-[13px] tracking-[0.04em] text-app-foreground-soft/70">
-      {keys}
-    </span>
-  );
-}
-
-function ToolbarButton({
-  label,
-  className,
-  children,
-}: {
+type ToolbarButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   label: string;
   className?: string;
   children: ReactNode;
-}) {
+};
+
+function ToolbarButton({ label, className, children, ...props }: ToolbarButtonProps) {
   return (
     <button
+      {...props}
       type="button"
       aria-label={label}
       className={cn(
@@ -230,23 +221,18 @@ function WorkspaceRowItem({ row }: { row: WorkspaceRow }) {
         </span>
       </div>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label="Archive workspace"
-            className="invisible flex size-6 shrink-0 items-center justify-center rounded-md text-app-muted hover:bg-app-toolbar-hover hover:text-app-foreground group-hover:visible"
-          >
-            <Archive className="size-3.5" strokeWidth={1.9} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent
-          side="top"
-          className="flex items-center rounded-md px-1.5 py-1 text-[11px] leading-none"
+      <BaseTooltip
+        side="top"
+        content={<span>Archive workspace</span>}
+      >
+        <button
+          type="button"
+          aria-label="Archive workspace"
+          className="invisible flex size-6 shrink-0 items-center justify-center rounded-md text-app-muted hover:bg-app-toolbar-hover hover:text-app-foreground group-hover:visible"
         >
-          <span>Archive workspace</span>
-        </TooltipContent>
-      </Tooltip>
+          <Archive className="size-3.5" strokeWidth={1.9} />
+        </button>
+      </BaseTooltip>
     </div>
   );
 }
@@ -277,30 +263,24 @@ export function WorkspacesSidebar() {
             Workspaces
           </h2>
 
-          <div className="flex items-center gap-2 text-app-foreground-soft/80">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <ToolbarButton label="Add repository" className="text-app-foreground-soft/78">
-                  <FilePlus2 className="size-4" strokeWidth={1.9} />
-                </ToolbarButton>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="flex items-center">
-                <span>Add repository</span>
-                <ShortcutHint keys="⌘⇧A" />
-              </TooltipContent>
-            </Tooltip>
+          <div className="flex items-center gap-1 text-app-foreground-soft/80">
+            <BaseTooltip
+              side="top"
+              content={<span>Add repository</span>}
+            >
+              <ToolbarButton label="Add repository" className="text-app-foreground-soft/78">
+                <BookMarked className="size-3.5" strokeWidth={2} />
+              </ToolbarButton>
+            </BaseTooltip>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <ToolbarButton label="New workspace">
-                  <Plus className="size-4" strokeWidth={2.1} />
-                </ToolbarButton>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="flex items-center">
-                <span>New workspace</span>
-                <ShortcutHint keys="⌘N" />
-              </TooltipContent>
-            </Tooltip>
+            <BaseTooltip
+              side="top"
+              content={<span>Add workspace</span>}
+            >
+              <ToolbarButton label="New workspace">
+                <Plus className="size-3.5" strokeWidth={2.4} />
+              </ToolbarButton>
+            </BaseTooltip>
           </div>
         </div>
 
@@ -322,7 +302,7 @@ export function WorkspacesSidebar() {
                     }));
                   }}
                   className={cn(
-                    "group flex w-full items-center justify-between rounded-xl px-1 py-1 text-[13px] font-semibold tracking-[-0.01em] text-app-foreground hover:bg-app-toolbar-hover/70",
+                    "group flex w-full select-none items-center justify-between rounded-xl px-1 py-1 text-[13px] font-semibold tracking-[-0.01em] text-app-foreground hover:bg-app-toolbar-hover/70",
                     canCollapse ? "cursor-pointer" : "cursor-default",
                   )}
                 >
