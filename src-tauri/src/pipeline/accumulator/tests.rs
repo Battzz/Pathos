@@ -170,8 +170,8 @@ fn codex_command_execution_synthesis() {
     let snapshot = acc.snapshot("ctx", "sess");
     // Should have synthetic assistant (tool_use) + user (tool_result)
     assert_eq!(snapshot.len(), 2);
-    assert_eq!(snapshot[0].role, "assistant");
-    assert_eq!(snapshot[1].role, "user");
+    assert_eq!(snapshot[0].role, MessageRole::Assistant);
+    assert_eq!(snapshot[1].role, MessageRole::User);
 }
 
 #[test]
@@ -396,7 +396,7 @@ fn flush_pending_flushes_final_assistant_into_turns() {
     // The flushed turn is the final assistant message, with both
     // thinking and text blocks intact.
     let final_turn = acc.turn_at(2);
-    assert_eq!(final_turn.role, "assistant");
+    assert_eq!(final_turn.role, MessageRole::Assistant);
     let parsed: serde_json::Value = serde_json::from_str(&final_turn.content_json).unwrap();
     let blocks = parsed["message"]["content"].as_array().unwrap();
     assert_eq!(
@@ -485,7 +485,7 @@ fn delta_assistant_events_with_same_msg_id_append_blocks() {
     // the tool_use blocks. Buggy code dropped the thinking entirely,
     // persisting only [tool_use].
     let asst_turn = acc.turn_at(0);
-    assert_eq!(asst_turn.role, "assistant");
+    assert_eq!(asst_turn.role, MessageRole::Assistant);
     let parsed: serde_json::Value = serde_json::from_str(&asst_turn.content_json).unwrap();
     let blocks = parsed["message"]["content"].as_array().unwrap();
     assert_eq!(
@@ -578,7 +578,7 @@ fn codex_todo_list_synthesizes_claude_todowrite_tool_use() {
         1,
         "expected one synthesized assistant intermediate"
     );
-    assert_eq!(snapshot[0].role, "assistant");
+    assert_eq!(snapshot[0].role, MessageRole::Assistant);
     let parsed = snapshot[0].parsed.as_ref().unwrap();
     let block = &parsed["message"]["content"][0];
     assert_eq!(block["type"].as_str(), Some("tool_use"));
@@ -630,7 +630,7 @@ fn rate_limit_event_routed_into_collected_snapshot() {
 
     let snapshot = acc.snapshot("ctx", "sess");
     assert_eq!(snapshot.len(), 1);
-    assert_eq!(snapshot[0].role, "system");
+    assert_eq!(snapshot[0].role, MessageRole::System);
     let parsed = snapshot[0].parsed.as_ref().unwrap();
     assert_eq!(parsed["type"].as_str(), Some("rate_limit_event"));
     assert_eq!(parsed["rate_limit_info"]["status"].as_str(), Some("queued"));
@@ -745,8 +745,10 @@ fn mark_pending_tools_aborted_no_clobber_when_tool_result_present() {
     acc.mark_pending_tools_aborted();
 
     let collected = acc.collected();
-    let asst: Vec<&IntermediateMessage> =
-        collected.iter().filter(|m| m.role == "assistant").collect();
+    let asst: Vec<&IntermediateMessage> = collected
+        .iter()
+        .filter(|m| m.role == MessageRole::Assistant)
+        .collect();
     assert_eq!(asst.len(), 2);
 
     let completed_block = &asst[0].parsed.as_ref().unwrap()["message"]["content"][0];
@@ -822,14 +824,14 @@ fn abort_end_to_end_contract() {
     let collected = acc.collected();
     let asst_tool_use = collected
         .iter()
-        .find(|m| m.role == "assistant")
+        .find(|m| m.role == MessageRole::Assistant)
         .expect("synthetic Codex tool_use missing");
     let block = &asst_tool_use.parsed.as_ref().unwrap()["message"]["content"][0];
     assert_eq!(block["__streaming_status"].as_str(), Some("error"));
 
     let abort_notice = collected
         .iter()
-        .find(|m| m.role == "error")
+        .find(|m| m.role == MessageRole::Error)
         .expect("abort notice missing from collected");
     let parsed = abort_notice.parsed.as_ref().unwrap();
     assert_eq!(parsed["type"].as_str(), Some("error"));
@@ -837,7 +839,7 @@ fn abort_end_to_end_contract() {
 
     let found_notice_turn = (0..acc.turns_len()).any(|i| {
         let t = acc.turn_at(i);
-        t.role == "error" && t.content_json.contains("aborted by user")
+        t.role == MessageRole::Error && t.content_json.contains("aborted by user")
     });
     assert!(found_notice_turn, "abort notice missing from turns[]");
 
@@ -846,7 +848,7 @@ fn abort_end_to_end_contract() {
     // adapter settle pass fills ToolCall.result downstream instead.
     let synthetic_user_count = collected
         .iter()
-        .filter(|m| m.role == "user" && m.id.starts_with("abort-tr:"))
+        .filter(|m| m.role == MessageRole::User && m.id.starts_with("abort-tr:"))
         .count();
     assert_eq!(synthetic_user_count, 0);
 
@@ -896,11 +898,11 @@ fn abort_notice_lands_after_flushed_assistant_in_turns() {
 
     let last = acc.turns_len() - 1;
     let last_turn = acc.turn_at(last);
-    assert_eq!(last_turn.role, "error");
+    assert_eq!(last_turn.role, MessageRole::Error);
     assert!(last_turn.content_json.contains("aborted by user"));
 
     let prev_turn = acc.turn_at(last - 1);
-    assert_eq!(prev_turn.role, "assistant");
+    assert_eq!(prev_turn.role, MessageRole::Assistant);
     assert!(prev_turn.content_json.contains("Bash"));
 }
 
@@ -937,8 +939,8 @@ fn materialized_partial_stays_before_abort_notice_in_snapshot() {
 
     let snapshot = acc.snapshot("ctx", "sess");
     assert_eq!(snapshot.len(), 2);
-    assert_eq!(snapshot[0].role, "assistant");
-    assert_eq!(snapshot[1].role, "error");
+    assert_eq!(snapshot[0].role, MessageRole::Assistant);
+    assert_eq!(snapshot[1].role, MessageRole::Error);
     assert!(!snapshot[0].is_streaming);
     assert_eq!(
         snapshot[0].parsed.as_ref().unwrap()["message"]["content"][0]["text"].as_str(),
@@ -955,11 +957,15 @@ fn append_aborted_notice_appends_one_per_call() {
     let mut acc = StreamAccumulator::new("claude", "opus");
     acc.append_aborted_notice();
 
-    let count_after_one = acc.collected().iter().filter(|m| m.role == "error").count();
+    let count_after_one = acc
+        .collected()
+        .iter()
+        .filter(|m| m.role == MessageRole::Error)
+        .count();
     assert_eq!(count_after_one, 1);
 
     let turns_after_one = (0..acc.turns_len())
-        .filter(|&i| acc.turn_at(i).role == "error")
+        .filter(|&i| acc.turn_at(i).role == MessageRole::Error)
         .count();
     assert_eq!(turns_after_one, 1);
 }
@@ -1524,7 +1530,10 @@ fn codex_command_output_delta_accumulates() {
     let snapshot = acc.snapshot("ctx", "sess");
     // Should have a synthetic Bash tool_use in the snapshot
     assert!(!snapshot.is_empty());
-    let asst = snapshot.iter().find(|m| m.role == "assistant").unwrap();
+    let asst = snapshot
+        .iter()
+        .find(|m| m.role == MessageRole::Assistant)
+        .unwrap();
     let block = &asst.parsed.as_ref().unwrap()["message"]["content"][0];
     assert_eq!(block["name"].as_str(), Some("Bash"));
     assert_eq!(block["input"]["command"].as_str(), Some("ls -la"));
@@ -1645,7 +1654,7 @@ fn codex_item_completed_clears_delta_state() {
     // Should persist a turn
     assert!(acc.turns_len() > 0);
     let turn = acc.turn_at(acc.turns_len() - 1);
-    assert_eq!(turn.role, "assistant");
+    assert_eq!(turn.role, MessageRole::Assistant);
 }
 
 #[test]
@@ -1689,7 +1698,10 @@ fn codex_turn_failed_produces_error_message() {
 
     let snapshot = acc.snapshot("ctx", "sess");
     assert!(!snapshot.is_empty());
-    let err = snapshot.iter().find(|m| m.role == "error").unwrap();
+    let err = snapshot
+        .iter()
+        .find(|m| m.role == MessageRole::Error)
+        .unwrap();
     let parsed = err.parsed.as_ref().unwrap();
     assert_eq!(parsed["type"].as_str(), Some("error"));
     assert_eq!(parsed["message"].as_str(), Some("Rate limit exceeded"));
@@ -1805,7 +1817,10 @@ fn codex_web_search_item_lifecycle() {
     );
 
     let snapshot = acc.snapshot("ctx", "sess");
-    let asst = snapshot.iter().find(|m| m.role == "assistant").unwrap();
+    let asst = snapshot
+        .iter()
+        .find(|m| m.role == MessageRole::Assistant)
+        .unwrap();
     let block = &asst.parsed.as_ref().unwrap()["message"]["content"][0];
     assert_eq!(block["name"].as_str(), Some("WebSearch"));
     assert_eq!(block["__streaming_status"].as_str(), Some("running"));
@@ -1820,7 +1835,7 @@ fn codex_web_search_item_lifecycle() {
 
     let snapshot = acc.snapshot("ctx", "sess");
     // Should have assistant (tool_use) + user (tool_result)
-    let user = snapshot.iter().find(|m| m.role == "user");
+    let user = snapshot.iter().find(|m| m.role == MessageRole::User);
     assert!(user.is_some(), "Should have search result");
 }
 
@@ -1843,7 +1858,10 @@ fn codex_mcp_tool_call_item_lifecycle() {
     acc.push_event(&started, &started.to_string());
 
     let snapshot = acc.snapshot("ctx", "sess");
-    let asst = snapshot.iter().find(|m| m.role == "assistant").unwrap();
+    let asst = snapshot
+        .iter()
+        .find(|m| m.role == MessageRole::Assistant)
+        .unwrap();
     let block = &asst.parsed.as_ref().unwrap()["message"]["content"][0];
     assert_eq!(block["name"].as_str(), Some("mcp__context7__query-docs"));
     assert_eq!(block["__streaming_status"].as_str(), Some("running"));
@@ -1864,7 +1882,7 @@ fn codex_mcp_tool_call_item_lifecycle() {
     acc.push_event(&completed, &completed.to_string());
 
     let snapshot = acc.snapshot("ctx", "sess");
-    let user = snapshot.iter().find(|m| m.role == "user");
+    let user = snapshot.iter().find(|m| m.role == MessageRole::User);
     assert!(user.is_some(), "Should have MCP tool result");
 }
 
@@ -1884,7 +1902,10 @@ fn codex_error_item_produces_error_message() {
     acc.push_event(&event, &event.to_string());
 
     let snapshot = acc.snapshot("ctx", "sess");
-    let err = snapshot.iter().find(|m| m.role == "error").unwrap();
+    let err = snapshot
+        .iter()
+        .find(|m| m.role == MessageRole::Error)
+        .unwrap();
     let parsed = err.parsed.as_ref().unwrap();
     assert_eq!(parsed["message"].as_str(), Some("API key expired"));
 }

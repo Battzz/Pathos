@@ -8,13 +8,16 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::{db, git_ops, helpers, models::workspaces as workspace_models, repos, settings};
+use crate::{
+    db, git_ops, helpers, models::workspaces as workspace_models, repos, settings,
+    workspace_state::WorkspaceState,
+};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RestoreWorkspaceResponse {
     pub restored_workspace_id: String,
-    pub restored_state: String,
+    pub restored_state: WorkspaceState,
     pub selected_workspace_id: String,
     /// Set when the originally archived branch name was already taken at
     /// restore time and the workspace had to be checked out on a `-vN`
@@ -34,7 +37,7 @@ pub struct BranchRename {
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveWorkspaceResponse {
     pub archived_workspace_id: String,
-    pub archived_state: String,
+    pub archived_state: WorkspaceState,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -43,7 +46,7 @@ pub struct CreateWorkspaceResponse {
     pub created_workspace_id: String,
     pub selected_workspace_id: String,
     pub initial_session_id: String,
-    pub created_state: String,
+    pub created_state: WorkspaceState,
     pub directory_name: String,
     pub branch: String,
 }
@@ -154,14 +157,18 @@ pub fn create_workspace_from_repo_impl(repo_id: &str) -> Result<CreateWorkspaceR
                 false
             }
         };
-        let final_state = if has_setup { "setup_pending" } else { "ready" };
+        let final_state = if has_setup {
+            WorkspaceState::SetupPending
+        } else {
+            WorkspaceState::Ready
+        };
         workspace_models::update_workspace_state(&workspace_id, final_state, &timestamp)?;
 
         Ok(CreateWorkspaceResponse {
             created_workspace_id: workspace_id.clone(),
             selected_workspace_id: workspace_id.clone(),
             initial_session_id: session_id.clone(),
-            created_state: final_state.to_string(),
+            created_state: final_state,
             directory_name,
             branch: branch.clone(),
         })
@@ -192,8 +199,8 @@ pub struct ArchivePreparedPlan {
     archived_context_dir: PathBuf,
 }
 
-fn is_archive_eligible_state(state: &str) -> bool {
-    matches!(state, "ready" | "setup_pending")
+fn is_archive_eligible_state(state: WorkspaceState) -> bool {
+    matches!(state, WorkspaceState::Ready | WorkspaceState::SetupPending)
 }
 
 /// Resolve the interpreter + single-command flag used to run the archive
@@ -292,7 +299,7 @@ pub fn prepare_archive_plan(workspace_id: &str) -> Result<ArchivePreparedPlan> {
     let record = workspace_models::load_workspace_record_by_id(workspace_id)?
         .with_context(|| format!("Workspace not found: {workspace_id}"))?;
 
-    if !is_archive_eligible_state(&record.state) {
+    if !is_archive_eligible_state(record.state) {
         bail!(
             "Workspace is not archive-ready: {workspace_id} (state: {})",
             record.state
@@ -445,7 +452,7 @@ pub fn execute_archive_plan(plan: &ArchivePreparedPlan) -> Result<ArchiveWorkspa
 
     Ok(ArchiveWorkspaceResponse {
         archived_workspace_id: workspace_id.to_string(),
-        archived_state: "archived".to_string(),
+        archived_state: WorkspaceState::Archived,
     })
 }
 
@@ -461,7 +468,7 @@ fn restore_workspace_preflight(workspace_id: &str) -> Result<RestorePreflightDat
     let record = workspace_models::load_workspace_record_by_id(workspace_id)?
         .with_context(|| format!("Workspace not found: {workspace_id}"))?;
 
-    if record.state != "archived" {
+    if record.state != WorkspaceState::Archived {
         bail!("Workspace is not archived: {workspace_id}");
     }
 
@@ -696,7 +703,7 @@ pub fn restore_workspace_impl(
 
     Ok(RestoreWorkspaceResponse {
         restored_workspace_id: workspace_id.to_string(),
-        restored_state: "ready".to_string(),
+        restored_state: WorkspaceState::Ready,
         selected_workspace_id: workspace_id.to_string(),
         branch_rename,
     })

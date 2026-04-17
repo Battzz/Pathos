@@ -1,6 +1,6 @@
 use anyhow::Context;
 
-use crate::{db, settings};
+use crate::{agents::ActionKind, db, settings};
 
 use super::common::{run_blocking, CmdResult};
 
@@ -45,21 +45,21 @@ pub async fn update_app_settings(
 }
 
 #[tauri::command]
-pub async fn load_auto_close_action_kinds() -> CmdResult<Vec<String>> {
+pub async fn load_auto_close_action_kinds() -> CmdResult<Vec<ActionKind>> {
     run_blocking(settings::load_auto_close_action_kinds).await
 }
 
 #[tauri::command]
-pub async fn save_auto_close_action_kinds(kinds: Vec<String>) -> CmdResult<()> {
+pub async fn save_auto_close_action_kinds(kinds: Vec<ActionKind>) -> CmdResult<()> {
     run_blocking(move || settings::save_auto_close_action_kinds(&kinds)).await
 }
 
 #[tauri::command]
-pub async fn load_auto_close_opt_in_asked() -> CmdResult<Vec<String>> {
+pub async fn load_auto_close_opt_in_asked() -> CmdResult<Vec<ActionKind>> {
     run_blocking(settings::load_auto_close_opt_in_asked).await
 }
 
 #[tauri::command]
-pub async fn save_auto_close_opt_in_asked(kinds: Vec<String>) -> CmdResult<()> {
+pub async fn save_auto_close_opt_in_asked(kinds: Vec<ActionKind>) -> CmdResult<()> {
     run_blocking(move || settings::save_auto_close_opt_in_asked(&kinds)).await
 }

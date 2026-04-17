@@ -1,6 +1,6 @@
 use anyhow::Context;
 
-use crate::{db, pipeline, sessions};
+use crate::{agents::ActionKind, db, pipeline, sessions};
 
 use super::common::{run_blocking, CmdResult};
 
@@ -32,15 +32,11 @@ pub async fn list_session_attachments(
 #[tauri::command]
 pub async fn create_session(
     workspace_id: String,
-    action_kind: Option<String>,
+    action_kind: Option<ActionKind>,
     permission_mode: Option<String>,
 ) -> CmdResult<sessions::CreateSessionResponse> {
     run_blocking(move || {
-        sessions::create_session(
-            &workspace_id,
-            action_kind.as_deref(),
-            permission_mode.as_deref(),
-        )
+        sessions::create_session(&workspace_id, action_kind, permission_mode.as_deref())
     })
     .await
 }

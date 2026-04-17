@@ -9,7 +9,7 @@
 use serde_json::Value;
 
 use super::StreamAccumulator;
-use crate::pipeline::types::IntermediateMessage;
+use crate::pipeline::types::{IntermediateMessage, MessageRole};
 
 /// Per-content-block streaming state. Indexed by `index` from the
 /// `content_block_start` event so deltas land in the right slot.
@@ -340,7 +340,7 @@ pub(super) fn build_partial_from_blocks(
 
     IntermediateMessage {
         id: partial_id,
-        role: "assistant".to_string(),
+        role: MessageRole::Assistant,
         raw_json: serde_json::to_string(&parsed).unwrap_or_default(),
         parsed: Some(parsed),
         created_at,
@@ -406,7 +406,7 @@ pub(super) fn build_materialized_partial_from_blocks(
 
     Some(IntermediateMessage {
         id: partial_id,
-        role: "assistant".to_string(),
+        role: MessageRole::Assistant,
         raw_json: serde_json::to_string(&parsed).unwrap_or_default(),
         parsed: Some(parsed),
         created_at,
@@ -453,7 +453,7 @@ pub(super) fn build_partial_fallback(
 
     IntermediateMessage {
         id: partial_id,
-        role: "assistant".to_string(),
+        role: MessageRole::Assistant,
         raw_json: serde_json::to_string(&parsed).unwrap_or_default(),
         parsed: Some(parsed),
         created_at,
@@ -498,7 +498,7 @@ pub(super) fn build_materialized_partial_fallback(
 
     Some(IntermediateMessage {
         id: partial_id,
-        role: "assistant".to_string(),
+        role: MessageRole::Assistant,
         raw_json: serde_json::to_string(&parsed).unwrap_or_default(),
         parsed: Some(parsed),
         created_at,

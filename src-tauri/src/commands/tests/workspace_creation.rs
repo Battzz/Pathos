@@ -1,4 +1,5 @@
 use super::support::*;
+use crate::workspace_state::WorkspaceState;
 
 #[test]
 fn create_workspace_from_repo_creates_ready_workspace_and_initial_session() {
@@ -10,7 +11,7 @@ fn create_workspace_from_repo_creates_ready_workspace_and_initial_session() {
     let response = workspaces::create_workspace_from_repo_impl(&harness.repo_id).unwrap();
 
     // No setup script → goes straight to "ready".
-    assert_eq!(response.created_state, "ready");
+    assert_eq!(response.created_state, WorkspaceState::Ready);
     assert!(
         helpers::WORKSPACE_NAMES.contains(&response.directory_name.as_str()),
         "Expected a name from WORKSPACE_NAMES, got: {}",
@@ -106,7 +107,7 @@ fn create_workspace_from_repo_defers_setup_when_script_configured() {
     let response = workspaces::create_workspace_from_repo_impl(&harness.repo_id).unwrap();
 
     // Setup script detected → deferred to frontend inspector.
-    assert_eq!(response.created_state, "setup_pending");
+    assert_eq!(response.created_state, WorkspaceState::SetupPending);
 
     let connection = Connection::open(harness.db_path()).unwrap();
     let state: String = connection

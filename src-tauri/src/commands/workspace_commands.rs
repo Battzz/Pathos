@@ -1,6 +1,9 @@
 use tauri::{AppHandle, Manager};
 
-use crate::{db, git_watcher, workspaces};
+use crate::{
+    db, git_watcher, workspace_derived_status::DerivedStatus, workspace_state::WorkspaceState,
+    workspaces,
+};
 
 use super::common::{run_blocking, CmdResult};
 
@@ -32,7 +35,7 @@ pub async fn create_workspace_from_repo(
 pub async fn complete_workspace_setup(app: AppHandle, workspace_id: String) -> CmdResult<()> {
     run_blocking(move || {
         let ts = crate::models::db::current_timestamp()?;
-        crate::models::workspaces::update_workspace_state(&workspace_id, "ready", &ts)
+        crate::models::workspaces::update_workspace_state(&workspace_id, WorkspaceState::Ready, &ts)
     })
     .await?;
     git_watcher::notify_workspace_changed(&app);
@@ -85,13 +88,13 @@ pub async fn unpin_workspace(workspace_id: String) -> CmdResult<()> {
 #[tauri::command]
 pub async fn set_workspace_manual_status(
     workspace_id: String,
-    status: Option<String>,
+    status: Option<DerivedStatus>,
 ) -> CmdResult<()> {
     let ws_lock = db::workspace_mutation_lock(&workspace_id);
     let _lock = ws_lock.lock().await;
     Ok(workspaces::set_workspace_manual_status(
         &workspace_id,
-        status.as_deref(),
+        status,
     )?)
 }
 

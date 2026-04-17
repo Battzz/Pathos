@@ -10,6 +10,7 @@ import {
 import {
 	closeWorkspacePr,
 	createSession,
+	type DerivedStatus,
 	hideSession,
 	loadAutoCloseActionKinds,
 	lookupWorkspacePr,
@@ -95,7 +96,7 @@ export function useWorkspaceCommitLifecycle({
 	queryClient: QueryClient;
 	selectedWorkspaceId: string | null;
 	selectedWorkspaceIdRef: MutableRefObject<string | null>;
-	workspaceManualStatus: string | null;
+	workspaceManualStatus: DerivedStatus | null;
 	workspacePrInfo: PullRequestInfo | null;
 	workspacePrActionStatus: WorkspacePrActionStatus | null;
 	workspaceGitActionStatus: WorkspaceGitActionStatus | null;

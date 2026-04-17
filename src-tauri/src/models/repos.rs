@@ -7,7 +7,10 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::{git_ops, helpers};
+use crate::{
+    git_ops, helpers,
+    workspace_state::{self, WorkspaceState},
+};
 
 use super::db;
 
@@ -35,7 +38,7 @@ pub struct AddRepositoryResponse {
     pub created_repository: bool,
     pub selected_workspace_id: String,
     pub created_workspace_id: Option<String>,
-    pub created_workspace_state: String,
+    pub created_workspace_state: WorkspaceState,
 }
 
 #[derive(Debug, Clone)]
@@ -335,10 +338,12 @@ pub fn update_repository_remote(
     // decide via the header branch picker.
     let remote_branches = git_ops::list_remote_branches(&repo_root, remote).unwrap_or_default();
 
+    let sql = format!(
+        "SELECT intended_target_branch FROM workspaces WHERE repository_id = ?1 AND state {}",
+        workspace_state::OPERATIONAL_FILTER,
+    );
     let mut stmt = connection
-        .prepare(
-            "SELECT intended_target_branch FROM workspaces WHERE repository_id = ?1 AND state NOT IN ('archived', 'initializing')",
-        )
+        .prepare(&sql)
         .context("Failed to query workspace target branches")?;
     let targets: Vec<String> = stmt
         .query_map([repo_id], |row| row.get::<_, Option<String>>(0))

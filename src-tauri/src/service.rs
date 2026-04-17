@@ -81,7 +81,7 @@ pub fn resolve_workspace_ref(reference: &str) -> Result<String> {
             .filter(|r| {
                 r.repo_name.eq_ignore_ascii_case(repo_name)
                     && r.directory_name.eq_ignore_ascii_case(dir_name)
-                    && r.state != "archived"
+                    && r.state != crate::workspace_state::WorkspaceState::Archived
             })
             .collect();
 
@@ -715,7 +715,8 @@ mod tests {
         )
         .unwrap();
 
-        let response = create_session("w1", Some("create-pr"), None).unwrap();
+        let response =
+            create_session("w1", Some(crate::agents::ActionKind::CreatePr), None).unwrap();
         let title: String = conn
             .query_row(
                 "SELECT title FROM sessions WHERE id = ?1",

@@ -146,12 +146,7 @@ pub fn streaming_status_str(s: &StreamingStatus) -> String {
 }
 
 pub fn role_str(role: &MessageRole) -> String {
-    match role {
-        MessageRole::Assistant => "assistant",
-        MessageRole::System => "system",
-        MessageRole::User => "user",
-    }
-    .to_string()
+    role.as_str().to_string()
 }
 
 fn normalize_basic(part: &MessagePart) -> NormPart {
@@ -315,7 +310,7 @@ pub fn normalize_all(msgs: &[ThreadMessageLike]) -> Vec<NormThreadMessage> {
 pub fn make_record(id: &str, role: &str, content: &str) -> HistoricalRecord {
     HistoricalRecord {
         id: id.to_string(),
-        role: role.to_string(),
+        role: role.parse().expect("valid role"),
         content: content.to_string(),
         parsed_content: serde_json::from_str::<Value>(content).ok(),
         created_at: "2026-04-06T00:00:00.000Z".to_string(),
@@ -445,7 +440,10 @@ impl HistoricalRecordFixture {
             .or_else(|| serde_json::from_str(&self.content).ok());
         HistoricalRecord {
             id: self.id,
-            role: self.role,
+            role: self
+                .role
+                .parse()
+                .unwrap_or_else(|e| panic!("fixture has invalid role: {e}")),
             content: self.content,
             parsed_content,
             created_at: self.created_at,

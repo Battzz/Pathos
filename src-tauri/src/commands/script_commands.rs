@@ -83,8 +83,11 @@ pub async fn execute_repo_script(
             Ok(Some(0)) if script_type == "setup" => {
                 if let Some(ws_id) = &workspace_id {
                     if let Ok(ts) = crate::models::db::current_timestamp() {
-                        let _ =
-                            crate::models::workspaces::update_workspace_state(ws_id, "ready", &ts);
+                        let _ = crate::models::workspaces::update_workspace_state(
+                            ws_id,
+                            crate::workspace_state::WorkspaceState::Ready,
+                            &ts,
+                        );
                     }
                     crate::git::watcher::notify_workspace_changed(&app);
                 }

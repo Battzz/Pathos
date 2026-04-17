@@ -25,7 +25,9 @@ fn now_ms() -> f64 {
         * 1000.0
 }
 
-use super::types::{AgentUsage, CollectedTurn, IntermediateMessage, ParsedAgentOutput};
+use super::types::{
+    AgentUsage, CollectedTurn, IntermediateMessage, MessageRole, ParsedAgentOutput,
+};
 use streaming::StreamingBlock;
 
 #[cfg(test)]
@@ -488,7 +490,7 @@ impl StreamAccumulator {
         let entry = self.collected.get(idx)?;
         Some(IntermediateMessage {
             id: entry.id.clone(),
-            role: entry.role.clone(),
+            role: entry.role,
             raw_json: entry.raw_json.clone(),
             parsed: entry.parsed.clone(),
             created_at: entry.created_at.clone(),
@@ -582,7 +584,7 @@ impl StreamAccumulator {
         }
 
         for msg in self.collected.iter_mut() {
-            if msg.role != "assistant" {
+            if msg.role != MessageRole::Assistant {
                 continue;
             }
             let Some(parsed) = msg.parsed.as_mut() else {
@@ -663,7 +665,7 @@ impl StreamAccumulator {
             let collected_idx = self.collected.len();
             self.turns.push(CollectedTurn {
                 id: uuid::Uuid::new_v4().to_string(),
-                role: "assistant".to_string(),
+                role: MessageRole::Assistant,
                 content_json: message.raw_json.clone(),
                 collected_idx: Some(collected_idx),
             });
@@ -713,7 +715,7 @@ impl StreamAccumulator {
         let collected_idx = self.collected.len();
         self.collected.push(IntermediateMessage {
             id: format!("abort:{}", self.line_count),
-            role: "error".to_string(),
+            role: MessageRole::Error,
             raw_json: NOTICE_JSON.to_string(),
             parsed: Some(parsed),
             created_at: chrono::Utc::now().to_rfc3339(),
@@ -721,7 +723,7 @@ impl StreamAccumulator {
         });
         self.turns.push(CollectedTurn {
             id: uuid::Uuid::new_v4().to_string(),
-            role: "error".to_string(),
+            role: MessageRole::Error,
             content_json: NOTICE_JSON.to_string(),
             collected_idx: Some(collected_idx),
         });
@@ -797,7 +799,12 @@ impl StreamAccumulator {
         // The adapter's merge_adjacent_assistants handles merging.
         let partial_id = self.active_partial_id.clone();
         self.finalize_blocks();
-        self.collect_message(raw_line, value, "assistant", partial_id.as_deref());
+        self.collect_message(
+            raw_line,
+            value,
+            MessageRole::Assistant,
+            partial_id.as_deref(),
+        );
 
         // Turn-level failure category → error envelope.
         if let Some(category) = value.get("error").and_then(Value::as_str) {
@@ -807,7 +814,7 @@ impl StreamAccumulator {
                 "message": label,
             });
             let s = serde_json::to_string(&synthetic).unwrap_or_default();
-            self.collect_message(&s, &synthetic, "error", None);
+            self.collect_message(&s, &synthetic, MessageRole::Error, None);
         }
     }
 
@@ -817,13 +824,13 @@ impl StreamAccumulator {
         let collected_idx = self.collected.len();
         self.turns.push(CollectedTurn {
             id: uuid::Uuid::new_v4().to_string(),
-            role: "user".to_string(),
+            role: MessageRole::User,
             content_json: raw_line.to_string(),
             collected_idx: Some(collected_idx),
         });
 
         // Rendering
-        self.collect_message(raw_line, value, "user", None);
+        self.collect_message(raw_line, value, MessageRole::User, None);
     }
 
     fn handle_result(&mut self, value: &Value, raw_line: &str) {
@@ -841,23 +848,23 @@ impl StreamAccumulator {
 
         // Rendering — track index so sync_result_id can back-fill the DB UUID.
         self.result_collected_idx = Some(self.collected.len());
-        self.collect_message(raw_line, value, "assistant", None);
+        self.collect_message(raw_line, value, MessageRole::Assistant, None);
     }
 
     fn handle_error(&mut self, raw_line: &str, value: &Value) {
-        self.collect_message(raw_line, value, "error", None);
+        self.collect_message(raw_line, value, MessageRole::Error, None);
     }
 
     fn handle_rate_limit_event(&mut self, raw_line: &str, value: &Value) {
         // Collected as a "system" intermediate message; the adapter
         // recognizes type=rate_limit_event and emits a SystemNotice part.
-        self.collect_message(raw_line, value, "system", None);
+        self.collect_message(raw_line, value, MessageRole::System, None);
     }
 
     fn handle_prompt_suggestion(&mut self, raw_line: &str, value: &Value) {
         // Collected as system role; the adapter recognizes
         // type=prompt_suggestion and emits a PromptSuggestion part.
-        self.collect_message(raw_line, value, "system", None);
+        self.collect_message(raw_line, value, MessageRole::System, None);
     }
 
     fn handle_claude_system(&mut self, raw_line: &str, value: &Value) {
@@ -869,7 +876,7 @@ impl StreamAccumulator {
                 return;
             }
         }
-        self.collect_message(raw_line, value, "system", None);
+        self.collect_message(raw_line, value, MessageRole::System, None);
     }
 
     /// Reshape an `SDKToolUseSummaryMessage` into a synthetic
@@ -898,7 +905,7 @@ impl StreamAccumulator {
             "tool_use_count": count,
         });
         let s = serde_json::to_string(&synthetic).unwrap_or_default();
-        self.collect_message(&s, &synthetic, "system", None);
+        self.collect_message(&s, &synthetic, MessageRole::System, None);
     }
 
     // =====================================================================
@@ -927,7 +934,7 @@ impl StreamAccumulator {
             }
             self.turns.push(CollectedTurn {
                 id: uuid::Uuid::new_v4().to_string(),
-                role: "assistant".to_string(),
+                role: MessageRole::Assistant,
                 content_json: template.to_string(),
                 collected_idx: self.pending_turn_collected_idx.take(),
             });
@@ -940,17 +947,17 @@ impl StreamAccumulator {
         &mut self,
         raw: &str,
         parsed: &Value,
-        role: &str,
+        role: MessageRole,
         override_id: Option<&str>,
     ) {
         let id = override_id
             .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("stream:{}:{role}", self.line_count));
+            .unwrap_or_else(|| format!("stream:{}:{}", self.line_count, role));
         let created_at = self.get_partial_created_at();
 
         self.collected.push(IntermediateMessage {
             id,
-            role: role.to_string(),
+            role,
             raw_json: raw.to_string(),
             parsed: Some(parsed.clone()),
             created_at,
@@ -965,7 +972,7 @@ impl StreamAccumulator {
         &mut self,
         raw: &str,
         parsed: &Value,
-        role: &str,
+        role: MessageRole,
         override_id: Option<String>,
     ) {
         if let Some(id) = override_id.as_deref() {

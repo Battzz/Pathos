@@ -12,7 +12,7 @@ fn im(id: &str, role: &str, content: Value) -> IntermediateMessage {
     let raw = serde_json::to_string(&content).unwrap();
     IntermediateMessage {
         id: id.to_string(),
-        role: role.to_string(),
+        role: role.parse().expect("valid role"),
         raw_json: raw,
         parsed: Some(content),
         created_at: "2024-01-01T00:00:00Z".to_string(),
@@ -320,7 +320,7 @@ fn result_label_formatting() {
 fn plain_user_message() {
     let msg = IntermediateMessage {
         id: "u1".to_string(),
-        role: "user".to_string(),
+        role: MessageRole::User,
         raw_json: "hello world".to_string(),
         parsed: None,
         created_at: "2024-01-01T00:00:00Z".to_string(),

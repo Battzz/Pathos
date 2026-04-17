@@ -8,6 +8,7 @@ use std::{
 };
 
 use crate::models::workspaces::WorkspaceRecord;
+use crate::workspace_derived_status::DerivedStatus;
 
 // ---- Display / naming helpers ----
 
@@ -55,39 +56,25 @@ pub fn non_empty(value: &Option<String>) -> Option<&str> {
     value.as_deref().filter(|inner| !inner.trim().is_empty())
 }
 
-/// Whether a workspace is operational for git/branch/sync ops.
-/// `setup_pending` counts as operational — it's a UI hint for auto-running
-/// setup scripts, not a lock on git state.
-pub fn is_operational_state(state: &str) -> bool {
-    !matches!(state, "archived" | "initializing")
-}
-
 // ---- Sidebar sorting helpers ----
 
-pub fn group_id_from_status(manual_status: &Option<String>, derived_status: &str) -> &'static str {
-    let status = non_empty(manual_status)
-        .unwrap_or(derived_status)
-        .trim()
-        .to_ascii_lowercase();
+/// Effective status for sidebar grouping — manual override wins over derived.
+pub fn effective_status(
+    manual_status: Option<DerivedStatus>,
+    derived_status: DerivedStatus,
+) -> DerivedStatus {
+    manual_status.unwrap_or(derived_status)
+}
 
-    match status.as_str() {
-        "done" => "done",
-        "review" | "in-review" => "review",
-        "backlog" => "backlog",
-        "cancelled" | "canceled" => "canceled",
-        _ => "progress",
-    }
+pub fn group_id_from_status(
+    manual_status: Option<DerivedStatus>,
+    derived_status: DerivedStatus,
+) -> &'static str {
+    effective_status(manual_status, derived_status).group_id()
 }
 
 pub fn sidebar_sort_rank(record: &WorkspaceRecord) -> usize {
-    match group_id_from_status(&record.manual_status, &record.derived_status) {
-        "done" => 0,
-        "review" => 1,
-        "progress" => 2,
-        "backlog" => 3,
-        "canceled" => 4,
-        _ => 5,
-    }
+    effective_status(record.manual_status, record.derived_status).sort_rank()
 }
 
 // ---- Repo icon helpers ----
@@ -681,20 +668,28 @@ mod tests {
 
     #[test]
     fn group_id_maps_statuses_correctly() {
-        assert_eq!(group_id_from_status(&None, "done"), "done");
-        assert_eq!(group_id_from_status(&None, "review"), "review");
-        assert_eq!(group_id_from_status(&None, "in-review"), "review");
-        assert_eq!(group_id_from_status(&None, "in-progress"), "progress");
-        assert_eq!(group_id_from_status(&None, "backlog"), "backlog");
-        assert_eq!(group_id_from_status(&None, "canceled"), "canceled");
-        assert_eq!(group_id_from_status(&None, "cancelled"), "canceled");
-        assert_eq!(group_id_from_status(&None, "unknown"), "progress");
+        assert_eq!(group_id_from_status(None, DerivedStatus::Done), "done");
+        assert_eq!(group_id_from_status(None, DerivedStatus::Review), "review");
+        assert_eq!(
+            group_id_from_status(None, DerivedStatus::InProgress),
+            "progress"
+        );
+        assert_eq!(
+            group_id_from_status(None, DerivedStatus::Backlog),
+            "backlog"
+        );
+        assert_eq!(
+            group_id_from_status(None, DerivedStatus::Canceled),
+            "canceled"
+        );
     }
 
     #[test]
     fn group_id_prefers_manual_status() {
-        let manual = Some("done".to_string());
-        assert_eq!(group_id_from_status(&manual, "in-progress"), "done");
+        assert_eq!(
+            group_id_from_status(Some(DerivedStatus::Done), DerivedStatus::InProgress),
+            "done"
+        );
     }
 
     #[test]

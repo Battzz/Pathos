@@ -1,4 +1,5 @@
 use super::support::*;
+use crate::workspace_state::WorkspaceState;
 
 #[test]
 fn list_repositories_filters_hidden_and_sorts_by_display_order() {
@@ -63,7 +64,7 @@ fn add_repository_from_local_path_adds_repo_and_first_workspace() {
     assert_eq!(repo_count, 1);
     assert_eq!(workspace_count, 1);
     assert_eq!(session_count, 1);
-    assert_eq!(response.created_workspace_state, "ready");
+    assert_eq!(response.created_workspace_state, WorkspaceState::Ready);
     assert_eq!(created_workspace_state, "ready");
     assert_eq!(default_branch, "main");
     assert_eq!(remote, Some("origin".to_string()));
@@ -91,7 +92,7 @@ fn add_repository_from_local_path_focuses_existing_workspace_for_duplicate_repo(
     assert!(!response.created_repository);
     assert_eq!(response.created_workspace_id, None);
     assert_eq!(response.selected_workspace_id, created.created_workspace_id);
-    assert_eq!(response.created_workspace_state, "ready");
+    assert_eq!(response.created_workspace_state, WorkspaceState::Ready);
     assert_eq!(repo_count, 1);
     assert_eq!(workspace_count, 1);
 }
@@ -234,7 +235,7 @@ fn create_workspace_uses_configured_remote() {
 
     repos::update_repository_remote(&harness.repo_id, "upstream").unwrap();
     let response = workspaces::create_workspace_from_repo_impl(&harness.repo_id).unwrap();
-    assert_eq!(response.created_state, "ready");
+    assert_eq!(response.created_state, WorkspaceState::Ready);
 }
 
 #[test]

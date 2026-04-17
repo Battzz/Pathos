@@ -5,6 +5,8 @@ use crate::{
     db, helpers,
     models::workspaces::{self as workspace_models, WorkspaceRecord},
     sessions,
+    workspace_derived_status::DerivedStatus,
+    workspace_state::WorkspaceState,
 };
 
 pub use super::archive::{
@@ -36,13 +38,13 @@ pub struct WorkspaceSidebarRow {
     pub repo_name: String,
     pub repo_icon_src: Option<String>,
     pub repo_initials: String,
-    pub state: String,
+    pub state: WorkspaceState,
     pub has_unread: bool,
     pub workspace_unread: i64,
     pub session_unread_total: i64,
     pub unread_session_count: i64,
-    pub derived_status: String,
-    pub manual_status: Option<String>,
+    pub derived_status: DerivedStatus,
+    pub manual_status: Option<DerivedStatus>,
     pub branch: Option<String>,
     pub active_session_id: Option<String>,
     pub active_session_title: Option<String>,
@@ -73,13 +75,13 @@ pub struct WorkspaceSummary {
     pub repo_name: String,
     pub repo_icon_src: Option<String>,
     pub repo_initials: String,
-    pub state: String,
+    pub state: WorkspaceState,
     pub has_unread: bool,
     pub workspace_unread: i64,
     pub session_unread_total: i64,
     pub unread_session_count: i64,
-    pub derived_status: String,
-    pub manual_status: Option<String>,
+    pub derived_status: DerivedStatus,
+    pub manual_status: Option<DerivedStatus>,
     pub branch: Option<String>,
     pub active_session_id: Option<String>,
     pub active_session_title: Option<String>,
@@ -105,13 +107,13 @@ pub struct WorkspaceDetail {
     pub default_branch: Option<String>,
     pub root_path: Option<String>,
     pub directory_name: String,
-    pub state: String,
+    pub state: WorkspaceState,
     pub has_unread: bool,
     pub workspace_unread: i64,
     pub session_unread_total: i64,
     pub unread_session_count: i64,
-    pub derived_status: String,
-    pub manual_status: Option<String>,
+    pub derived_status: DerivedStatus,
+    pub manual_status: Option<DerivedStatus>,
     pub active_session_id: Option<String>,
     pub active_session_title: Option<String>,
     pub active_session_agent_type: Option<String>,
@@ -146,7 +148,7 @@ pub fn list_workspace_groups() -> Result<Vec<WorkspaceSidebarGroup>> {
     // each group naturally inherits the same stable order, no per-group
     // re-sort needed.
     for record in workspace_models::load_workspace_records()? {
-        if record.state == "archived" {
+        if record.state == WorkspaceState::Archived {
             continue;
         }
         let is_pinned = record.pinned_at.is_some();
@@ -154,12 +156,12 @@ pub fn list_workspace_groups() -> Result<Vec<WorkspaceSidebarGroup>> {
         if is_pinned {
             pinned.push(row);
         } else {
-            match helpers::group_id_from_status(&row.manual_status, &row.derived_status) {
-                "done" => done.push(row),
-                "review" => review.push(row),
-                "backlog" => backlog.push(row),
-                "canceled" => canceled.push(row),
-                _ => progress.push(row),
+            match helpers::effective_status(row.manual_status, row.derived_status) {
+                DerivedStatus::Done => done.push(row),
+                DerivedStatus::Review => review.push(row),
+                DerivedStatus::Backlog => backlog.push(row),
+                DerivedStatus::Canceled => canceled.push(row),
+                DerivedStatus::InProgress => progress.push(row),
             }
         }
     }
@@ -270,7 +272,10 @@ pub fn unpin_workspace(workspace_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn set_workspace_manual_status(workspace_id: &str, status: Option<&str>) -> Result<()> {
+pub fn set_workspace_manual_status(
+    workspace_id: &str,
+    status: Option<DerivedStatus>,
+) -> Result<()> {
     let connection = db::open_connection(true)?;
     connection
         .execute(
@@ -283,10 +288,12 @@ pub fn set_workspace_manual_status(workspace_id: &str, status: Option<&str>) -> 
 
 // ---- Select visible workspace for repo ----
 
-pub(crate) fn select_visible_workspace_for_repo(repo_id: &str) -> Result<Option<(String, String)>> {
+pub(crate) fn select_visible_workspace_for_repo(
+    repo_id: &str,
+) -> Result<Option<(String, WorkspaceState)>> {
     let mut visible_records = workspace_models::load_workspace_records()?
         .into_iter()
-        .filter(|record| record.repo_id == repo_id && record.state != "archived")
+        .filter(|record| record.repo_id == repo_id && record.state != WorkspaceState::Archived)
         .collect::<Vec<_>>();
 
     visible_records.sort_by(|left, right| {
@@ -471,7 +478,7 @@ pub fn permanently_delete_workspace(workspace_id: &str) -> Result<()> {
     let mut connection = db::open_connection(true)?;
 
     // Load workspace info for filesystem cleanup
-    let record: Option<(String, String, String)> = connection
+    let record: Option<(String, String, WorkspaceState)> = connection
         .query_row(
             "SELECT r.name, w.directory_name, w.state FROM workspaces w JOIN repos r ON r.id = w.repository_id WHERE w.id = ?1",
             [workspace_id],
@@ -533,7 +540,7 @@ pub fn permanently_delete_workspace(workspace_id: &str) -> Result<()> {
             }
         }
         // Remove archived context
-        if state == "archived" {
+        if state == WorkspaceState::Archived {
             if let Ok(data_dir) = crate::data_dir::data_dir() {
                 let archived = data_dir
                     .join("archived-contexts")

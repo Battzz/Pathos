@@ -28,8 +28,10 @@ pub use models::db;
 pub use models::repos;
 pub use models::sessions;
 pub use models::settings;
+pub use workspace::derived_status as workspace_derived_status;
 pub use workspace::files as editor_files;
 pub use workspace::helpers;
+pub use workspace::state as workspace_state;
 pub use workspace::workspaces;
 
 use tauri::path::BaseDirectory;

@@ -1,4 +1,5 @@
 use super::support::*;
+use crate::workspace_state::WorkspaceState;
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{
@@ -16,7 +17,7 @@ fn restore_workspace_recreates_worktree_and_context() {
     let response = workspaces::restore_workspace_impl(&harness.workspace_id, None).unwrap();
 
     assert_eq!(response.restored_workspace_id, harness.workspace_id);
-    assert_eq!(response.restored_state, "ready");
+    assert_eq!(response.restored_state, WorkspaceState::Ready);
     assert_eq!(response.selected_workspace_id, harness.workspace_id);
     assert!(harness.source_repo_root().exists());
     assert!(harness.workspace_dir().join(".git").exists());
@@ -58,7 +59,7 @@ fn archive_workspace_moves_context_and_removes_worktree() {
     let response = workspaces::archive_workspace_impl(&harness.workspace_id).unwrap();
 
     assert_eq!(response.archived_workspace_id, harness.workspace_id);
-    assert_eq!(response.archived_state, "archived");
+    assert_eq!(response.archived_state, WorkspaceState::Archived);
     assert!(!harness.workspace_dir().exists());
     assert!(harness.archived_context_dir().join("notes.md").exists());
     assert!(harness
@@ -216,7 +217,7 @@ fn archive_workspace_allows_setup_pending_state() {
 
     let response = workspaces::archive_workspace_impl(&harness.workspace_id).unwrap();
 
-    assert_eq!(response.archived_state, "archived");
+    assert_eq!(response.archived_state, WorkspaceState::Archived);
     assert!(!harness.workspace_dir().exists());
 }
 

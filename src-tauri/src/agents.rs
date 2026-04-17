@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::error::CommandError;
 
+pub mod action_kind;
 mod catalog;
 mod persistence;
 mod queries;
@@ -12,6 +13,7 @@ mod slash_commands;
 mod streaming;
 mod support;
 
+pub use self::action_kind::ActionKind;
 pub use self::catalog::{resolve_model, AgentModelOption, AgentModelSection, ResolvedModel};
 pub use self::queries::{
     GenerateSessionTitleRequest, GenerateSessionTitleResponse, ListSlashCommandsRequest,
@@ -158,7 +160,7 @@ pub struct AgentSendRequest {
 }
 
 #[cfg(test)]
-use crate::pipeline::types::{AgentUsage, CollectedTurn};
+use crate::pipeline::types::{AgentUsage, CollectedTurn, MessageRole};
 
 /// Context shared across incremental persistence calls within a single exchange.
 struct ExchangeContext {
@@ -844,7 +846,7 @@ mod tests {
         // Persist two intermediate turns
         let turn1 = CollectedTurn {
             id: Uuid::new_v4().to_string(),
-            role: "assistant".to_string(),
+            role: MessageRole::Assistant,
             content_json:
                 r#"{"type":"assistant","message":{"content":[{"type":"text","text":"I'll help"}]}}"#
                     .to_string(),
@@ -852,7 +854,7 @@ mod tests {
         };
         let turn2 = CollectedTurn {
             id: Uuid::new_v4().to_string(),
-            role: "user".to_string(),
+            role: MessageRole::User,
             content_json:
                 r#"{"type":"user","content":[{"type":"tool_result","tool_use_id":"t1"}]}"#
                     .to_string(),

@@ -16,7 +16,11 @@ use notify_debouncer_full::{new_debouncer, Debouncer, RecommendedCache};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
-use crate::{git_ops, models::db};
+use crate::{
+    git_ops,
+    models::db,
+    workspace_state::{self, WorkspaceState},
+};
 
 // -- Events --
 
@@ -75,7 +79,7 @@ struct WatchableWorkspace {
     repo_name: String,
     directory_name: String,
     branch: Option<String>,
-    state: String,
+    state: WorkspaceState,
     remote: Option<String>,
     target_branch: Option<String>,
 }
@@ -107,7 +111,7 @@ impl GitWatcherManager {
         let workspaces = load_watchable_workspaces()?;
         let ready: Vec<&WatchableWorkspace> = workspaces
             .iter()
-            .filter(|w| crate::helpers::is_operational_state(&w.state))
+            .filter(|w| w.state.is_operational())
             .collect();
         let ready_ids: HashMap<&str, &WatchableWorkspace> =
             ready.iter().map(|w| (w.id.as_str(), *w)).collect();
@@ -539,13 +543,15 @@ fn do_triggered_fetch(workspace_id: &str) -> Result<()> {
 /// Returns (workspace_dir, remote, branch, repo_id).
 fn lookup_fetch_target(workspace_id: &str) -> Result<(PathBuf, String, String, String)> {
     let connection = db::open_connection(false)?;
-    let mut stmt = connection.prepare(
+    let sql = format!(
         "SELECT r.name, w.directory_name, r.remote,
                 COALESCE(w.intended_target_branch, r.default_branch), r.id
          FROM workspaces w
          JOIN repos r ON r.id = w.repository_id
-         WHERE w.id = ?1 AND w.state NOT IN ('archived', 'initializing')",
-    )?;
+         WHERE w.id = ?1 AND w.state {}",
+        workspace_state::OPERATIONAL_FILTER,
+    );
+    let mut stmt = connection.prepare(&sql)?;
     let (repo_name, dir_name, remote, branch, repo_id) = stmt
         .query_row(rusqlite::params![workspace_id], |row| {
             Ok((
@@ -635,11 +641,17 @@ fn update_branch_in_db(
     let connection = db::open_connection(true)?;
     let rows = match old_branch {
         Some(old) => connection.execute(
-            "UPDATE workspaces SET branch = ?1 WHERE id = ?2 AND state NOT IN ('archived', 'initializing') AND branch = ?3",
+            &format!(
+                "UPDATE workspaces SET branch = ?1 WHERE id = ?2 AND state {} AND branch = ?3",
+                workspace_state::OPERATIONAL_FILTER,
+            ),
             (new_branch, workspace_id, old),
         ),
         None => connection.execute(
-            "UPDATE workspaces SET branch = ?1 WHERE id = ?2 AND state NOT IN ('archived', 'initializing') AND branch IS NULL",
+            &format!(
+                "UPDATE workspaces SET branch = ?1 WHERE id = ?2 AND state {} AND branch IS NULL",
+                workspace_state::OPERATIONAL_FILTER,
+            ),
             (new_branch, workspace_id),
         ),
     }
@@ -1033,8 +1045,10 @@ mod tests {
         make_workspace_dir(&env, "myapp", "ws-b");
 
         let workspaces = load_watchable_workspaces().unwrap();
-        let ready: Vec<&WatchableWorkspace> =
-            workspaces.iter().filter(|w| w.state == "ready").collect();
+        let ready: Vec<&WatchableWorkspace> = workspaces
+            .iter()
+            .filter(|w| w.state == WorkspaceState::Ready)
+            .collect();
         let targets = build_desired_fetch_targets(&ready);
 
         assert_eq!(targets.len(), 1, "same repo+remote+branch → one key");
@@ -1075,8 +1089,10 @@ mod tests {
         make_workspace_dir(&env, "myapp", "ws-2");
 
         let workspaces = load_watchable_workspaces().unwrap();
-        let ready: Vec<&WatchableWorkspace> =
-            workspaces.iter().filter(|w| w.state == "ready").collect();
+        let ready: Vec<&WatchableWorkspace> = workspaces
+            .iter()
+            .filter(|w| w.state == WorkspaceState::Ready)
+            .collect();
         let targets = build_desired_fetch_targets(&ready);
 
         assert_eq!(targets.len(), 2, "different repo_id → distinct keys");
@@ -1104,8 +1120,10 @@ mod tests {
         // Intentionally NOT creating the directory
 
         let workspaces = load_watchable_workspaces().unwrap();
-        let ready: Vec<&WatchableWorkspace> =
-            workspaces.iter().filter(|w| w.state == "ready").collect();
+        let ready: Vec<&WatchableWorkspace> = workspaces
+            .iter()
+            .filter(|w| w.state == WorkspaceState::Ready)
+            .collect();
         let targets = build_desired_fetch_targets(&ready);
 
         assert!(targets.is_empty(), "non-existent dir should be excluded");

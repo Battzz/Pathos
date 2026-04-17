@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 
-use crate::pipeline::types::{AgentUsage, CollectedTurn};
+use crate::pipeline::types::{AgentUsage, CollectedTurn, MessageRole};
 use crate::sessions::mark_session_read_in_transaction;
 
 use super::ExchangeContext;
@@ -37,11 +37,12 @@ pub(super) fn persist_user_message(
               id, session_id, role, content, created_at, sent_at,
               model, last_assistant_message_id, turn_id,
               is_resumable_message
-            ) VALUES (?1, ?2, 'user', ?3, ?4, ?4, ?5, ?6, ?7, 0)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?8, 0)
             "#,
         params![
             user_message_id,
             ctx.helmor_session_id,
+            MessageRole::User,
             content,
             now,
             ctx.model_id,
@@ -105,11 +106,12 @@ pub(super) fn persist_error_message(
             INSERT INTO session_messages (
               id, session_id, role, content, created_at, sent_at,
               model, turn_id, is_resumable_message
-            ) VALUES (?1, ?2, 'error', ?3, ?4, ?4, ?5, ?6, 0)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, 0)
             "#,
         params![
             msg_id,
             ctx.helmor_session_id,
+            MessageRole::Error,
             payload,
             now,
             resolved_model,
@@ -154,11 +156,12 @@ pub(super) fn persist_exit_plan_message(
             INSERT INTO session_messages (
               id, session_id, role, content, created_at, sent_at,
               model, turn_id, is_resumable_message
-            ) VALUES (?1, ?2, 'assistant', ?3, ?4, ?4, ?5, ?6, 0)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, 0)
             "#,
         params![
             msg_id,
             ctx.helmor_session_id,
+            MessageRole::Assistant,
             payload.to_string(),
             now,
             resolved_model,

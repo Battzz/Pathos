@@ -58,6 +58,7 @@ import {
 import {
 	type ConductorWorkspace,
 	createSession,
+	type DerivedStatus,
 	type DetectedEditor,
 	detectInstalledEditors,
 	drainPendingCliSends,
@@ -561,13 +562,13 @@ function AppShell({
 			return;
 		}
 		if (
-			selectedWorkspaceState !== "active" &&
-			selectedWorkspaceState !== "ready"
+			selectedWorkspaceState !== "ready" &&
+			selectedWorkspaceState !== "setup_pending"
 		) {
 			return;
 		}
 
-		let targetStatus: string | null = null;
+		let targetStatus: DerivedStatus | null = null;
 		if (workspacePrInfo.isMerged) {
 			targetStatus = "done";
 		} else if (workspacePrInfo.state === "OPEN") {

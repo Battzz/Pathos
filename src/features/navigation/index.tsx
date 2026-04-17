@@ -31,6 +31,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type {
+	DerivedStatus,
 	RepositoryCreateOption,
 	WorkspaceGroup,
 	WorkspaceRow,
@@ -124,7 +125,10 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	onRestoreWorkspace?: (workspaceId: string) => void;
 	onDeleteWorkspace?: (workspaceId: string) => void;
 	onTogglePin?: (workspaceId: string, currentlyPinned: boolean) => void;
-	onSetManualStatus?: (workspaceId: string, status: string | null) => void;
+	onSetManualStatus?: (
+		workspaceId: string,
+		status: DerivedStatus | null,
+	) => void;
 	archivingWorkspaceIds?: Set<string>;
 	markingUnreadWorkspaceId?: string | null;
 	restoringWorkspaceId?: string | null;

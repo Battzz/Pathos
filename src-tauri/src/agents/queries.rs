@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use super::CmdResult;
+use crate::workspace_state;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,7 +45,7 @@ pub async fn generate_session_title(
 ) -> CmdResult<GenerateSessionTitleResponse> {
     let connection =
         open_write_connection().map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
-    let (current_title, action_kind): (String, Option<String>) = connection
+    let (current_title, action_kind): (String, Option<super::ActionKind>) = connection
         .query_row(
             "SELECT title, action_kind FROM sessions WHERE id = ?1",
             [&request.session_id],
@@ -64,16 +65,18 @@ pub async fn generate_session_title(
 
     let workspace_info: Option<(String, Option<String>, String, Option<String>)> =
         if action_kind.is_none() {
+            let sql = format!(
+                r#"SELECT w.id, r.root_path, w.directory_name, w.branch
+                   FROM workspaces w
+                   JOIN repos r ON r.id = w.repository_id
+                   JOIN sessions s ON s.workspace_id = w.id
+                   WHERE s.id = ?1 AND w.state {}"#,
+                workspace_state::OPERATIONAL_FILTER,
+            );
             connection
-                .query_row(
-                    r#"SELECT w.id, r.root_path, w.directory_name, w.branch
-                       FROM workspaces w
-                       JOIN repos r ON r.id = w.repository_id
-                       JOIN sessions s ON s.workspace_id = w.id
-                       WHERE s.id = ?1 AND w.state NOT IN ('archived', 'initializing')"#,
-                    [&request.session_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-                )
+                .query_row(&sql, [&request.session_id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })
                 .ok()
         } else {
             None

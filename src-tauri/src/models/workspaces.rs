@@ -3,7 +3,9 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use rusqlite::Row;
 
-use crate::{helpers, repos};
+use crate::{
+    helpers, repos, workspace_derived_status::DerivedStatus, workspace_state::WorkspaceState,
+};
 
 use super::db;
 
@@ -16,13 +18,13 @@ pub struct WorkspaceRecord {
     pub default_branch: Option<String>,
     pub root_path: Option<String>,
     pub directory_name: String,
-    pub state: String,
+    pub state: WorkspaceState,
     pub has_unread: bool,
     pub workspace_unread: i64,
     pub session_unread_total: i64,
     pub unread_session_count: i64,
-    pub derived_status: String,
-    pub manual_status: Option<String>,
+    pub derived_status: DerivedStatus,
+    pub manual_status: Option<DerivedStatus>,
     pub branch: Option<String>,
     pub initialization_parent_branch: Option<String>,
     pub intended_target_branch: Option<String>,
@@ -143,11 +145,11 @@ pub fn load_archived_workspace_records() -> Result<Vec<WorkspaceRecord>> {
             // explicitly bumps `updated_at` to `now` when transitioning the
             // state to 'archived', so this column doubles as "archived at"
             // for ordering purposes (no separate column needed).
-            "{WORKSPACE_RECORD_SQL} WHERE w.state = 'archived' ORDER BY w.updated_at DESC"
+            "{WORKSPACE_RECORD_SQL} WHERE w.state = ?1 ORDER BY w.updated_at DESC"
         ))
         .context("Failed to prepare archived workspaces query")?;
 
-    let rows = statement.query_map([], workspace_record_from_row)?;
+    let rows = statement.query_map([WorkspaceState::Archived], workspace_record_from_row)?;
 
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
 }
@@ -184,7 +186,7 @@ pub(crate) fn insert_initializing_workspace_and_session(
               initialization_files_copied,
               created_at,
               updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'initializing', ?7, ?8, 'in-progress', 0, 0, ?9, ?9)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'in-progress', 0, 0, ?10, ?10)
             "#,
             (
                 workspace_id,
@@ -193,6 +195,7 @@ pub(crate) fn insert_initializing_workspace_and_session(
                 session_id,
                 branch,
                 branch,
+                WorkspaceState::Initializing,
                 default_branch,
                 default_branch,
                 timestamp,
@@ -257,7 +260,7 @@ pub(crate) fn update_workspace_initialization_metadata(
 
 pub(crate) fn update_workspace_state(
     workspace_id: &str,
-    state: &str,
+    state: WorkspaceState,
     timestamp: &str,
 ) -> Result<()> {
     let connection = db::open_connection(true)?;
@@ -321,12 +324,18 @@ pub(crate) fn update_archived_workspace_state(
         .execute(
             r#"
             UPDATE workspaces
-            SET state = 'archived',
+            SET state = ?3,
                 archive_commit = ?2,
                 updated_at = datetime('now')
-            WHERE id = ?1 AND state IN ('ready', 'setup_pending')
+            WHERE id = ?1 AND state IN (?4, ?5)
             "#,
-            (workspace_id, archive_commit),
+            (
+                workspace_id,
+                archive_commit,
+                WorkspaceState::Archived,
+                WorkspaceState::Ready,
+                WorkspaceState::SetupPending,
+            ),
         )
         .context("Failed to update workspace archive state")?;
 
@@ -356,11 +365,15 @@ pub(crate) fn update_restored_workspace_state(
         .execute(
             r#"
             UPDATE workspaces
-            SET state = 'ready',
+            SET state = ?2,
                 updated_at = datetime('now')
-            WHERE id = ?1 AND state = 'archived'
+            WHERE id = ?1 AND state = ?3
             "#,
-            [workspace_id],
+            (
+                workspace_id,
+                WorkspaceState::Ready,
+                WorkspaceState::Archived,
+            ),
         )
         .context("Failed to update workspace restore state")?;
 

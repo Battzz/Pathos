@@ -10,6 +10,45 @@ export type GroupTone =
 	| "backlog"
 	| "canceled";
 
+/**
+ * Mirror of the Rust `WorkspaceState` enum (`src-tauri/src/workspace/state.rs`).
+ * Kept as a string literal union so existing `ws.state === "archived"` checks
+ * keep working without runtime changes.
+ */
+export type WorkspaceState =
+	| "initializing"
+	| "setup_pending"
+	| "ready"
+	| "archived";
+
+/**
+ * Mirror of the Rust `DerivedStatus` enum
+ * (`src-tauri/src/workspace/derived_status.rs`). Drives the sidebar kanban
+ * lanes and PR-driven auto-status transitions.
+ */
+export type DerivedStatus =
+	| "in-progress"
+	| "done"
+	| "review"
+	| "backlog"
+	| "canceled";
+
+/**
+ * Mirror of the Rust `ActionKind` enum
+ * (`src-tauri/src/agents/action_kind.rs`). Non-null when the session was
+ * created as a one-off "action" dispatch from the inspector commit button.
+ */
+export type ActionKind =
+	| "create-pr"
+	| "commit-and-push"
+	| "push"
+	| "fix"
+	| "resolve-conflicts"
+	| "merge"
+	| "open-pr"
+	| "merged"
+	| "closed";
+
 export type WorkspaceRow = {
 	id: string;
 	title: string;
@@ -18,13 +57,13 @@ export type WorkspaceRow = {
 	repoName?: string;
 	repoIconSrc?: string | null;
 	repoInitials?: string | null;
-	state?: string;
+	state?: WorkspaceState;
 	hasUnread?: boolean;
 	workspaceUnread?: number;
 	sessionUnreadTotal?: number;
 	unreadSessionCount?: number;
-	derivedStatus?: string;
-	manualStatus?: string | null;
+	derivedStatus?: DerivedStatus;
+	manualStatus?: DerivedStatus | null;
 	branch?: string | null;
 	activeSessionId?: string | null;
 	activeSessionTitle?: string | null;
@@ -91,13 +130,13 @@ export type WorkspaceSummary = {
 	repoName: string;
 	repoIconSrc?: string | null;
 	repoInitials?: string | null;
-	state: string;
+	state: WorkspaceState;
 	hasUnread: boolean;
 	workspaceUnread: number;
 	sessionUnreadTotal: number;
 	unreadSessionCount: number;
-	derivedStatus: string;
-	manualStatus?: string | null;
+	derivedStatus: DerivedStatus;
+	manualStatus?: DerivedStatus | null;
 	branch?: string | null;
 	activeSessionId?: string | null;
 	activeSessionTitle?: string | null;
@@ -195,7 +234,7 @@ export type AddRepositoryResponse = {
 	createdRepository: boolean;
 	selectedWorkspaceId: string;
 	createdWorkspaceId?: string | null;
-	createdWorkspaceState: string;
+	createdWorkspaceState: WorkspaceState;
 };
 
 export type WorkspaceDetail = {
@@ -210,13 +249,13 @@ export type WorkspaceDetail = {
 	defaultBranch?: string | null;
 	rootPath?: string | null;
 	directoryName: string;
-	state: string;
+	state: WorkspaceState;
 	hasUnread: boolean;
 	workspaceUnread: number;
 	sessionUnreadTotal: number;
 	unreadSessionCount: number;
-	derivedStatus: string;
-	manualStatus?: string | null;
+	derivedStatus: DerivedStatus;
+	manualStatus?: DerivedStatus | null;
 	activeSessionId?: string | null;
 	activeSessionTitle?: string | null;
 	activeSessionAgentType?: string | null;
@@ -260,13 +299,13 @@ export type WorkspaceSessionSummary = {
 	/** Set when the session was created as a one-off dispatch from the
 	 * inspector commit button (e.g. "create-pr", "commit-and-push"). Drives
 	 * post-stream verifiers and auto-close behavior. */
-	actionKind?: string | null;
+	actionKind?: ActionKind | null;
 	active: boolean;
 };
 
 export type RestoreWorkspaceResponse = {
 	restoredWorkspaceId: string;
-	restoredState: string;
+	restoredState: WorkspaceState;
 	selectedWorkspaceId: string;
 	/** Set when the originally archived branch was already taken at restore
 	 * time and the workspace was checked out on a `-vN`-suffixed branch
@@ -277,7 +316,7 @@ export type RestoreWorkspaceResponse = {
 
 export type ArchiveWorkspaceResponse = {
 	archivedWorkspaceId: string;
-	archivedState: string;
+	archivedState: WorkspaceState;
 };
 
 export type PrepareArchiveWorkspaceResponse = {
@@ -297,7 +336,7 @@ export type CreateWorkspaceResponse = {
 	createdWorkspaceId: string;
 	selectedWorkspaceId: string;
 	initialSessionId: string;
-	createdState: string;
+	createdState: WorkspaceState;
 	directoryName: string;
 	branch: string;
 };
@@ -1243,9 +1282,9 @@ export async function permanentlyDeleteWorkspace(
  * whose `actionKind` appears in this list are hidden automatically after
  * their verifier reports success.
  */
-export async function loadAutoCloseActionKinds(): Promise<string[]> {
+export async function loadAutoCloseActionKinds(): Promise<ActionKind[]> {
 	try {
-		return await invoke<string[]>("load_auto_close_action_kinds");
+		return await invoke<ActionKind[]>("load_auto_close_action_kinds");
 	} catch (error) {
 		throw new Error(
 			describeInvokeError(error, "Unable to load auto-close settings."),
@@ -1253,7 +1292,9 @@ export async function loadAutoCloseActionKinds(): Promise<string[]> {
 	}
 }
 
-export async function saveAutoCloseActionKinds(kinds: string[]): Promise<void> {
+export async function saveAutoCloseActionKinds(
+	kinds: ActionKind[],
+): Promise<void> {
 	try {
 		await invoke<void>("save_auto_close_action_kinds", { kinds });
 	} catch (error) {
@@ -1269,9 +1310,9 @@ export async function saveAutoCloseActionKinds(kinds: string[]): Promise<void> {
  * prompts — separate from `loadAutoCloseActionKinds` so "dismissed" and
  * "enabled" are distinct states.
  */
-export async function loadAutoCloseOptInAsked(): Promise<string[]> {
+export async function loadAutoCloseOptInAsked(): Promise<ActionKind[]> {
 	try {
-		return await invoke<string[]>("load_auto_close_opt_in_asked");
+		return await invoke<ActionKind[]>("load_auto_close_opt_in_asked");
 	} catch (error) {
 		throw new Error(
 			describeInvokeError(error, "Unable to load auto-close opt-in history."),
@@ -1279,7 +1320,9 @@ export async function loadAutoCloseOptInAsked(): Promise<string[]> {
 	}
 }
 
-export async function saveAutoCloseOptInAsked(kinds: string[]): Promise<void> {
+export async function saveAutoCloseOptInAsked(
+	kinds: ActionKind[],
+): Promise<void> {
 	try {
 		await invoke<void>("save_auto_close_opt_in_asked", { kinds });
 	} catch (error) {
@@ -1361,7 +1404,7 @@ export async function unpinWorkspace(workspaceId: string): Promise<void> {
 
 export async function setWorkspaceManualStatus(
 	workspaceId: string,
-	status: string | null,
+	status: DerivedStatus | null,
 ): Promise<void> {
 	return invoke<void>("set_workspace_manual_status", { workspaceId, status });
 }
@@ -1470,8 +1513,16 @@ export type CollapsedGroupPart = {
 
 export type ExtendedMessagePart = MessagePart | CollapsedGroupPart;
 
+/**
+ * Mirror of the Rust `MessageRole` enum
+ * (`src-tauri/src/pipeline/types.rs`). `"error"` exists in the DB but the
+ * adapter rewrites error rows into `"system"` thread messages at render
+ * time, so frontend components never observe it in practice.
+ */
+export type MessageRole = "assistant" | "system" | "user" | "error";
+
 export type ThreadMessageLike = {
-	role: "assistant" | "system" | "user";
+	role: MessageRole;
 	id?: string;
 	createdAt?: string;
 	content: ExtendedMessagePart[];
@@ -1706,7 +1757,7 @@ export type CreateSessionResponse = {
 export async function createSession(
 	workspaceId: string,
 	options?: {
-		actionKind?: string | null;
+		actionKind?: ActionKind | null;
 		permissionMode?: string | null;
 	},
 ): Promise<CreateSessionResponse> {

@@ -68,7 +68,7 @@ pub fn convert_historical(records: &[HistoricalRecord]) -> Vec<ThreadMessageLike
         .iter()
         .map(|r| IntermediateMessage {
             id: r.id.clone(),
-            role: r.role.clone(),
+            role: r.role,
             raw_json: r.content.clone(),
             parsed: r.parsed_content.clone(),
             created_at: r.created_at.clone(),
@@ -154,14 +154,15 @@ fn convert_flat(messages: &[IntermediateMessage]) -> Vec<ThreadMessageLike> {
         }
 
         // error
-        if msg_type == Some("error") || msg.role == "error" {
+        if msg_type == Some("error") || msg.role == MessageRole::Error {
             result.push(make_system(msg, &build_error_label(msg, parsed)));
             i += 1;
             continue;
         }
 
         // assistant (by JSON type or by role for plain-text live messages)
-        if msg_type == Some("assistant") || (parsed.is_none() && msg.role == "assistant") {
+        if msg_type == Some("assistant") || (parsed.is_none() && msg.role == MessageRole::Assistant)
+        {
             let mut parts = parse_assistant_parts(parsed);
             // Pull the parent_tool_use_id (if any) so we can encode it in
             // the message id below — the grouping pass uses it to attach
@@ -332,7 +333,7 @@ fn convert_flat(messages: &[IntermediateMessage]) -> Vec<ThreadMessageLike> {
         }
 
         // user by role (plain text, non-JSON)
-        if msg.role == "user" && parsed.is_none() {
+        if msg.role == MessageRole::User && parsed.is_none() {
             result.push(convert_user_message(msg, None));
             i += 1;
             continue;

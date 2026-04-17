@@ -210,7 +210,7 @@ pub(super) fn settle_aborted_tool_calls(
     out: &mut [ThreadMessageLike],
 ) {
     let aborted = input.iter().any(|m| {
-        m.role == "error"
+        m.role == MessageRole::Error
             && m.parsed
                 .as_ref()
                 .and_then(|p| p.get("content").and_then(Value::as_str))

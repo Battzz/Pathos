@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use super::StreamAccumulator;
-use crate::pipeline::types::CollectedTurn;
+use crate::pipeline::types::{CollectedTurn, MessageRole};
 
 // ---------------------------------------------------------------------------
 // Per-item delta accumulation state
@@ -200,10 +200,10 @@ pub(super) fn handle_turn_completed(acc: &mut StreamAccumulator, raw_line: &str,
             "message": message,
         });
         let s = serde_json::to_string(&synthetic).unwrap_or_default();
-        acc.collect_message(&s, &synthetic, "error", None);
+        acc.collect_message(&s, &synthetic, MessageRole::Error, None);
         acc.turns.push(CollectedTurn {
             id: uuid::Uuid::new_v4().to_string(),
-            role: "error".to_string(),
+            role: MessageRole::Error,
             content_json: raw_line.to_string(),
             collected_idx: None,
         });
@@ -229,7 +229,7 @@ pub(super) fn handle_turn_completed(acc: &mut StreamAccumulator, raw_line: &str,
 
     acc.result_json = Some(enriched_str.clone());
     acc.result_collected_idx = Some(acc.collected.len());
-    acc.collect_message(&enriched_str, &enriched, "assistant", None);
+    acc.collect_message(&enriched_str, &enriched, MessageRole::Assistant, None);
 }
 
 // ---------------------------------------------------------------------------
@@ -319,7 +319,7 @@ fn handle_agent_message(
         }
         acc.turns.push(CollectedTurn {
             id: uuid::Uuid::new_v4().to_string(),
-            role: "assistant".to_string(),
+            role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
             collected_idx: None,
         });
@@ -333,7 +333,7 @@ fn handle_agent_message(
     acc.collect_or_replace(
         &s,
         &envelope,
-        "assistant",
+        MessageRole::Assistant,
         item_id.map(|id| format!("codex-item:{id}")),
     );
 }
@@ -376,7 +376,12 @@ fn handle_command_execution(
     });
     let sa_str = serde_json::to_string(&synthetic_assistant).unwrap_or_default();
     let asst_id = item_id.map(|id| format!("codex-cmd-asst:{id}"));
-    acc.collect_or_replace(&sa_str, &synthetic_assistant, "assistant", asst_id);
+    acc.collect_or_replace(
+        &sa_str,
+        &synthetic_assistant,
+        MessageRole::Assistant,
+        asst_id,
+    );
 
     if !is_running {
         let exit_code = exit_code_raw.unwrap_or(0);
@@ -397,13 +402,13 @@ fn handle_command_execution(
         });
         let sr_str = serde_json::to_string(&synthetic_result).unwrap_or_default();
         let user_id = item_id.map(|id| format!("codex-cmd-user:{id}"));
-        acc.collect_or_replace(&sr_str, &synthetic_result, "user", user_id);
+        acc.collect_or_replace(&sr_str, &synthetic_result, MessageRole::User, user_id);
     }
 
     if persist {
         acc.turns.push(CollectedTurn {
             id: uuid::Uuid::new_v4().to_string(),
-            role: "assistant".to_string(),
+            role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
             collected_idx: None,
         });
@@ -446,7 +451,12 @@ fn handle_file_change(
     });
     let sa_str = serde_json::to_string(&synthetic_assistant).unwrap_or_default();
     let asst_id = item_id.map(|id| format!("codex-patch-asst:{id}"));
-    acc.collect_or_replace(&sa_str, &synthetic_assistant, "assistant", asst_id);
+    acc.collect_or_replace(
+        &sa_str,
+        &synthetic_assistant,
+        MessageRole::Assistant,
+        asst_id,
+    );
 
     if let Some(s) = status {
         let result_text = match s {
@@ -466,13 +476,13 @@ fn handle_file_change(
         });
         let sr_str = serde_json::to_string(&synthetic_result).unwrap_or_default();
         let user_id = item_id.map(|id| format!("codex-patch-user:{id}"));
-        acc.collect_or_replace(&sr_str, &synthetic_result, "user", user_id);
+        acc.collect_or_replace(&sr_str, &synthetic_result, MessageRole::User, user_id);
     }
 
     if persist {
         acc.turns.push(CollectedTurn {
             id: uuid::Uuid::new_v4().to_string(),
-            role: "assistant".to_string(),
+            role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
             collected_idx: None,
         });
@@ -507,12 +517,17 @@ fn handle_reasoning(
     });
     let sa_str = serde_json::to_string(&synthetic_assistant).unwrap_or_default();
     let intermediate_id = item_id.map(|id| format!("codex-reasoning:{id}"));
-    acc.collect_or_replace(&sa_str, &synthetic_assistant, "assistant", intermediate_id);
+    acc.collect_or_replace(
+        &sa_str,
+        &synthetic_assistant,
+        MessageRole::Assistant,
+        intermediate_id,
+    );
 
     if persist {
         acc.turns.push(CollectedTurn {
             id: uuid::Uuid::new_v4().to_string(),
-            role: "assistant".to_string(),
+            role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
             collected_idx: None,
         });
@@ -572,7 +587,12 @@ fn handle_web_search(
     });
     let sa_str = serde_json::to_string(&synthetic_assistant).unwrap_or_default();
     let asst_id = item_id.map(|id| format!("codex-search-asst:{id}"));
-    acc.collect_or_replace(&sa_str, &synthetic_assistant, "assistant", asst_id);
+    acc.collect_or_replace(
+        &sa_str,
+        &synthetic_assistant,
+        MessageRole::Assistant,
+        asst_id,
+    );
 
     if persist {
         let summary = web_search_summary(query, item.get("action"));
@@ -588,11 +608,11 @@ fn handle_web_search(
         });
         let sr_str = serde_json::to_string(&synthetic_result).unwrap_or_default();
         let user_id = item_id.map(|id| format!("codex-search-user:{id}"));
-        acc.collect_or_replace(&sr_str, &synthetic_result, "user", user_id);
+        acc.collect_or_replace(&sr_str, &synthetic_result, MessageRole::User, user_id);
 
         acc.turns.push(CollectedTurn {
             id: uuid::Uuid::new_v4().to_string(),
-            role: "assistant".to_string(),
+            role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
             collected_idx: None,
         });
@@ -634,7 +654,12 @@ fn handle_mcp_tool_call(
     });
     let sa_str = serde_json::to_string(&synthetic_assistant).unwrap_or_default();
     let asst_id = item_id.map(|id| format!("codex-mcp-asst:{id}"));
-    acc.collect_or_replace(&sa_str, &synthetic_assistant, "assistant", asst_id);
+    acc.collect_or_replace(
+        &sa_str,
+        &synthetic_assistant,
+        MessageRole::Assistant,
+        asst_id,
+    );
 
     if matches!(status, Some("completed") | Some("failed")) {
         let result_text = if status == Some("failed") {
@@ -661,13 +686,13 @@ fn handle_mcp_tool_call(
         });
         let sr_str = serde_json::to_string(&synthetic_result).unwrap_or_default();
         let user_id = item_id.map(|id| format!("codex-mcp-user:{id}"));
-        acc.collect_or_replace(&sr_str, &synthetic_result, "user", user_id);
+        acc.collect_or_replace(&sr_str, &synthetic_result, MessageRole::User, user_id);
     }
 
     if persist {
         acc.turns.push(CollectedTurn {
             id: uuid::Uuid::new_v4().to_string(),
-            role: "assistant".to_string(),
+            role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
             collected_idx: None,
         });
@@ -720,12 +745,17 @@ fn handle_todo_list(
     });
     let sa_str = serde_json::to_string(&synthetic_assistant).unwrap_or_default();
     let intermediate_id = item_id.map(|id| format!("codex-todo-msg:{id}"));
-    acc.collect_or_replace(&sa_str, &synthetic_assistant, "assistant", intermediate_id);
+    acc.collect_or_replace(
+        &sa_str,
+        &synthetic_assistant,
+        MessageRole::Assistant,
+        intermediate_id,
+    );
 
     if persist {
         acc.turns.push(CollectedTurn {
             id: uuid::Uuid::new_v4().to_string(),
-            role: "assistant".to_string(),
+            role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
             collected_idx: None,
         });
@@ -747,7 +777,7 @@ fn handle_plan_item(
     acc.collect_or_replace(
         &s,
         &envelope,
-        "assistant",
+        MessageRole::Assistant,
         item_id.map(|id| format!("codex-plan:{id}")),
     );
 
@@ -760,7 +790,7 @@ fn handle_plan_item(
         }
         acc.turns.push(CollectedTurn {
             id: uuid::Uuid::new_v4().to_string(),
-            role: "assistant".to_string(),
+            role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
             collected_idx: None,
         });
@@ -822,7 +852,12 @@ pub(super) fn handle_turn_plan_updated(
     });
     let sa_str = serde_json::to_string(&synthetic_assistant).unwrap_or_default();
     let msg_id = format!("codex-plan-steps-msg:{turn_id}");
-    acc.collect_or_replace(&sa_str, &synthetic_assistant, "assistant", Some(msg_id));
+    acc.collect_or_replace(
+        &sa_str,
+        &synthetic_assistant,
+        MessageRole::Assistant,
+        Some(msg_id),
+    );
 }
 
 fn handle_error_item(acc: &mut StreamAccumulator, raw_line: &str, item: &Value, persist: bool) {
@@ -836,12 +871,12 @@ fn handle_error_item(acc: &mut StreamAccumulator, raw_line: &str, item: &Value, 
         "message": message,
     });
     let s = serde_json::to_string(&synthetic).unwrap_or_default();
-    acc.collect_message(&s, &synthetic, "error", None);
+    acc.collect_message(&s, &synthetic, MessageRole::Error, None);
 
     if persist {
         acc.turns.push(CollectedTurn {
             id: uuid::Uuid::new_v4().to_string(),
-            role: "error".to_string(),
+            role: MessageRole::Error,
             content_json: raw_line.to_string(),
             collected_idx: None,
         });

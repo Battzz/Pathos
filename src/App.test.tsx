@@ -534,7 +534,7 @@ describe("App", () => {
 			{
 				id: "archived-workspace",
 				title: "Archived workspace",
-				state: "archived",
+				state: "archived" as const,
 				repoName: "helmor-core",
 			},
 		];

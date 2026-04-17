@@ -4,6 +4,10 @@
 //! MessagePart, CollapsedGroupPart, etc.) and **internal types** used between
 //! pipeline stages (IntermediateMessage, CollectedTurn, HistoricalRecord).
 
+use std::fmt;
+use std::str::FromStr;
+
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -11,13 +15,81 @@ use serde_json::Value;
 // Output types — serialized to the frontend via Tauri IPC
 // ---------------------------------------------------------------------------
 
-/// Top-level message role.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Top-level message role. Values:
+/// - `User` / `Assistant`: the two canonical conversation roles (both stored
+///   in DB and emitted to frontend).
+/// - `System`: synthesised by the adapter for pipeline-internal events
+///   (rate-limit notices, prompt suggestions, error placeholders). Emitted
+///   to frontend but never persisted to `session_messages.role`.
+/// - `Error`: **persistence-only**. Stored when a tool-call or turn crashes
+///   so the UI can replay the failure after reload. The adapter converts
+///   `Error` rows into a `System` `ThreadMessageLike` at render time, so
+///   frontend components never see this variant in practice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageRole {
     Assistant,
     System,
     User,
+    Error,
+}
+
+impl MessageRole {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Assistant => "assistant",
+            Self::System => "system",
+            Self::User => "user",
+            Self::Error => "error",
+        }
+    }
+}
+
+impl fmt::Display for MessageRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug)]
+pub struct UnknownMessageRole(pub String);
+
+impl fmt::Display for UnknownMessageRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "unknown message role: {:?}", self.0)
+    }
+}
+
+impl std::error::Error for UnknownMessageRole {}
+
+impl FromStr for MessageRole {
+    type Err = UnknownMessageRole;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "assistant" => Ok(Self::Assistant),
+            "system" => Ok(Self::System),
+            "user" => Ok(Self::User),
+            "error" => Ok(Self::Error),
+            _ => Err(UnknownMessageRole(s.to_string())),
+        }
+    }
+}
+
+impl FromSql for MessageRole {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()?
+            .parse()
+            .map_err(|e: UnknownMessageRole| FromSqlError::Other(Box::new(e)))
+    }
+}
+
+impl ToSql for MessageRole {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::Borrowed(ValueRef::Text(
+            self.as_str().as_bytes(),
+        )))
+    }
 }
 
 /// Streaming progress for a tool-call part.
@@ -272,7 +344,7 @@ pub struct ThreadMessageLike {
 #[derive(Debug, Clone)]
 pub struct IntermediateMessage {
     pub id: String,
-    pub role: String,
+    pub role: MessageRole,
     pub raw_json: String,
     pub parsed: Option<Value>,
     pub created_at: String,
@@ -290,7 +362,7 @@ pub struct CollectedTurn {
     /// back to the rendering `collected[]` entry via `sync_persisted_ids`,
     /// unifying streaming and historical message IDs.
     pub id: String,
-    pub role: String,
+    pub role: MessageRole,
     pub content_json: String,
     /// Index into the accumulator's `collected[]` for the first
     /// `IntermediateMessage` that this turn maps to. `sync_persisted_ids`
@@ -309,7 +381,7 @@ pub struct CollectedTurn {
 #[derive(Debug, Clone)]
 pub struct HistoricalRecord {
     pub id: String,
-    pub role: String,
+    pub role: MessageRole,
     pub content: String,
     pub parsed_content: Option<Value>,
     pub created_at: String,

@@ -96,7 +96,7 @@ impl MessagePipeline {
             .iter()
             .map(|r| IntermediateMessage {
                 id: r.id.clone(),
-                role: r.role.clone(),
+                role: r.role,
                 raw_json: r.content.clone(),
                 parsed: r.parsed_content.clone(),
                 created_at: r.created_at.clone(),

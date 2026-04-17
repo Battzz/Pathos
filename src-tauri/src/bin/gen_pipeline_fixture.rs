@@ -109,7 +109,7 @@ fn run(session_id: &str, fixture_name: &str, limit: Option<usize>) -> Result<()>
         .iter()
         .map(|r| HistoricalRecordFixture {
             id: r.id.clone(),
-            role: r.role.clone(),
+            role: r.role.as_str().to_string(),
             content: r.content.clone(),
             parsed_content: r.parsed_content.clone(),
             created_at: r.created_at.clone(),
@@ -150,7 +150,7 @@ fn load_session_records(session_id: &str) -> Result<Vec<HistoricalRecord>> {
 
     let rows = stmt.query_map([session_id], |row| {
         let id: String = row.get(0)?;
-        let role: String = row.get(1)?;
+        let role: helmor_lib::pipeline::types::MessageRole = row.get(1)?;
         let content: String = row.get(2)?;
         let created_at: String = row.get(3)?;
         Ok((id, role, content, created_at))

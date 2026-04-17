@@ -5,6 +5,7 @@ use rusqlite::{Connection, Transaction};
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::agents::ActionKind;
 use crate::pipeline::types::HistoricalRecord;
 
 use super::{db, settings};
@@ -37,7 +38,7 @@ pub struct WorkspaceSessionSummary {
     /// (e.g. "create-pr", "commit-and-push"). The inspector commit button
     /// uses this to drive post-stream verifiers and the auto-close behavior.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub action_kind: Option<String>,
+    pub action_kind: Option<ActionKind>,
     pub active: bool,
 }
 
@@ -337,24 +338,16 @@ pub struct CreateSessionResponse {
     pub session_id: String,
 }
 
-fn default_session_title_for_action_kind(action_kind: Option<&str>) -> &'static str {
+fn default_session_title_for_action_kind(action_kind: Option<ActionKind>) -> &'static str {
     match action_kind {
-        Some("create-pr") => "Create PR",
-        Some("commit-and-push") => "Commit and Push",
-        Some("push") => "Push",
-        Some("fix") => "Fix CI",
-        Some("resolve-conflicts") => "Resolve Conflicts",
-        Some("merge") => "Merge",
-        Some("open-pr") => "Open PR",
-        Some("merged") => "Merged",
-        Some("closed") => "Closed",
-        _ => "Untitled",
+        Some(kind) => kind.default_title(),
+        None => "Untitled",
     }
 }
 
 pub fn create_session(
     workspace_id: &str,
-    action_kind: Option<&str>,
+    action_kind: Option<ActionKind>,
     permission_mode: Option<&str>,
 ) -> Result<CreateSessionResponse> {
     let mut connection = db::open_connection(true)?;
@@ -887,11 +880,11 @@ mod tests {
     #[test]
     fn action_session_uses_local_default_title() {
         assert_eq!(
-            default_session_title_for_action_kind(Some("create-pr")),
+            default_session_title_for_action_kind(Some(ActionKind::CreatePr)),
             "Create PR"
         );
         assert_eq!(
-            default_session_title_for_action_kind(Some("commit-and-push")),
+            default_session_title_for_action_kind(Some(ActionKind::CommitAndPush)),
             "Commit and Push"
         );
         assert_eq!(default_session_title_for_action_kind(None), "Untitled");

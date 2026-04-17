@@ -11,7 +11,7 @@ use super::{
     support::allowed_workspace_roots,
     types::{EditorFileListItem, EditorFilePrefetchItem, EditorFilesWithContentResponse},
 };
-use crate::{db, git_ops};
+use crate::{db, git_ops, workspace_state};
 
 const MAX_PREFETCH_BYTES: u64 = 1_048_576;
 
@@ -268,14 +268,14 @@ pub(super) fn query_workspace_target(
     repo_name: &str,
     dir_name: &str,
 ) -> Option<(String, String)> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT r.remote, COALESCE(w.intended_target_branch, r.default_branch)
-			 FROM workspaces w
-			 JOIN repos r ON r.id = w.repository_id
-			 WHERE r.name = ?1 AND w.directory_name = ?2 AND w.state NOT IN ('archived', 'initializing')",
-        )
-        .ok()?;
+    let sql = format!(
+        "SELECT r.remote, COALESCE(w.intended_target_branch, r.default_branch)
+		 FROM workspaces w
+		 JOIN repos r ON r.id = w.repository_id
+		 WHERE r.name = ?1 AND w.directory_name = ?2 AND w.state {}",
+        workspace_state::OPERATIONAL_FILTER,
+    );
+    let mut stmt = conn.prepare(&sql).ok()?;
 
     stmt.query_row(rusqlite::params![repo_name, dir_name], |row| {
         let remote: Option<String> = row.get(0)?;

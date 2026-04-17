@@ -4,7 +4,12 @@ import {
 	XCircleFillIcon,
 } from "@primer/octicons-react";
 import { Pin } from "lucide-react";
-import type { GroupTone, WorkspaceGroup, WorkspaceRow } from "@/lib/api";
+import type {
+	DerivedStatus,
+	GroupTone,
+	WorkspaceGroup,
+	WorkspaceRow,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { WorkspaceBranchTone } from "@/lib/workspace-helpers";
 
@@ -27,7 +32,7 @@ export const branchToneClasses: Record<WorkspaceBranchTone, string> = {
 
 export const ARCHIVED_SECTION_ID = "__archived__";
 export const STATUS_OPTIONS: ReadonlyArray<{
-	value: string;
+	value: DerivedStatus;
 	label: string;
 	tone: GroupTone;
 }> = [

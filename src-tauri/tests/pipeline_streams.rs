@@ -187,7 +187,7 @@ fn build_historical_snapshot(pipeline: &MessagePipeline) -> HistoricalRenderSnap
             let turn = acc.turn_at(i);
             HistoricalRecord {
                 id: format!("hist-{i}"),
-                role: turn.role.clone(),
+                role: turn.role,
                 content: turn.content_json.clone(),
                 parsed_content: serde_json::from_str(&turn.content_json).ok(),
                 created_at: "2026-04-08T00:00:00.000Z".to_string(),
@@ -236,7 +236,7 @@ fn build_persisted_snapshot(pipeline: &MessagePipeline) -> PersistedTurnsSnapsho
             .unwrap_or_default();
         total_blocks += block_types.len();
         turns.push(PersistedTurn {
-            role: turn.role.clone(),
+            role: turn.role.as_str().to_string(),
             block_types,
         });
     }

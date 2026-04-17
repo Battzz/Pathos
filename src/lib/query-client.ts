@@ -1,6 +1,7 @@
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { focusManager, QueryClient, queryOptions } from "@tanstack/react-query";
 import {
+	type ActionKind,
 	type AgentProvider,
 	DEFAULT_WORKSPACE_GROUPS,
 	listRepositories,
@@ -213,7 +214,7 @@ export function autoCloseActionKindsQueryOptions() {
 	return queryOptions({
 		queryKey: helmorQueryKeys.autoCloseActionKinds,
 		queryFn: loadAutoCloseActionKinds,
-		initialData: [] as string[],
+		initialData: [] as ActionKind[],
 		initialDataUpdatedAt: 0,
 		staleTime: 60_000,
 	});
@@ -223,7 +224,7 @@ export function autoCloseOptInAskedQueryOptions() {
 	return queryOptions({
 		queryKey: helmorQueryKeys.autoCloseOptInAsked,
 		queryFn: loadAutoCloseOptInAsked,
-		initialData: [] as string[],
+		initialData: [] as ActionKind[],
 		initialDataUpdatedAt: 0,
 		staleTime: 60_000,
 	});
