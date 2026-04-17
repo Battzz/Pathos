@@ -1,4 +1,4 @@
-import { ArrowRight, Check, GitBranch } from "lucide-react";
+import { ArrowRight, Check, GitBranch, Info } from "lucide-react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import type React from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -6,6 +6,12 @@ import conductorLogoSrc from "@/assets/conductor.webp";
 import helmorLogoSrc from "@/assets/helmor-logo.png";
 import { type ConductorWorkspace, importConductorWorkspaces } from "@/lib/api";
 import { NumberTicker } from "./ui/number-ticker";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "./ui/tooltip";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -480,9 +486,28 @@ export function ConductorOnboarding({
 	const visible = workspaces.slice(0, MAX_VISIBLE);
 	const overflow = Math.max(0, workspaces.length - MAX_VISIBLE);
 	const isDone = phase === "done";
-	// Keep beams mounted through import so they can play the retraction animation;
-	// only remove them when "done" so AnimatePresence fires the exit.
-	const showBeams = !isDone && !isLoadingWorkspaces && visible.length > 0;
+
+	// Transfer animation finishes around 1.1s (rows stagger at index*0.09 +
+	// 0.75s duration). After that the source columns are visually gone, so
+	// unmount them to free up the flex layout — Helmor can then slide to
+	// center while the backend import is still in flight, instead of hanging
+	// on the right until the import resolves.
+	const [transferSettled, setTransferSettled] = useState(false);
+	useEffect(() => {
+		if (phase !== "importing") {
+			setTransferSettled(false);
+			return;
+		}
+		const tid = setTimeout(() => setTransferSettled(true), 1200);
+		return () => clearTimeout(tid);
+	}, [phase]);
+	const showAuxColumns =
+		phase === "revealed" || (phase === "importing" && !transferSettled);
+
+	// Keep beams mounted through the transfer so they can play the retraction
+	// animation; drop them once the aux columns unmount.
+	const showBeams =
+		showAuxColumns && !isLoadingWorkspaces && visible.length > 0;
 	const beamWorkspaceIds = isLoadingWorkspaces
 		? SKELETON_IDS
 		: visible.map((w) => w.id);
@@ -565,12 +590,15 @@ export function ConductorOnboarding({
 					layout
 					className="relative z-10 flex w-full max-w-[1080px] items-center justify-center gap-56 px-10"
 					transition={{
-						layout: { duration: isDone ? 1.0 : 0, ease: [0, 0, 0.2, 1] },
+						layout: {
+							duration: phase === "revealed" ? 0 : 1.0,
+							ease: [0, 0, 0.2, 1],
+						},
 					}}
 				>
 					{/* LEFT: Conductor */}
 					<AnimatePresence mode="popLayout">
-						{!isDone && (
+						{showAuxColumns && (
 							<motion.div
 								key="conductor-column"
 								layout
@@ -605,7 +633,7 @@ export function ConductorOnboarding({
 
 					{/* CENTER: Workspace list */}
 					<AnimatePresence mode="popLayout">
-						{!isDone && (
+						{showAuxColumns && (
 							<motion.div
 								key="workspace-list-column"
 								layout
@@ -649,17 +677,22 @@ export function ConductorOnboarding({
 						)}
 					</AnimatePresence>
 
-					{/* RIGHT: Helmor — layout-animated to center when Conductor exits */}
+					{/* RIGHT: Helmor — layout-animated to center when the aux columns exit */}
 					<motion.div
 						layout
 						transition={{ layout: { duration: 1.0, ease: [0, 0, 0.2, 1] } }}
-						className={`flex w-[220px] shrink-0 flex-col gap-3 ${isDone ? "items-center" : "items-start"}`}
+						className={`flex w-[220px] shrink-0 flex-col gap-3 ${showAuxColumns ? "items-start" : "items-center"}`}
 					>
 						<motion.div
+							layout="position"
+							layoutDependency={showAuxColumns}
 							initial={false}
 							animate={{ opacity: 1, x: 0 }}
-							transition={{ duration: 0 }}
-							className={`flex flex-col gap-2 ${isDone ? "items-center" : "items-start"}`}
+							transition={{
+								layout: { duration: 1.0, ease: [0, 0, 0.2, 1] },
+								duration: 0,
+							}}
+							className={`flex flex-col gap-2 ${showAuxColumns ? "items-start" : "items-center"}`}
 						>
 							<div className="relative inline-flex items-center justify-center">
 								<span
@@ -813,7 +846,7 @@ export function ConductorOnboarding({
 									type="button"
 									onClick={() => void handleImport()}
 									disabled={isLoadingWorkspaces}
-									className="group relative flex items-center gap-2 overflow-hidden rounded-lg px-7 py-3 text-sm font-semibold tracking-[0.01em] transition-opacity hover:opacity-90 active:opacity-75 disabled:opacity-40 disabled:pointer-events-none"
+									className="group relative flex items-center gap-2 overflow-hidden rounded-lg px-7 py-3 text-sm font-semibold tracking-[0.01em] transition-opacity hover:opacity-90 active:opacity-75 disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
 									style={{
 										background: "var(--color-foreground)",
 										color: "var(--color-background)",
@@ -832,13 +865,36 @@ export function ConductorOnboarding({
 										strokeWidth={2.5}
 									/>
 								</button>
-								<button
-									type="button"
-									onClick={onComplete}
-									className="text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-								>
-									Skip for now
-								</button>
+								<div className="relative flex items-center justify-center">
+									<button
+										type="button"
+										onClick={onComplete}
+										className="text-[11px] text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+									>
+										Skip for now
+									</button>
+									<TooltipProvider delayDuration={150}>
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<button
+													type="button"
+													aria-label="About importing"
+													className="absolute left-full ml-2 flex size-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+												>
+													<Info className="size-3.5" strokeWidth={2} />
+												</button>
+											</TooltipTrigger>
+											<TooltipContent
+												side="bottom"
+												className="max-w-[240px] text-center"
+											>
+												Don't worry — we only read your Conductor data to import
+												it here. Your Conductor data won't be modified in any
+												way.
+											</TooltipContent>
+										</Tooltip>
+									</TooltipProvider>
+								</div>
 							</motion.div>
 						)}
 
