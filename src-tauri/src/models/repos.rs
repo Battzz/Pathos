@@ -337,7 +337,7 @@ pub fn update_repository_remote(
 
     let mut stmt = connection
         .prepare(
-            "SELECT intended_target_branch FROM workspaces WHERE repository_id = ?1 AND state = 'ready'",
+            "SELECT intended_target_branch FROM workspaces WHERE repository_id = ?1 AND state NOT IN ('archived', 'initializing')",
         )
         .context("Failed to query workspace target branches")?;
     let targets: Vec<String> = stmt

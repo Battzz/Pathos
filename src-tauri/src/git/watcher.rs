@@ -105,8 +105,10 @@ impl GitWatcherManager {
     /// Sync watchers and auto-fetchers with the current DB state.
     pub fn sync_from_db<R: Runtime>(&self, app: AppHandle<R>) -> Result<()> {
         let workspaces = load_watchable_workspaces()?;
-        let ready: Vec<&WatchableWorkspace> =
-            workspaces.iter().filter(|w| w.state == "ready").collect();
+        let ready: Vec<&WatchableWorkspace> = workspaces
+            .iter()
+            .filter(|w| crate::helpers::is_operational_state(&w.state))
+            .collect();
         let ready_ids: HashMap<&str, &WatchableWorkspace> =
             ready.iter().map(|w| (w.id.as_str(), *w)).collect();
 
@@ -542,7 +544,7 @@ fn lookup_fetch_target(workspace_id: &str) -> Result<(PathBuf, String, String, S
                 COALESCE(w.intended_target_branch, r.default_branch), r.id
          FROM workspaces w
          JOIN repos r ON r.id = w.repository_id
-         WHERE w.id = ?1 AND w.state = 'ready'",
+         WHERE w.id = ?1 AND w.state NOT IN ('archived', 'initializing')",
     )?;
     let (repo_name, dir_name, remote, branch, repo_id) = stmt
         .query_row(rusqlite::params![workspace_id], |row| {
@@ -554,7 +556,7 @@ fn lookup_fetch_target(workspace_id: &str) -> Result<(PathBuf, String, String, S
                 row.get::<_, String>(4)?,
             ))
         })
-        .context("Workspace not found or not ready")?;
+        .context("Workspace not found or archived")?;
 
     let remote = remote.context("No remote configured")?;
     let branch = branch.context("No target branch configured")?;
@@ -633,11 +635,11 @@ fn update_branch_in_db(
     let connection = db::open_connection(true)?;
     let rows = match old_branch {
         Some(old) => connection.execute(
-            "UPDATE workspaces SET branch = ?1 WHERE id = ?2 AND state = 'ready' AND branch = ?3",
+            "UPDATE workspaces SET branch = ?1 WHERE id = ?2 AND state NOT IN ('archived', 'initializing') AND branch = ?3",
             (new_branch, workspace_id, old),
         ),
         None => connection.execute(
-            "UPDATE workspaces SET branch = ?1 WHERE id = ?2 AND state = 'ready' AND branch IS NULL",
+            "UPDATE workspaces SET branch = ?1 WHERE id = ?2 AND state NOT IN ('archived', 'initializing') AND branch IS NULL",
             (new_branch, workspace_id),
         ),
     }

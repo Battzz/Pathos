@@ -7,6 +7,7 @@ import type { DiffOpenOptions } from "@/lib/editor-session";
 import { cn } from "@/lib/utils";
 import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import { useWorkspaceInspectorSidebar } from "./hooks/use-inspector";
+import { useSetupAutoRun } from "./hooks/use-setup-auto-run";
 import { HorizontalResizeHandle, InspectorTabsSection } from "./layout";
 import { ActionsSection } from "./sections/actions";
 import { ChangesSection } from "./sections/changes";
@@ -87,6 +88,16 @@ export function WorkspaceInspectorSidebar({
 		repoId: repoId ?? null,
 	});
 
+	// Fire setup auto-run / auto-complete at the sidebar level so it runs even
+	// when the Setup tab isn't mounted (tabsOpen=false).
+	useSetupAutoRun({
+		repoId: repoId ?? null,
+		workspaceId: workspaceId ?? null,
+		workspaceState: workspaceState ?? null,
+		setupScript: repoScripts?.setupScript ?? null,
+		scriptsLoaded,
+	});
+
 	const handleOpenSettings = onOpenSettings ?? (() => {});
 
 	return (
@@ -151,9 +162,7 @@ export function WorkspaceInspectorSidebar({
 				<SetupTab
 					repoId={repoId ?? null}
 					workspaceId={workspaceId ?? null}
-					workspaceState={workspaceState ?? null}
 					setupScript={repoScripts?.setupScript ?? null}
-					scriptsLoaded={scriptsLoaded}
 					isActive={activeTab === "setup"}
 					onOpenSettings={handleOpenSettings}
 				/>

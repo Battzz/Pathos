@@ -273,7 +273,7 @@ pub(super) fn query_workspace_target(
             "SELECT r.remote, COALESCE(w.intended_target_branch, r.default_branch)
 			 FROM workspaces w
 			 JOIN repos r ON r.id = w.repository_id
-			 WHERE r.name = ?1 AND w.directory_name = ?2 AND w.state = 'ready'",
+			 WHERE r.name = ?1 AND w.directory_name = ?2 AND w.state NOT IN ('archived', 'initializing')",
         )
         .ok()?;
 

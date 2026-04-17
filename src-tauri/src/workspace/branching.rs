@@ -80,8 +80,11 @@ pub fn rename_workspace_branch(workspace_id: &str, new_branch: &str) -> Result<(
     let record = workspace_models::load_workspace_record_by_id(workspace_id)?
         .with_context(|| format!("Workspace not found: {workspace_id}"))?;
 
-    if record.state != "ready" {
-        bail!("Cannot rename branch: workspace is not in ready state");
+    if !helpers::is_operational_state(&record.state) {
+        bail!(
+            "Cannot rename branch: workspace is {} (archived or mid-creation)",
+            record.state
+        );
     }
 
     let old_branch = record
@@ -155,15 +158,13 @@ pub fn update_intended_target_branch_local(
         let connection = db::open_connection(true)?;
         let updated_rows = connection
             .execute(
-                "UPDATE workspaces SET intended_target_branch = ?2 WHERE id = ?1 AND state = 'ready'",
+                "UPDATE workspaces SET intended_target_branch = ?2 WHERE id = ?1 AND state NOT IN ('archived', 'initializing')",
                 (workspace_id, target_branch),
             )
             .context("Failed to update intended target branch")?;
 
         if updated_rows != 1 {
-            bail!(
-                "Cannot update target branch: workspace {workspace_id} not found or not in ready state"
-            );
+            bail!("Cannot update target branch: workspace {workspace_id} not found or archived");
         }
     }
 
@@ -193,7 +194,7 @@ fn try_realign_local_branch(
     record: &WorkspaceRecord,
     target_branch: &str,
 ) -> Result<Option<String>> {
-    if record.state != "ready" {
+    if !helpers::is_operational_state(&record.state) {
         return Ok(None);
     }
     if helpers::non_empty(&record.root_path).is_none() {
@@ -248,7 +249,7 @@ pub fn refresh_remote_and_realign(
     let Some(record) = workspace_models::load_workspace_record_by_id(workspace_id)? else {
         return Ok(false);
     };
-    if record.state != "ready" {
+    if !helpers::is_operational_state(&record.state) {
         return Ok(false);
     }
     let workspace_dir = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
@@ -267,7 +268,7 @@ pub fn refresh_remote_and_realign(
     let Some(fresh_record) = workspace_models::load_workspace_record_by_id(workspace_id)? else {
         return Ok(false);
     };
-    if fresh_record.state != "ready" {
+    if !helpers::is_operational_state(&fresh_record.state) {
         return Ok(false);
     }
 
@@ -358,7 +359,7 @@ pub fn prefetch_remote_refs(
     if let Some(ws_id) = workspace_id {
         let record = workspace_models::load_workspace_record_by_id(ws_id)?
             .with_context(|| format!("Workspace not found: {ws_id}"))?;
-        if record.state != "ready" {
+        if !helpers::is_operational_state(&record.state) {
             return Ok(PrefetchRemoteRefsResponse { fetched: false });
         }
         let workspace_dir =
@@ -382,8 +383,11 @@ pub fn sync_workspace_with_target_branch(
 ) -> Result<SyncWorkspaceTargetResponse> {
     let record = workspace_models::load_workspace_record_by_id(workspace_id)?
         .with_context(|| format!("Workspace not found: {workspace_id}"))?;
-    if record.state != "ready" {
-        bail!("Cannot sync target branch: workspace is not in ready state");
+    if !helpers::is_operational_state(&record.state) {
+        bail!(
+            "Cannot sync target branch: workspace is {} (archived or mid-creation)",
+            record.state
+        );
     }
 
     let target_branch = record
@@ -474,8 +478,11 @@ pub fn sync_workspace_with_target_branch(
 pub fn push_workspace_to_remote(workspace_id: &str) -> Result<PushWorkspaceToRemoteResponse> {
     let record = workspace_models::load_workspace_record_by_id(workspace_id)?
         .with_context(|| format!("Workspace not found: {workspace_id}"))?;
-    if record.state != "ready" {
-        bail!("Cannot push branch: workspace is not in ready state");
+    if !helpers::is_operational_state(&record.state) {
+        bail!(
+            "Cannot push branch: workspace is {} (archived or mid-creation)",
+            record.state
+        );
     }
 
     let remote = record

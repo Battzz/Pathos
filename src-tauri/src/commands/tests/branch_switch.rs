@@ -145,8 +145,8 @@ fn branch_switch_archived_state_bails() {
     let err =
         workspaces::update_intended_target_branch_local(&harness.workspace_id, "dev").unwrap_err();
     assert!(
-        err.to_string().contains("not in ready state"),
-        "expected 'not in ready state' error, got: {err}"
+        err.to_string().contains("not found or archived"),
+        "expected 'not found or archived' error, got: {err}"
     );
 }
 

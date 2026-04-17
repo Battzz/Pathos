@@ -6,7 +6,6 @@ import {
 	TerminalOutput,
 } from "@/components/terminal-output";
 import { Button } from "@/components/ui/button";
-import { completeWorkspaceSetup } from "@/lib/api";
 import { helmorQueryKeys } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 import {
@@ -21,9 +20,7 @@ import {
 type SetupTabProps = {
 	repoId: string | null;
 	workspaceId: string | null;
-	workspaceState: string | null;
 	setupScript: string | null;
-	scriptsLoaded: boolean;
 	isActive: boolean;
 	onOpenSettings: () => void;
 };
@@ -31,16 +28,13 @@ type SetupTabProps = {
 export function SetupTab({
 	repoId,
 	workspaceId,
-	workspaceState,
 	setupScript,
-	scriptsLoaded,
 	isActive,
 	onOpenSettings,
 }: SetupTabProps) {
 	const termRef = useRef<TerminalHandle | null>(null);
 	const [status, setStatus] = useState<ScriptStatus>("idle");
 	const [hasRun, setHasRun] = useState(false);
-	const hasAutoRunRef = useRef(false);
 	const queryClient = useQueryClient();
 
 	const hasScript = !!setupScript?.trim();
@@ -79,7 +73,6 @@ export function SetupTab({
 		} else {
 			setHasRun(false);
 			setStatus("idle");
-			hasAutoRunRef.current = false;
 			termRef.current?.clear();
 		}
 
@@ -98,35 +91,6 @@ export function SetupTab({
 		if (!repoId || !workspaceId) return;
 		stopScript(repoId, "setup", workspaceId);
 	}, [repoId, workspaceId]);
-
-	// Auto-run setup when workspace is pending and script is available.
-	useEffect(() => {
-		if (
-			workspaceState === "setup_pending" &&
-			hasScript &&
-			status === "idle" &&
-			!hasAutoRunRef.current
-		) {
-			hasAutoRunRef.current = true;
-			handleRun();
-		}
-	}, [workspaceState, hasScript, status, handleRun]);
-
-	// Auto-complete if workspace is pending but no script is configured.
-	useEffect(() => {
-		if (
-			workspaceState === "setup_pending" &&
-			scriptsLoaded &&
-			!hasScript &&
-			workspaceId
-		) {
-			void completeWorkspaceSetup(workspaceId).then(() => {
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
-				});
-			});
-		}
-	}, [workspaceState, scriptsLoaded, hasScript, workspaceId, queryClient]);
 
 	return (
 		<div

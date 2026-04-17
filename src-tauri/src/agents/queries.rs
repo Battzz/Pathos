@@ -70,7 +70,7 @@ pub async fn generate_session_title(
                        FROM workspaces w
                        JOIN repos r ON r.id = w.repository_id
                        JOIN sessions s ON s.workspace_id = w.id
-                       WHERE s.id = ?1 AND w.state = 'ready'"#,
+                       WHERE s.id = ?1 AND w.state NOT IN ('archived', 'initializing')"#,
                     [&request.session_id],
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )

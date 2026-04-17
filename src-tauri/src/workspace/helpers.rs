@@ -55,6 +55,13 @@ pub fn non_empty(value: &Option<String>) -> Option<&str> {
     value.as_deref().filter(|inner| !inner.trim().is_empty())
 }
 
+/// Whether a workspace is operational for git/branch/sync ops.
+/// `setup_pending` counts as operational — it's a UI hint for auto-running
+/// setup scripts, not a lock on git state.
+pub fn is_operational_state(state: &str) -> bool {
+    !matches!(state, "archived" | "initializing")
+}
+
 // ---- Sidebar sorting helpers ----
 
 pub fn group_id_from_status(manual_status: &Option<String>, derived_status: &str) -> &'static str {
