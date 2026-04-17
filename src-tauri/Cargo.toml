@@ -1,8 +1,8 @@
 [package]
 name = "helmor"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["Helmor Contributors"]
+description = "The local-first IDE for coding agent orchestration."
+authors = ["Caspian Zhao", "Nathan Lian"]
 edition = "2021"
 default-run = "helmor"
 
@@ -45,10 +45,10 @@ tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "chron
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 
-# Unix-only: libc is used for process-group SIGTERM/SIGKILL in sidecar.rs and
-# git/ops.rs. Windows uses std::process::Child::kill() fallback.
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
+# libc is used for process-group SIGTERM/SIGKILL in sidecar.rs and git/ops.rs.
+# Helmor only ships on macOS, so we pull it unconditionally.
+[dependencies.libc]
+version = "0.2"
 
 [[bin]]
 name = "helmor-cli"
