@@ -560,6 +560,48 @@ describe("useWorkspacesSidebarController archive flow", () => {
 		expect(onSelectWorkspace).toHaveBeenCalledWith("ws-created");
 	});
 
+	it("does not optimistically reorder sidebar groups when setting manual status", async () => {
+		const queryClient = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const deferred = new Promise<void>(() => {});
+
+		apiMocks.setWorkspaceManualStatus.mockReturnValue(deferred);
+
+		const { result } = renderHook(
+			() =>
+				useWorkspacesSidebarController({
+					selectedWorkspaceId: "ws-1",
+					onSelectWorkspace: vi.fn(),
+					pushWorkspaceToast: vi.fn(),
+				}),
+			{ wrapper: createWrapper(queryClient) },
+		);
+
+		await waitFor(() => {
+			expect(result.current.groups[0]?.rows.map((row) => row.id)).toEqual([
+				"ws-1",
+				"ws-2",
+			]);
+		});
+
+		act(() => {
+			void result.current.handleSetManualStatus("ws-1", "done");
+		});
+
+		expect(apiMocks.setWorkspaceManualStatus).toHaveBeenCalledWith(
+			"ws-1",
+			"done",
+		);
+		expect(result.current.groups[0]?.rows.map((row) => row.id)).toEqual([
+			"ws-1",
+			"ws-2",
+		]);
+		expect(
+			result.current.groups.find((group) => group.id === "done")?.rows ?? [],
+		).toEqual([]);
+	});
+
 	// Retry: even with the mock + timeout fixes this test exercises the most
 	// timing-sensitive microtask ordering in the suite (mutation resolve →
 	// setQueryData injection → fire-and-forget refetchNavigation vs
