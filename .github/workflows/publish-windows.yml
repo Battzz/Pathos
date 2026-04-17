@@ -1,20 +1,20 @@
-name: Publish macOS Release (fallback)
+name: Publish Windows Release (fallback)
 
 # Kept as a manual-only fallback after Phase 7's unified publish.yml
-# consolidation. Tag pushes now fire publish.yml (matrix of 4 targets)
-# instead of this single-platform workflow. Run this manually only if the
-# unified workflow has an outage and you need a macOS-only rollback.
+# consolidation. Tag pushes now fire publish.yml instead.
 on:
   workflow_dispatch:
     inputs:
       draft:
         description: "Create the GitHub release as a draft"
         required: false
-        default: false
+        default: true
         type: boolean
 
 concurrency:
-  group: publish-macos-${{ github.ref }}
+  # Serialise Windows publishes per ref so tauri-action's latest.json
+  # merges do not race against a retry of the same tag.
+  group: publish-windows-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -83,9 +83,9 @@ jobs:
           fi
 
   build-and-publish:
-    name: Build and Publish macOS Release
+    name: Build and Publish Windows Release
     needs: preflight
-    runs-on: macos-latest
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -95,41 +95,22 @@ jobs:
       - name: Setup JS toolchain
         uses: ./.github/actions/setup-js
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust Tauri
+        uses: ./.github/actions/setup-rust-tauri
 
-      - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2
+      - name: Build + stage sidecar for x86_64-pc-windows-msvc
+        uses: ./.github/actions/build-sidecar
         with:
-          cache-on-failure: true
-          cache-workspace-crates: true
-          shared-key: macos-tauri-v1
-          workspaces: src-tauri -> target
+          target-triple: x86_64-pc-windows-msvc
 
-      - name: Prepare macOS signing keychain
-        id: signing
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          OUTPUT_FORMAT: github
-        run: |
-          chmod +x scripts/prepare-macos-signing.sh scripts/cleanup-macos-signing.sh
-          scripts/prepare-macos-signing.sh >> "$GITHUB_OUTPUT"
-
-      - name: Build and publish signed macOS release
+      - name: Build and publish Windows release (unsigned v1)
+        # v1 ships unsigned. Users will see a SmartScreen "protected your PC"
+        # warning and must click "More info" → "Run anyway" to install.
+        # Planned follow-up: Azure Trusted Signing (see docs/release-secrets.md).
         id: tauri
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_KEYCHAIN_PATH: ${{ steps.signing.outputs.APPLE_KEYCHAIN_PATH }}
-          APPLE_KEYCHAIN_PASSWORD: ${{ steps.signing.outputs.APPLE_KEYCHAIN_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           HELMOR_UPDATER_PUBKEY: ${{ secrets.HELMOR_UPDATER_PUBKEY }}
@@ -141,9 +122,28 @@ jobs:
           releaseDraft: ${{ needs.preflight.outputs.draft == 'true' }}
           prerelease: false
           uploadUpdaterJson: true
+          # NSIS is the preferred Windows updater target. MSI is still produced
+          # alongside for users who prefer it (same `tauri build` run).
+          updaterJsonPreferNsis: true
           # Force tauri-action to use bun instead of auto-detecting (it only knows npm/yarn/pnpm)
           tauriScript: bun run tauri
 
-      - name: Cleanup macOS signing keychain
-        if: always()
-        run: scripts/cleanup-macos-signing.sh "${{ steps.signing.outputs.APPLE_KEYCHAIN_PATH }}"
+      - name: Executable smoke test (process starts, stays alive 5s)
+        # Best-effort check that helmor.exe boots without exiting
+        # immediately. Windows CI can't render a GUI properly but the
+        # process should stay alive for at least a few seconds if the
+        # binary is not instantly crashing on missing sidecar / DLL / etc.
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $Exe = Get-ChildItem -Path "src-tauri/target/release" -Filter "helmor.exe" -Recurse | Select-Object -First 1
+          if (-not $Exe) { Write-Host "::warning::helmor.exe not found under src-tauri/target/release"; exit 0 }
+          Write-Host "Launching $($Exe.FullName)"
+          $proc = Start-Process -FilePath $Exe.FullName -PassThru
+          Start-Sleep -Seconds 5
+          if ($proc.HasExited) {
+            Write-Host "::warning::helmor.exe exited within 5s with code $($proc.ExitCode)"
+          } else {
+            Write-Host "helmor.exe is running 5s after launch — likely healthy"
+            Stop-Process -Id $proc.Id -Force
+          }

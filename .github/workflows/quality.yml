@@ -24,6 +24,7 @@ jobs:
     outputs:
       lint: ${{ steps.filter.outputs.lint }}
       typecheck: ${{ steps.filter.outputs.typecheck }}
+      rust: ${{ steps.filter.outputs.rust }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -61,6 +62,12 @@ jobs:
               - '.storybook/**'
               - 'src/**'
               - 'sidecar/**'
+            rust:
+              - '.github/**'
+              - 'src-tauri/**'
+              - 'sidecar/**'
+              - 'package.json'
+              - 'bun.lock'
 
   lint:
     name: Lint
@@ -99,3 +106,34 @@ jobs:
 
       - name: Run typecheck
         run: bun run typecheck
+
+  # Windows dep-resolution + source-compile gate. Phase 1 unblocked Windows
+  # dep resolution (Cargo.toml cfg(unix) fix); Phase 2 added cfg guards on
+  # every Unix-only module (workspace/scripts.rs → stub, data_dir, sidecar
+  # path, archive shell, system_commands per-OS, helpers::copy_symlink). The
+  # gate is now STRICT — any Windows source-compile regression fails CI.
+  rust-check-windows:
+    name: Rust Windows Check
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup JS toolchain
+        uses: ./.github/actions/setup-js
+
+      - name: Setup Rust Tauri
+        uses: ./.github/actions/setup-rust-tauri
+
+      - name: Build + stage sidecar (Windows)
+        uses: ./.github/actions/build-sidecar
+        with:
+          target-triple: x86_64-pc-windows-msvc
+
+      - name: cargo check for x86_64-pc-windows-msvc
+        shell: bash
+        working-directory: src-tauri
+        run: cargo check --lib --target x86_64-pc-windows-msvc

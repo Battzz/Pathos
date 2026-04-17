@@ -31,6 +31,17 @@ vi.mock("./App.css", () => ({}));
 vi.mock("@tauri-apps/plugin-dialog", () => ({
 	open: vi.fn(),
 }));
+// The shortcut suite is written against macOS conventions (metaKey = Cmd).
+// jsdom's default userAgent is Linux, so without this mock `isMac()` would
+// return false and the strict OS-aware isPrimaryModifier would expect
+// ctrlKey instead. Forcing platform="mac" here keeps the test intent
+// explicit: exercise the macOS shortcut path.
+vi.mock("./lib/platform", () => ({
+	getPlatform: () => "mac",
+	isMac: () => true,
+	isWindows: () => false,
+	isLinux: () => false,
+}));
 vi.mock("@tauri-apps/api/window", () => ({
 	getCurrentWindow: () => ({
 		onCloseRequested: windowApiMocks.onCloseRequested.mockImplementation(
@@ -662,6 +673,8 @@ describe("App global navigation shortcuts", () => {
 			altKey: true,
 			shiftKey: true,
 		});
+		// Strict OS-aware binding: on macOS ctrlKey is the "wrong" modifier
+		// and must reject the shortcut. Restored original pre-Phase-3 assertion.
 		fireEvent.keyDown(window, {
 			key: "ArrowDown",
 			metaKey: true,
