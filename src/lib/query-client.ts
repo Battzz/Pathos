@@ -19,6 +19,8 @@ import {
 	loadWorkspacePrActionStatus,
 	loadWorkspaceSessions,
 	lookupWorkspacePr,
+	type PullRequestInfo,
+	type WorkspacePrActionStatus,
 } from "./api";
 
 const SESSION_STALE_TIME = 10 * 60_000;
@@ -227,11 +229,61 @@ export function autoCloseOptInAskedQueryOptions() {
 	});
 }
 
+// Adaptive refetch interval for workspacePr. Cheap query (~5-10 GraphQL
+// points/call) — only carries state/title/isMerged, so tiers are coarse.
+// Slow down on terminal PRs to save budget; refetchOnWindowFocus + staleTime
+// still guarantee a refresh when the user returns or switches workspace.
+export function prRefetchInterval(
+	data: PullRequestInfo | null | undefined,
+): number {
+	if (!data) return 60_000;
+	if (data.isMerged || data.state === "MERGED" || data.state === "CLOSED") {
+		// Not `false` because this query drives the header badge — a reopen
+		// should eventually reflect even if the user never loses focus.
+		return 300_000;
+	}
+	return 60_000;
+}
+
+// Adaptive refetch interval for workspacePrActionStatus. Expensive query
+// (~20-40 GraphQL points/call) with the richest signal, so tiers are fine:
+//   - PR MERGED/CLOSED → stop polling entirely (false). checks/deployments
+//     are frozen; focus + invalidate paths remain available for reopens.
+//   - remoteState !== "ok" → keep 60s. Don't accelerate on error (avoids
+//     hammering GitHub during outages) and don't stop (need to detect the
+//     PR coming back).
+//   - mergeable === "UNKNOWN" → 5s. GitHub's async mergeability typically
+//     resolves within 5-20s; we want to reflect it ASAP.
+//   - any check/deployment pending or running → 15s. User is watching CI.
+//   - stable OPEN → 60s (unchanged from previous fixed interval).
+export function prActionStatusRefetchInterval(
+	data: WorkspacePrActionStatus | undefined,
+): number | false {
+	if (!data) return 60_000;
+	if (data.remoteState !== "ok") return 60_000;
+	if (
+		data.pr?.isMerged ||
+		data.pr?.state === "MERGED" ||
+		data.pr?.state === "CLOSED"
+	) {
+		return false;
+	}
+	if (data.mergeable === "UNKNOWN") return 5_000;
+	const hasRunningWork =
+		data.checks.some((c) => c.status === "pending" || c.status === "running") ||
+		data.deployments.some(
+			(d) => d.status === "pending" || d.status === "running",
+		);
+	if (hasRunningWork) return 15_000;
+	return 60_000;
+}
+
 /**
  * Current PR for a workspace's branch. Drives the commit button's resting
  * mode (create-pr → merge → merged) and the "Git · PR #xxx" header badge.
- * Polls every 60 s so the badge stays fresh even when the user leaves the
- * app open. Returns `null` when no PR is found or lookup is unavailable.
+ * Adaptive polling: 60s while the PR is OPEN, 5min once terminal
+ * (MERGED/CLOSED) to save GraphQL budget. Returns `null` when no PR is
+ * found or lookup is unavailable.
  */
 export function workspacePrQueryOptions(workspaceId: string) {
 	return queryOptions({
@@ -240,7 +292,7 @@ export function workspacePrQueryOptions(workspaceId: string) {
 		staleTime: 30_000,
 		gcTime: DEFAULT_GC_TIME,
 		refetchOnWindowFocus: true,
-		refetchInterval: 60_000,
+		refetchInterval: (query) => prRefetchInterval(query.state.data),
 		retry: 0,
 	});
 }
@@ -257,13 +309,20 @@ export function workspaceGitActionStatusQueryOptions(workspaceId: string) {
 	});
 }
 
+/**
+ * PR mergeable state, review decision, checks and deployments. Drives the
+ * inspector's git/review/checks rows and the commit button's merge
+ * pre-validation. Adaptive polling by PR hotness (see
+ * {@link prActionStatusRefetchInterval}) — 5s while GitHub computes
+ * mergeability, 15s while CI is in flight, 60s stable, stopped on terminal.
+ */
 export function workspacePrActionStatusQueryOptions(workspaceId: string) {
 	return queryOptions({
 		queryKey: helmorQueryKeys.workspacePrActionStatus(workspaceId),
 		queryFn: () => loadWorkspacePrActionStatus(workspaceId),
 		staleTime: 30_000,
 		gcTime: DEFAULT_GC_TIME,
-		refetchInterval: 60_000,
+		refetchInterval: (query) => prActionStatusRefetchInterval(query.state.data),
 		retry: 0,
 	});
 }

@@ -7,6 +7,7 @@ import {
 	type WorkspaceCommitButtonMode,
 } from "@/features/commit/button";
 import type { PullRequestInfo } from "@/lib/api";
+import { useMinDisplayDuration } from "@/lib/use-min-display-duration";
 import { cn } from "@/lib/utils";
 import {
 	getGitSectionHeaderHighlightClass,
@@ -14,11 +15,19 @@ import {
 	INSPECTOR_SECTION_TITLE_CLASS,
 } from "../layout";
 
+const SHIMMER_MIN_DISPLAY_MS = 1500;
+
 export type GitSectionHeaderProps = {
 	commitButtonMode: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
 	prInfo: PullRequestInfo | null;
 	hasChanges?: boolean;
+	/**
+	 * Whether PR data is currently being (re)fetched. Drives the bottom
+	 * shimmer bar. Gated by a min display duration so fast responses don't
+	 * flicker.
+	 */
+	isRefreshing?: boolean;
 	onPrClick?: () => void;
 	onCommit?: () => void | Promise<void>;
 	className?: string;
@@ -29,12 +38,18 @@ export function GitSectionHeader({
 	commitButtonState,
 	prInfo,
 	hasChanges = false,
+	isRefreshing = false,
 	onPrClick,
 	onCommit,
 	className,
 }: GitSectionHeaderProps) {
 	const gitHeaderHighlightClass =
 		getGitSectionHeaderHighlightClass(commitButtonMode);
+
+	const showShimmer = useMinDisplayDuration(
+		isRefreshing,
+		SHIMMER_MIN_DISPLAY_MS,
+	);
 
 	const showButton =
 		hasChanges ||
@@ -45,11 +60,23 @@ export function GitSectionHeader({
 		<div
 			className={cn(
 				INSPECTOR_SECTION_HEADER_CLASS,
+				"relative overflow-hidden rounded-tr-[16px]",
 				"transition-[background-color,border-color,color,box-shadow] duration-300 ease-out",
 				gitHeaderHighlightClass,
 				className,
 			)}
 		>
+			{showShimmer && (
+				<div
+					aria-hidden="true"
+					className="pointer-events-none absolute inset-x-0 bottom-0 h-px motion-safe:animate-[shine_2s_infinite_linear]"
+					style={{
+						backgroundImage:
+							"linear-gradient(90deg, transparent 0%, transparent 35%, color-mix(in oklch, var(--color-primary) 50%, transparent) 50%, transparent 65%, transparent 100%)",
+						backgroundSize: "300% 100%",
+					}}
+				/>
+			)}
 			<div className="flex min-w-0 items-center gap-1.5">
 				{!prInfo ? (
 					<span className={cn(INSPECTOR_SECTION_TITLE_CLASS, "translate-y-px")}>

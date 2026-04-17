@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
 	getMaterialFileIcon,
@@ -229,6 +229,22 @@ export function ChangesSection({
 		await onCommitAction(commitButtonMode);
 	}, [commitButtonMode, onCommitAction]);
 
+	// Drive the header's shimmer bar off the shared PR query cache. Both
+	// queries dedupe by key, so this reads the same fetching state the
+	// App-level useQuery instances own.
+	const prFetchingCount = useIsFetching({
+		queryKey: helmorQueryKeys.workspacePr(workspaceId ?? "__none__"),
+		exact: true,
+	});
+	const prActionStatusFetchingCount = useIsFetching({
+		queryKey: helmorQueryKeys.workspacePrActionStatus(
+			workspaceId ?? "__none__",
+		),
+		exact: true,
+	});
+	const isPrRefreshing =
+		workspaceId !== null && prFetchingCount + prActionStatusFetchingCount > 0;
+
 	return (
 		<section
 			aria-label="Inspector section Git"
@@ -240,6 +256,7 @@ export function ChangesSection({
 				commitButtonState={commitButtonState}
 				prInfo={prInfo}
 				hasChanges={hasChanges}
+				isRefreshing={isPrRefreshing}
 				onPrClick={prInfo ? () => void openUrl(prInfo.url) : undefined}
 				onCommit={handleCommitButtonClick}
 			/>
