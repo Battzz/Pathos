@@ -128,26 +128,42 @@ function humanSize(path: string): string {
 	return `${bytes} B`;
 }
 
-function maybeSignMacBinary(path: string): void {
+// Shared entitlements plist — Bun's JSC JIT needs allow-jit +
+// allow-unsigned-executable-memory under hardened runtime, otherwise
+// spawn fails with "Ran out of executable memory while allocating N bytes".
+const ENTITLEMENTS_PLIST = join(
+	SIDECAR_ROOT,
+	"..",
+	"src-tauri",
+	"Entitlements.plist",
+);
+
+function maybeSignMacBinary(path: string, withEntitlements: boolean): void {
 	const identity = process.env.APPLE_SIGNING_IDENTITY?.trim();
 	if (!identity) return;
 
-	console.log(`[stage-vendor] signing ${path}`);
-	execFileSync(
-		"codesign",
-		[
-			"--force",
-			"--sign",
-			identity,
-			"--timestamp",
-			"--options",
-			"runtime",
-			path,
-		],
-		{
-			stdio: "inherit",
-		},
+	const args = [
+		"--force",
+		"--sign",
+		identity,
+		"--timestamp",
+		"--options",
+		"runtime",
+	];
+	if (withEntitlements) {
+		if (!existsSync(ENTITLEMENTS_PLIST)) {
+			throw new Error(
+				`[stage-vendor] Entitlements.plist missing at ${ENTITLEMENTS_PLIST}`,
+			);
+		}
+		args.push("--entitlements", ENTITLEMENTS_PLIST);
+	}
+	args.push(path);
+
+	console.log(
+		`[stage-vendor] signing ${path}${withEntitlements ? " (+entitlements)" : ""}`,
 	);
+	execFileSync("codesign", args, { stdio: "inherit" });
 }
 
 // ---------------------------------------------------------------------------
@@ -196,7 +212,7 @@ ensureExists(codexSrc, `${target.codexPkg} codex binary`);
 const codexDest = join(DIST_VENDOR, "codex", "codex");
 copyFile(codexSrc, codexDest);
 chmodSync(codexDest, 0o755);
-maybeSignMacBinary(codexDest);
+maybeSignMacBinary(codexDest, false);
 
 // ----- Bun (JS runtime for cli.js) -----
 function locateHostBun(): string {
@@ -219,7 +235,7 @@ const bunSrc = locateHostBun();
 const bunDest = join(DIST_VENDOR, "bun", "bun");
 copyFile(bunSrc, bunDest);
 chmodSync(bunDest, 0o755);
-maybeSignMacBinary(bunDest);
+maybeSignMacBinary(bunDest, true);
 
 for (const rel of [
 	join(ccDest, "vendor", "ripgrep", target.ccVendorArch, "rg"),
@@ -232,7 +248,7 @@ for (const rel of [
 	),
 ]) {
 	if (existsSync(rel)) {
-		maybeSignMacBinary(rel);
+		maybeSignMacBinary(rel, false);
 	}
 }
 
