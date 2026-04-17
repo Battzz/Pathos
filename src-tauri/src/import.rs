@@ -69,10 +69,10 @@ pub fn list_conductor_repos() -> Result<Vec<ConductorRepo>> {
                 r.remote_url,
                 (SELECT count(*) FROM source.workspaces w
                  WHERE w.repository_id = r.id
-                   AND w.state IN ('ready', 'archived')) AS workspace_count,
+                   AND w.state = 'ready') AS workspace_count,
                 (SELECT count(*) FROM source.workspaces w
                  WHERE w.repository_id = r.id
-                   AND w.state IN ('ready', 'archived')
+                   AND w.state = 'ready'
                    AND w.id IN (SELECT id FROM main.workspaces)) AS already_imported_count
             FROM source.repos r
             WHERE r.hidden = 0 OR r.hidden IS NULL
@@ -127,7 +127,7 @@ pub fn list_conductor_workspaces(repo_id: &str) -> Result<Vec<ConductorWorkspace
             FROM source.workspaces w
             JOIN source.repos r ON r.id = w.repository_id
             WHERE w.repository_id = ?1
-              AND w.state IN ('ready', 'archived')
+              AND w.state = 'ready'
             ORDER BY w.updated_at DESC
             "#,
         )
