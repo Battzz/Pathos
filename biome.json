@@ -15,6 +15,7 @@
 			"!**/node_modules",
 			"!!**/.claude",
 			"!!**/coverage",
+			"!**/.local-data",
 			"!src-tauri/gen",
 			"!src-tauri/target"
 		]
