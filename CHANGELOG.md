@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+### Patch Changes
+
+- [`dd53716`](https://github.com/dohooo/helmor/commit/dd537165c122e19721dc28064a60f0771a263662) Thanks [@claude](https://github.com/claude)! - - Fix the caret jumping to the start of the paragraph right after a Chinese IME buffer got stripped of its segmentation spaces — the caret now stays at the end of what you just typed.
+
 ## 0.1.3
 
 ### Patch Changes
