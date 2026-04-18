@@ -47,6 +47,24 @@ Bad:
 - "Refactor updater state machine and reorganize release scripts."
 - "Update Cargo.toml, tauri.conf.json, and workflow files."
 
+## Body Structure
+
+`@changesets/changelog-github` inlines the first line of the body onto the same line as `Thanks @user! -`. The body must therefore never start with a `- ` bullet, or the rendered CHANGELOG gets `! - - Fix X` with the first item glued to the attribution line.
+
+Single item → one sentence, no leading dash:
+
+```md
+Fix the caret jumping to the start of the paragraph after an IME buffer is stripped.
+```
+
+Multiple items → prose summary on line 1 (ending with `:`), bullets from line 2:
+
+```md
+Harden Chinese / Japanese / Korean IME handling in the composer:
+- Pressing Enter to confirm a candidate no longer sends the message.
+- Segmentation spaces no longer leak when switching IME mid-composition.
+```
+
 ## Credits
 
 If the user wants credits, keep them short and explicit in the body. Example:

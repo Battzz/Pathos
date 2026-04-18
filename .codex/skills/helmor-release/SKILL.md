@@ -64,19 +64,46 @@ Do not:
 - list internal refactors unless they changed release behavior
 - mention implementation-only details like exact file names
 - create multiple changesets for one coordinated release task unless the user asks
+- start the changeset body with a `- ` bullet (see format rule below)
 
 ## Default Changeset Format
 
-Use this structure:
+`@changesets/changelog-github` inlines the first line of the body after `Thanks @user! -` when rendering `CHANGELOG.md` / GitHub Release. If the first line is itself a bullet (`- Fix X`), the output becomes `! - - Fix X` with the first item glued to the attribution. **Never start the body with `- `.**
+
+### Single-item changeset
+
+Write the body as one sentence, no leading dash:
+
+```md
+---
+"helmor": patch
+---
+
+Fix Chinese / Japanese / Korean IME pressing Enter to confirm a candidate accidentally sending the message.
+```
+
+### Multi-item changeset
+
+First line is a prose summary ending with `:`. Bullets start from the next line:
 
 ```md
 ---
 "helmor": minor
 ---
 
+Ship a round of release and auto-update improvements:
 - Add in-app update checks that download updates in the background and prompt once the update is ready to install.
 - Add a signed and notarized macOS release pipeline for GitHub Releases.
 - Add release planning automation so Helmor can publish user-facing release notes through Changesets.
+```
+
+This renders cleanly as:
+
+```md
+- [#NN] [`hash`] Thanks @user! - Ship a round of release and auto-update improvements:
+  - Add in-app update checks ...
+  - Add a signed and notarized macOS release pipeline ...
+  - Add release planning automation ...
 ```
 
 If the user wants credits, append a final bullet such as:
