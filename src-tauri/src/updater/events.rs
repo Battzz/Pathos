@@ -22,8 +22,7 @@ pub struct UpdateInfoSnapshot {
     pub version: String,
     pub body: Option<String>,
     pub date: Option<String>,
-    pub release_url: Option<String>,
-    pub changelog_url: Option<String>,
+    pub release_url: String,
 }
 
 #[derive(Clone, Debug, Serialize)]

@@ -39,6 +39,7 @@ export default defineConfig({
 			"@tauri-apps/api/core": path.resolve(MOCK_DIR, "tauri-core.ts"),
 			"@tauri-apps/api/event": path.resolve(MOCK_DIR, "tauri-event.ts"),
 			"@tauri-apps/api/window": path.resolve(MOCK_DIR, "tauri-window.ts"),
+			"@tauri-apps/api/webview": path.resolve(MOCK_DIR, "tauri-webview.ts"),
 			"@tauri-apps/plugin-opener": path.resolve(MOCK_DIR, "plugin-opener.ts"),
 			"@tauri-apps/plugin-dialog": path.resolve(MOCK_DIR, "plugin-dialog.ts"),
 			"@tauri-apps/plugin-notification": path.resolve(

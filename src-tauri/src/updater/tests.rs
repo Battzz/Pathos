@@ -56,8 +56,7 @@ fn update_status_snapshot_serializes_camel_case_fields() {
             version: "0.2.0".into(),
             body: Some("release notes".into()),
             date: None,
-            release_url: Some("https://example.com/release".into()),
-            changelog_url: None,
+            release_url: "https://github.com/dohooo/helmor/releases/tag/v0.2.0".into(),
         }),
         last_error: Some("network".into()),
         last_attempt_at: Some("2026-04-17T00:00:00Z".into()),
@@ -70,7 +69,10 @@ fn update_status_snapshot_serializes_camel_case_fields() {
     assert_eq!(value["autoUpdateEnabled"], true);
     assert_eq!(value["update"]["currentVersion"], "0.1.0");
     assert_eq!(value["update"]["version"], "0.2.0");
-    assert_eq!(value["update"]["releaseUrl"], "https://example.com/release");
+    assert_eq!(
+        value["update"]["releaseUrl"],
+        "https://github.com/dohooo/helmor/releases/tag/v0.2.0"
+    );
     assert_eq!(value["lastError"], "network");
     assert_eq!(value["lastAttemptAt"], "2026-04-17T00:00:00Z");
 }

@@ -55,6 +55,12 @@ vi.mock("@tauri-apps/api/window", () => ({
 	})),
 }));
 
+vi.mock("@tauri-apps/api/webview", () => ({
+	getCurrentWebview: vi.fn(() => ({
+		setZoom: vi.fn(async () => {}),
+	})),
+}));
+
 // `src/lib/api.ts` always calls `invoke` from `@tauri-apps/api/core` now —
 // there is no browser-mode fallback layer anymore. jsdom has no Tauri runtime,
 // so without this mock every test that triggers a real API function (via

@@ -128,6 +128,7 @@ When a snapshot drifts: look at the diff first. Only accept after confirming the
 - **File editor**: Monaco, lazy via `src/lib/monaco-runtime.ts`.
 - **Linting**: Biome (tab indent). `lint-staged` enforces on pre-commit.
 - **Testing**: Vitest + jsdom (frontend), `bun test` (sidecar), cargo test + insta (Rust). Tests co-located with source.
+- **Changesets**: Every `.changeset/*.md` body starts with a prose summary line (no leading `- `), then lists each user-visible change as a `- ` sub-item underneath. Both parts are required, even for a single-change fix. See the `helmor-release` skill for full format and rationale.
 - **Data dir**: `~/helmor/` (release) or `~/helmor-dev/` (debug). Override: `HELMOR_DATA_DIR`.
 - **macOS chrome**: Overlay title bar, traffic lights at (16, 24). Drag via `data-tauri-drag-region`.
 - **Serde**: `#[serde(rename_all = "camelCase")]` -- JSON fields match TypeScript directly.

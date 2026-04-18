@@ -53,7 +53,7 @@ Write changesets for users, not for maintainers.
 Do:
 
 - explain what changed from the user's point of view
-- group related work into 2-5 short bullets
+- always open the body with a prose summary line (no leading `- `), then enumerate concrete changes as `- ` sub-items underneath
 - keep bullets concrete and outcome-focused
 - mention new workflows or capabilities
 - include a short thanks line only if the user explicitly wants credits
@@ -64,25 +64,33 @@ Do not:
 - list internal refactors unless they changed release behavior
 - mention implementation-only details like exact file names
 - create multiple changesets for one coordinated release task unless the user asks
-- start the changeset body with a `- ` bullet (see format rule below)
+- start the changeset body with a `- ` bullet, or skip the summary line and go straight to bullets (see format rule below)
 
 ## Default Changeset Format
 
-`@changesets/changelog-github` inlines the first line of the body after `Thanks @user! -` when rendering `CHANGELOG.md` / GitHub Release. If the first line is itself a bullet (`- Fix X`), the output becomes `! - - Fix X` with the first item glued to the attribution. **Never start the body with `- `.**
+Every changeset body has **two parts**:
 
-### Single-item changeset
+1. A prose **summary line** that sets the release theme at a glance, written with no leading `- `.
+2. One or more **bullet sub-items** underneath (each starting with `- `) that enumerate concrete user-visible changes.
 
-Write the body as one sentence, no leading dash:
+Both parts are required, even when there is only one underlying change — the summary gives the CHANGELOG reader context; the bullets carry the outcomes.
+
+`@changesets/changelog-github` inlines the first line of the body after `Thanks @user! -` when rendering `CHANGELOG.md` / GitHub Release. If the first line is itself a bullet (`- Fix X`), the output becomes `! - - Fix X` with the first item glued to the attribution. **Never start the body with `- `**, and never submit a changeset whose body is a single sentence with no bullets — always give readers a summary + at least one bullet.
+
+### Single-change example
+
+Summary line describes the area; one bullet captures the specific outcome:
 
 ```md
 ---
 "helmor": patch
 ---
 
-Fix Chinese / Japanese / Korean IME pressing Enter to confirm a candidate accidentally sending the message.
+Fix a Chinese IME regression in the composer:
+- Pressing Enter to confirm an IME candidate no longer accidentally sends the message.
 ```
 
-### Multi-item changeset
+### Multi-change example
 
 First line is a prose summary ending with `:`. Bullets start from the next line:
 

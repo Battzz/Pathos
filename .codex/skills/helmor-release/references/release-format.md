@@ -49,15 +49,23 @@ Bad:
 
 ## Body Structure
 
-`@changesets/changelog-github` inlines the first line of the body onto the same line as `Thanks @user! -`. The body must therefore never start with a `- ` bullet, or the rendered CHANGELOG gets `! - - Fix X` with the first item glued to the attribution line.
+Every changeset body has two mandatory parts:
 
-Single item → one sentence, no leading dash:
+1. A prose **summary line** with no leading `- `.
+2. One or more **bullet sub-items** (each starting with `- `) underneath.
+
+Both parts are required, even for a single-change fix. The summary gives the CHANGELOG reader context at a glance; the bullets carry the concrete outcomes. Do not submit changesets that are a single prose sentence with no bullets, and never start the body with `- `.
+
+`@changesets/changelog-github` inlines the first line of the body onto the same line as `Thanks @user! -` when rendering `CHANGELOG.md` / GitHub Release. Starting with `- ` produces `! - - Fix X` with the first item glued to the attribution line, which is why the summary-first rule is enforced.
+
+Single change — summary line describes the area, one bullet captures the outcome:
 
 ```md
-Fix the caret jumping to the start of the paragraph after an IME buffer is stripped.
+Fix a composer IME regression:
+- The caret no longer jumps to the start of the paragraph after an IME buffer is stripped.
 ```
 
-Multiple items → prose summary on line 1 (ending with `:`), bullets from line 2:
+Multiple changes — summary line ends with `:`, bullets follow:
 
 ```md
 Harden Chinese / Japanese / Korean IME handling in the composer:
