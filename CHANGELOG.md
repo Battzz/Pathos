@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6
+
+### Patch Changes
+
+- [`13e31d6`](https://github.com/dohooo/helmor/commit/13e31d684c3f8b54b2b828ffb441e3be6c2c36dd) Thanks [@natllian](https://github.com/natllian)! - Fix resuming a Claude conversation sometimes failing with "No conversation found".
+
 ## 0.1.5
 
 ### Patch Changes
