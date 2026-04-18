@@ -401,8 +401,7 @@ export type AppUpdateInfo = {
 	version: string;
 	body?: string | null;
 	date?: string | null;
-	releaseUrl?: string | null;
-	changelogUrl?: string | null;
+	releaseUrl: string;
 };
 
 export type AppUpdateStatus = {

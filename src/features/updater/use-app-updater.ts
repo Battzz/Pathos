@@ -47,18 +47,16 @@ function showDownloadedUpdateToast(
 			},
 			"Update and restart",
 		),
-		cancel: status.update.releaseUrl
-			? createElement(
-					"button",
-					{
-						type: "button",
-						"data-button": true,
-						"data-cancel": true,
-						onClick: () => void openUrl(status.update.releaseUrl ?? ""),
-					},
-					"View change log",
-				)
-			: undefined,
+		cancel: createElement(
+			"button",
+			{
+				type: "button",
+				"data-button": true,
+				"data-cancel": true,
+				onClick: () => void openUrl(status.update.releaseUrl),
+			},
+			"View change log",
+		),
 		duration: Number.POSITIVE_INFINITY,
 	});
 }

@@ -2,7 +2,6 @@ use std::sync::{Mutex, OnceLock};
 use std::thread;
 
 use chrono::Utc;
-use serde_json::Value;
 use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_updater::UpdaterExt;
 
@@ -305,24 +304,17 @@ fn should_attempt(
 }
 
 fn snapshot_from_update(update: &tauri_plugin_updater::Update) -> UpdateInfoSnapshot {
-    let release_url = raw_json_string(&update.raw_json, &["releaseUrl", "release_url"]);
-    let changelog_url = raw_json_string(&update.raw_json, &["changelogUrl", "changelog_url"]);
-
     UpdateInfoSnapshot {
         current_version: update.current_version.clone(),
         version: update.version.clone(),
         body: update.body.clone(),
         date: update.date.map(|value| value.to_string()),
-        release_url,
-        changelog_url,
+        release_url: release_url_for_version(&update.version),
     }
 }
 
-fn raw_json_string(value: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|key| {
-        value
-            .get(key)
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
-    })
+// CI enforces tag == `v{package.json.version}` in .github/workflows/publish.yml,
+// so every installable update has a corresponding GitHub release page at this URL.
+fn release_url_for_version(version: &str) -> String {
+    format!("https://github.com/dohooo/helmor/releases/tag/v{version}")
 }
