@@ -4,21 +4,18 @@ import type * as React from "react";
 
 import { cn } from "../../lib/utils";
 
-const avatarVariants = cva(
-	"relative inline-flex shrink-0 overflow-hidden rounded-full",
-	{
-		variants: {
-			size: {
-				default: "size-8",
-				sm: "size-6",
-				lg: "size-10",
-			},
-		},
-		defaultVariants: {
-			size: "default",
+const avatarVariants = cva("relative inline-flex shrink-0 rounded-full", {
+	variants: {
+		size: {
+			default: "size-8",
+			sm: "size-6",
+			lg: "size-10",
 		},
 	},
-);
+	defaultVariants: {
+		size: "default",
+	},
+});
 
 type AvatarProps = React.ComponentProps<typeof AvatarPrimitive.Root> &
 	VariantProps<typeof avatarVariants>;
@@ -40,7 +37,23 @@ function AvatarImage({
 	return (
 		<AvatarPrimitive.Image
 			data-slot="avatar-image"
-			className={cn("aspect-square size-full object-cover", className)}
+			className={cn(
+				"aspect-square size-full rounded-[inherit] object-cover",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
+function AvatarBadge({ className, ...props }: React.ComponentProps<"span">) {
+	return (
+		<span
+			data-slot="avatar-badge"
+			className={cn(
+				"absolute -bottom-0.5 -right-0.5 size-2 rounded-full border-2 border-background",
+				className,
+			)}
 			{...props}
 		/>
 	);
@@ -62,4 +75,4 @@ function AvatarFallback({
 	);
 }
 
-export { Avatar, AvatarFallback, AvatarImage };
+export { Avatar, AvatarBadge, AvatarFallback, AvatarImage };
