@@ -3,8 +3,6 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import {
 	type AppUpdateStatus,
 	checkForAppUpdate,
@@ -12,7 +10,6 @@ import {
 	installDownloadedAppUpdate,
 	listenAppUpdateStatus,
 } from "@/lib/api";
-import { useSettings } from "@/lib/settings";
 
 function formatStatusDescription(status: AppUpdateStatus): string {
 	if (!status.configured) {
@@ -42,7 +39,6 @@ function formatStatusDescription(status: AppUpdateStatus): string {
 }
 
 export function AppUpdatesPanel() {
-	const { settings, updateSettings } = useSettings();
 	const [status, setStatus] = useState<AppUpdateStatus | null>(null);
 	const [checking, setChecking] = useState(false);
 	const [installing, setInstalling] = useState(false);
@@ -151,88 +147,6 @@ export function AppUpdatesPanel() {
 						)}
 					</div>
 				</div>
-			</div>
-
-			<div className="flex items-center justify-between rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
-				<div className="mr-8">
-					<div className="text-[13px] font-medium leading-snug text-foreground">
-						Automatic checks
-					</div>
-					<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
-						Check for updates after launch, on focus, and on the background
-						timer.
-					</div>
-				</div>
-				<Switch
-					checked={settings.autoUpdateEnabled}
-					onCheckedChange={(checked) =>
-						updateSettings({ autoUpdateEnabled: checked })
-					}
-				/>
-			</div>
-
-			<div className="flex items-center justify-between rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
-				<div className="mr-8">
-					<div className="text-[13px] font-medium leading-snug text-foreground">
-						Check on launch
-					</div>
-					<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
-						Run a background check shortly after Helmor starts.
-					</div>
-				</div>
-				<Switch
-					checked={settings.autoUpdateCheckOnLaunch}
-					onCheckedChange={(checked) =>
-						updateSettings({ autoUpdateCheckOnLaunch: checked })
-					}
-					disabled={!settings.autoUpdateEnabled}
-				/>
-			</div>
-
-			<div className="flex items-center justify-between rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
-				<div className="mr-8">
-					<div className="text-[13px] font-medium leading-snug text-foreground">
-						Check when Helmor is focused
-					</div>
-					<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
-						Use a throttled focus/resume trigger to pick up freshly published
-						releases.
-					</div>
-				</div>
-				<Switch
-					checked={settings.autoUpdateCheckOnFocus}
-					onCheckedChange={(checked) =>
-						updateSettings({ autoUpdateCheckOnFocus: checked })
-					}
-					disabled={!settings.autoUpdateEnabled}
-				/>
-			</div>
-
-			<div className="flex items-center justify-between rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
-				<div className="mr-8">
-					<div className="text-[13px] font-medium leading-snug text-foreground">
-						Background interval
-					</div>
-					<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
-						Minimum minutes between background checks.
-					</div>
-				</div>
-				<Input
-					type="number"
-					min={1}
-					step={1}
-					value={String(settings.autoUpdateIntervalMinutes)}
-					onChange={(event) =>
-						updateSettings({
-							autoUpdateIntervalMinutes: Math.max(
-								1,
-								Number(event.target.value) || 1,
-							),
-						})
-					}
-					className="w-28 bg-muted/30 text-right text-[13px] text-foreground"
-					disabled={!settings.autoUpdateEnabled}
-				/>
 			</div>
 		</div>
 	);

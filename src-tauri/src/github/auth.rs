@@ -17,6 +17,7 @@ const DEV_IDENTITY_SECRET_KEY: &str = "github_identity_secret";
 const DEVICE_FLOW_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const REFRESH_GRANT_TYPE: &str = "refresh_token";
 const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
+const GITHUB_OAUTH_SCOPES: &str = "repo read:org user:email";
 pub const GITHUB_IDENTITY_CHANGED_EVENT: &str = "github-identity-changed";
 
 #[derive(Clone, Default)]
@@ -693,7 +694,7 @@ impl GithubHttpClient for ReqwestGithubClient {
     fn start_device_flow(&self, client_id: &str) -> Result<DeviceCodeResponse> {
         self.post_form(
             "https://github.com/login/device/code",
-            &[("client_id", client_id)],
+            &[("client_id", client_id), ("scope", GITHUB_OAUTH_SCOPES)],
         )
     }
 

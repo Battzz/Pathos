@@ -49,6 +49,22 @@ let runtimePromise: Promise<MonacoRuntime> | null = null;
 /** Content cache for pre-fetched files — avoids IPC on first switch. */
 const fileContentCache = new Map<string, string>();
 
+type EditorTheme = "light" | "dark";
+
+/** Pending theme applied once runtime is ready (or the current one). */
+let desiredTheme: EditorTheme = detectInitialTheme();
+
+function detectInitialTheme(): EditorTheme {
+	if (typeof document === "undefined") {
+		return "dark";
+	}
+	return document.documentElement.classList.contains("dark") ? "dark" : "light";
+}
+
+function themeId(theme: EditorTheme): string {
+	return theme === "dark" ? "helmor-editor-dark" : "helmor-editor-light";
+}
+
 export async function createFileEditor(options: {
 	container: HTMLElement;
 	path: string;
@@ -83,7 +99,7 @@ export async function createFileEditor(options: {
 		scrollBeyondLastLine: false,
 		smoothScrolling: true,
 		tabSize: 2,
-		theme: "helmor-editor-dark",
+		theme: themeId(desiredTheme),
 		wordWrap: "on",
 	});
 
@@ -192,7 +208,7 @@ export async function createDiffEditor(options: {
 		renderSideBySide: !options.inline,
 		scrollBeyondLastLine: false,
 		smoothScrolling: true,
-		theme: "helmor-editor-dark",
+		theme: themeId(desiredTheme),
 	});
 
 	editor.setModel({
@@ -239,12 +255,39 @@ async function ensureRuntime(): Promise<MonacoRuntime> {
 
 			installMonacoEnvironment();
 			installEditorTheme(monaco);
+			installThemeObserver(monaco);
 
 			return { monaco };
 		})();
 	}
 
 	return runtimePromise;
+}
+
+// Sync Monaco's theme with the app's `dark` class on <html>. Avoids having
+// callers import this module just to push a theme update, which would pull
+// Monaco's runtime into the critical path on every theme change.
+function installThemeObserver(monaco: MonacoModule) {
+	if (
+		typeof document === "undefined" ||
+		typeof MutationObserver === "undefined"
+	) {
+		return;
+	}
+	const syncTheme = () => {
+		const nextTheme = detectInitialTheme();
+		if (nextTheme === desiredTheme) {
+			return;
+		}
+		desiredTheme = nextTheme;
+		monaco.editor.setTheme(themeId(nextTheme));
+	};
+	const observer = new MutationObserver(syncTheme);
+	observer.observe(document.documentElement, {
+		attributes: true,
+		attributeFilter: ["class"],
+	});
+	syncTheme();
 }
 
 function installMonacoEnvironment() {
@@ -332,7 +375,57 @@ function installEditorTheme(monaco: MonacoModule) {
 			"diffEditor.diagonalFill": "#faf9f608",
 		},
 	});
-	monaco.editor.setTheme("helmor-editor-dark");
+	monaco.editor.defineTheme("helmor-editor-light", {
+		base: "vs",
+		inherit: true,
+		rules: [
+			{ token: "comment", foreground: "7a7775" },
+			{ token: "string", foreground: "8a6b3d" },
+			{ token: "keyword", foreground: "8a3d51" },
+			{ token: "number", foreground: "8a6e2f" },
+			{ token: "regexp", foreground: "5a6b3d" },
+			{ token: "type.identifier", foreground: "3d4d75" },
+			{ token: "identifier", foreground: "1a1918" },
+			{ token: "delimiter", foreground: "5a5857" },
+		],
+		colors: {
+			"editor.background": "#FFFFFF",
+			"editor.foreground": "#1a1918",
+			"editor.lineHighlightBackground": "#f4f3f1",
+			"editor.lineHighlightBorder": "#00000000",
+			"editor.selectionBackground": "#c9d9ef",
+			"editor.inactiveSelectionBackground": "#dde3ec",
+			"editor.wordHighlightBackground": "#c9d9ef88",
+			"editor.wordHighlightStrongBackground": "#a8c1e288",
+			"editorCursor.foreground": "#1a1918",
+			"editorWhitespace.foreground": "#c7c5c2",
+			"editorIndentGuide.background1": "#eceae6",
+			"editorIndentGuide.activeBackground1": "#c7c5c2",
+			"editorLineNumber.foreground": "#a4a19d",
+			"editorLineNumber.activeForeground": "#1a1918",
+			"editorGutter.background": "#FFFFFF",
+			"editorWidget.background": "#f8f7f5",
+			"editorWidget.border": "#e4e2de",
+			"editorSuggestWidget.background": "#f8f7f5",
+			"editorSuggestWidget.border": "#e4e2de",
+			"editorHoverWidget.background": "#f8f7f5",
+			"editorHoverWidget.border": "#e4e2de",
+			"scrollbarSlider.background": "#1a191826",
+			"scrollbarSlider.hoverBackground": "#1a191840",
+			"scrollbarSlider.activeBackground": "#1a191855",
+			"minimap.background": "#FFFFFF",
+			"diffEditor.insertedLineBackground": "#2ea04318",
+			"diffEditor.insertedTextBackground": "#2ea04333",
+			"diffEditor.removedLineBackground": "#da363318",
+			"diffEditor.removedTextBackground": "#da363333",
+			"diffEditorGutter.insertedLineBackground": "#2ea04326",
+			"diffEditorGutter.removedLineBackground": "#da363326",
+			"diffEditorOverview.insertedForeground": "#2ea04399",
+			"diffEditorOverview.removedForeground": "#da363399",
+			"diffEditor.diagonalFill": "#1a19180a",
+		},
+	});
+	monaco.editor.setTheme(themeId(desiredTheme));
 }
 
 function resolveLanguageId(

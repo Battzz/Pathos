@@ -436,7 +436,9 @@ export function inferDefaultModelId(
 		}
 	}
 
-	// New session or no history → user setting takes priority
+	// New session or no valid session model → user setting is the only source.
+	// `useEnsureDefaultModel` is responsible for making sure this is non-null
+	// and valid once the catalog is loaded.
 	if (
 		settingsDefaultModelId &&
 		findModelOption(modelSections, settingsDefaultModelId)
@@ -444,11 +446,7 @@ export function inferDefaultModelId(
 		return settingsDefaultModelId;
 	}
 
-	// Ultimate fallback: first Claude model, then first available model.
-	const claudeSection = modelSections.find((s) => s.id === "claude");
-	return (
-		claudeSection?.options[0]?.id ?? modelSections[0]?.options[0]?.id ?? null
-	);
+	return null;
 }
 
 export function describeUnknownError(error: unknown, fallback: string): string {

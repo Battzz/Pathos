@@ -4,6 +4,8 @@ import {
 	type ActionKind,
 	type AgentProvider,
 	DEFAULT_WORKSPACE_GROUPS,
+	type DetectedEditor,
+	detectInstalledEditors,
 	listRepositories,
 	listSlashCommands,
 	listWorkspaceChangesWithContent,
@@ -57,6 +59,7 @@ export const helmorQueryKeys = {
 		["repoScripts", repoId, workspaceId ?? ""] as const,
 	autoCloseActionKinds: ["autoCloseActionKinds"] as const,
 	autoCloseOptInAsked: ["autoCloseOptInAsked"] as const,
+	detectedEditors: ["detectedEditors"] as const,
 	slashCommands: (
 		provider: AgentProvider,
 		workingDirectory: string | null,
@@ -227,6 +230,25 @@ export function autoCloseOptInAskedQueryOptions() {
 		initialData: [] as ActionKind[],
 		initialDataUpdatedAt: 0,
 		staleTime: 60_000,
+	});
+}
+
+/**
+ * Installed third-party editors (Cursor, VS Code, JetBrains, terminals, Git GUIs).
+ * Detection is cheap but non-trivial — the Rust side stat()'s known app paths and
+ * falls back to a single batched `mdfind` for apps in non-standard locations.
+ * Cached for 60s so revisiting the dropdown does not re-scan; persisted across
+ * app restarts via the localStorage persister so the button shows up instantly
+ * on the next launch.
+ */
+export function detectedEditorsQueryOptions() {
+	return queryOptions({
+		queryKey: helmorQueryKeys.detectedEditors,
+		queryFn: detectInstalledEditors,
+		initialData: [] as DetectedEditor[],
+		initialDataUpdatedAt: 0,
+		staleTime: 60_000,
+		gcTime: PERSIST_GC_TIME,
 	});
 }
 

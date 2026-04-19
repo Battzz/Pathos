@@ -2,9 +2,7 @@ use anyhow::Context;
 use serde::Serialize;
 use tauri::Manager;
 
-use crate::{
-    agents, git_watcher, models::db, models::workspaces as workspace_models, service, sidecar,
-};
+use crate::{agents, git_watcher, models::db, service, sidecar};
 
 use super::common::{run_blocking, CmdResult};
 
@@ -22,14 +20,6 @@ pub struct CliStatus {
     pub installed: bool,
     pub install_path: Option<String>,
     pub build_mode: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DetectedEditor {
-    pub id: String,
-    pub name: String,
-    pub path: String,
 }
 
 /// Where Helmor installs its CLI binary — `/usr/local/bin/helmor` on macOS
@@ -110,162 +100,6 @@ pub fn get_data_info() -> CmdResult<DataInfo> {
         data_mode: crate::data_dir::data_mode_label().to_string(),
         data_dir: data_dir.display().to_string(),
         db_path: db_path.display().to_string(),
-    })
-}
-
-#[tauri::command]
-pub async fn detect_installed_editors() -> CmdResult<Vec<DetectedEditor>> {
-    run_blocking(detect_installed_editors_blocking).await
-}
-
-fn detect_installed_editors_blocking() -> anyhow::Result<Vec<DetectedEditor>> {
-    let mut editors = Vec::new();
-
-    let candidates: &[(&str, &str, &[&str])] = &[
-        (
-            "cursor",
-            "Cursor",
-            &["/Applications/Cursor.app", "$HOME/Applications/Cursor.app"],
-        ),
-        (
-            "vscode",
-            "VS Code",
-            &[
-                "/Applications/Visual Studio Code.app",
-                "$HOME/Applications/Visual Studio Code.app",
-            ],
-        ),
-        (
-            "vscode-insiders",
-            "VS Code Insiders",
-            &[
-                "/Applications/Visual Studio Code - Insiders.app",
-                "$HOME/Applications/Visual Studio Code - Insiders.app",
-            ],
-        ),
-        (
-            "windsurf",
-            "Windsurf",
-            &[
-                "/Applications/Windsurf.app",
-                "$HOME/Applications/Windsurf.app",
-            ],
-        ),
-        (
-            "zed",
-            "Zed",
-            &["/Applications/Zed.app", "$HOME/Applications/Zed.app"],
-        ),
-        (
-            "webstorm",
-            "WebStorm",
-            &[
-                "/Applications/WebStorm.app",
-                "$HOME/Applications/WebStorm.app",
-            ],
-        ),
-        (
-            "sublime",
-            "Sublime Text",
-            &[
-                "/Applications/Sublime Text.app",
-                "$HOME/Applications/Sublime Text.app",
-            ],
-        ),
-        (
-            "terminal",
-            "Terminal",
-            &["/System/Applications/Utilities/Terminal.app"],
-        ),
-        (
-            "warp",
-            "Warp",
-            &["/Applications/Warp.app", "$HOME/Applications/Warp.app"],
-        ),
-    ];
-
-    let home = std::env::var("HOME").unwrap_or_default();
-
-    for (id, name, paths) in candidates {
-        for path in *paths {
-            let resolved = path.replace("$HOME", &home);
-            if std::path::Path::new(&resolved).exists() {
-                editors.push(DetectedEditor {
-                    id: id.to_string(),
-                    name: name.to_string(),
-                    path: resolved,
-                });
-                break;
-            }
-        }
-    }
-
-    Ok(editors)
-}
-
-#[tauri::command]
-pub async fn open_workspace_in_editor(workspace_id: String, editor: String) -> CmdResult<()> {
-    run_blocking(move || {
-        let record = workspace_models::load_workspace_record_by_id(&workspace_id)?
-            .with_context(|| format!("Workspace not found: {workspace_id}"))?;
-
-        let workspace_dir =
-            crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
-        if !workspace_dir.is_dir() {
-            return Err(anyhow::anyhow!(
-                "Workspace directory not found: {}",
-                workspace_dir.display()
-            ));
-        }
-
-        // Validate editor id against the allow-list shared with
-        // detect_installed_editors so we never spawn arbitrary binaries.
-        const KNOWN: &[&str] = &[
-            "cursor",
-            "vscode",
-            "vscode-insiders",
-            "windsurf",
-            "zed",
-            "webstorm",
-            "sublime",
-            "terminal",
-            "warp",
-        ];
-        if !KNOWN.contains(&editor.as_str()) {
-            return Err(anyhow::anyhow!("Unsupported editor: {editor}"));
-        }
-
-        launch_editor_with_dir(&editor, &workspace_dir)
-            .with_context(|| format!("Failed to open {editor}"))
-    })
-    .await
-}
-
-/// macOS editor launcher: `open -a` with a friendly app name so the
-/// Launch Services association is respected.
-fn launch_editor_with_dir(editor: &str, dir: &std::path::Path) -> anyhow::Result<()> {
-    let app_name = mac_app_name_for_editor(editor)
-        .ok_or_else(|| anyhow::anyhow!("Unsupported editor: {editor}"))?;
-    let dir_str = dir.display().to_string();
-    std::process::Command::new("open")
-        .args(["-a", app_name, &dir_str])
-        .spawn()
-        .map(|_| ())
-        .context("open command failed")
-}
-
-fn mac_app_name_for_editor(editor: &str) -> Option<&'static str> {
-    Some(match editor {
-        "cursor" => "Cursor",
-        "vscode" => "Visual Studio Code",
-        "vscode-insiders" => "Visual Studio Code - Insiders",
-        "windsurf" => "Windsurf",
-        "zed" => "Zed",
-        "webstorm" => "WebStorm",
-        "sublime" => "Sublime Text",
-        "terminal" => "Terminal",
-        "warp" => "Warp",
-        _ => return None,
     })
 }
 

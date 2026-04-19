@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::BTreeMap;
 
-use crate::{auth, models::workspaces as workspace_models};
+use crate::{auth, git_ops, models::workspaces as workspace_models};
 
 /// A single pull request surfaced to the frontend.
 #[derive(Debug, Clone, Serialize)]
@@ -161,6 +161,13 @@ pub fn lookup_workspace_pr(workspace_id: &str) -> Result<Option<PullRequestInfo>
         return Ok(None);
     };
 
+    // No remote-tracking ref → this branch was never published, so any PR
+    // GitHub returns for `headRefName == branch` belongs to a previous owner
+    // of the name (e.g. a merged PR whose head branch was deleted). Skip.
+    if !workspace_branch_has_remote_tracking(&record) {
+        return Ok(None);
+    }
+
     let Some(access_token) = auth::load_valid_github_access_token()? else {
         // User isn't connected, or their refresh token has expired.
         return Ok(None);
@@ -292,6 +299,13 @@ pub fn lookup_workspace_pr_action_status(workspace_id: &str) -> Result<Workspace
             "Workspace has no current branch",
         ));
     };
+    // Same guard as `lookup_workspace_pr` — without a remote-tracking ref the
+    // branch was never published, so any PR returned would belong to a prior
+    // owner of the same head ref. Surface as `no_pr` so the inspector hides
+    // checks/deployments instead of showing a ghost PR's history.
+    if !workspace_branch_has_remote_tracking(&record) {
+        return Ok(WorkspacePrActionStatus::no_pr());
+    }
     let Some(access_token) = auth::load_valid_github_access_token()? else {
         return Ok(WorkspacePrActionStatus::unavailable(
             "GitHub account is not connected",
@@ -741,6 +755,23 @@ mutation($prId: ID!) {
     }
 
     lookup_workspace_pr(workspace_id)
+}
+
+/// `true` when the workspace's local branch has a remote-tracking ref
+/// (upstream config OR a `refs/remotes/<remote>/<branch>` known locally).
+/// Used by both PR lookups to bail before hitting GitHub when the branch
+/// can't possibly have a PR — avoids ghost matches against historical PRs
+/// whose head branch happens to share the workspace's placeholder name.
+fn workspace_branch_has_remote_tracking(record: &workspace_models::WorkspaceRecord) -> bool {
+    let Ok(workspace_dir) =
+        crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)
+    else {
+        return false;
+    };
+    if !workspace_dir.exists() {
+        return false;
+    }
+    git_ops::resolve_remote_tracking_ref(&workspace_dir, record.remote.as_deref()).is_some()
 }
 
 /// Parse `https://github.com/owner/repo(.git)` and `git@github.com:owner/repo(.git)`
