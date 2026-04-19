@@ -225,6 +225,7 @@ function createWrapper(queryClient: QueryClient) {
 			<SettingsContext.Provider
 				value={{
 					settings: DEFAULT_SETTINGS,
+					isLoaded: true,
 					updateSettings: () => {},
 				}}
 			>

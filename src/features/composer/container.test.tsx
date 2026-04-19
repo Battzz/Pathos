@@ -401,6 +401,7 @@ describe("WorkspaceComposerContainer", () => {
 						defaultModelId: "gpt-5.4",
 						defaultFastMode: true,
 					},
+					isLoaded: true,
 					updateSettings: vi.fn(),
 				}}
 			>

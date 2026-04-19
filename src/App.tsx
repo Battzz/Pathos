@@ -45,6 +45,7 @@ import {
 import { EditorIcon } from "@/shell/editor-icon";
 import { GithubIdentityGate } from "@/shell/github-identity-gate";
 import { GithubStatusMenu } from "@/shell/github-status-menu";
+import { useEnsureDefaultModel } from "@/shell/hooks/use-ensure-default-model";
 import { useGithubIdentity } from "@/shell/hooks/use-github-identity";
 import { useShellPanels } from "@/shell/hooks/use-panels";
 import {
@@ -61,8 +62,6 @@ import {
 	type ConductorWorkspace,
 	createSession,
 	type DerivedStatus,
-	type DetectedEditor,
-	detectInstalledEditors,
 	drainPendingCliSends,
 	isConductorAvailable,
 	listConductorRepos,
@@ -86,6 +85,7 @@ import { isPathWithinRoot } from "./lib/editor-session";
 import {
 	archivedWorkspacesQueryOptions,
 	createHelmorQueryClient,
+	detectedEditorsQueryOptions,
 	helmorQueryKeys,
 	helmorQueryPersister,
 	sessionThreadMessagesQueryOptions,
@@ -135,6 +135,7 @@ function App() {
 	const settingsContextValue = useMemo(
 		() => ({
 			settings: appSettings ?? preloadSettings,
+			isLoaded: appSettings !== null,
 			updateSettings: (patch: Partial<AppSettings>) => {
 				setAppSettings((previous) => {
 					const next = { ...(previous ?? DEFAULT_SETTINGS), ...patch };
@@ -143,7 +144,7 @@ function App() {
 				});
 			},
 		}),
-		[appSettings],
+		[appSettings, preloadSettings],
 	);
 
 	const [splashVisible, setSplashVisible] = useState(true);
@@ -441,10 +442,10 @@ function AppShell({
 
 	const { settings: appSettings } = useSettings();
 	useAppUpdater();
+	useEnsureDefaultModel();
 	const notify = useOsNotifications(appSettings);
-	const [installedEditors, setInstalledEditors] = useState<DetectedEditor[]>(
-		[],
-	);
+	const installedEditorsQuery = useQuery(detectedEditorsQueryOptions());
+	const installedEditors = installedEditorsQuery.data ?? [];
 	const [preferredEditorId, setPreferredEditorId] = useState<string | null>(
 		() => localStorage.getItem(PREFERRED_EDITOR_STORAGE_KEY),
 	);
@@ -631,10 +632,6 @@ function AppShell({
 	}, []);
 
 	useEffect(() => {
-		void detectInstalledEditors().then(setInstalledEditors);
-	}, []);
-
-	useEffect(() => {
 		selectedWorkspaceIdRef.current = selectedWorkspaceId;
 	}, [selectedWorkspaceId]);
 
@@ -692,6 +689,10 @@ function AppShell({
 			const effective = resolveTheme(appSettings.theme);
 			document.documentElement.classList.toggle("dark", effective === "dark");
 			document.documentElement.style.colorScheme = effective;
+			// Monaco's theme is synced via a MutationObserver inside
+			// `monaco-runtime.ts` — avoid importing it here to keep Monaco out
+			// of the critical boot path and out of tests that never open the
+			// editor.
 		};
 
 		apply();

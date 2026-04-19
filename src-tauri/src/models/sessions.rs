@@ -352,11 +352,11 @@ pub fn create_session(
 ) -> Result<CreateSessionResponse> {
     let mut connection = db::open_connection(true)?;
 
-    // Read user's default model/effort from settings
-    let default_model = settings::load_setting_value("app.default_model_id")
-        .ok()
-        .flatten()
-        .filter(|s| !s.is_empty() && s != "default");
+    // `model` is left NULL on create: the frontend owns model selection via
+    // `settings.defaultModelId` (kept valid by `useEnsureDefaultModel`), and
+    // the value gets persisted into `sessions.model` by the agent streaming
+    // finalizer on the first message. Reading settings here would be a
+    // redundant second source of truth.
     let default_effort = settings::load_setting_value("app.default_effort")
         .ok()
         .flatten()
@@ -388,7 +388,7 @@ pub fn create_session(
         .execute(
             r#"
             INSERT INTO sessions (id, workspace_id, status, title, permission_mode, action_kind, model, effort_level)
-            VALUES (?1, ?2, 'idle', ?3, ?4, ?5, ?6, ?7)
+            VALUES (?1, ?2, 'idle', ?3, ?4, ?5, NULL, ?6)
             "#,
             (
                 &session_id,
@@ -396,7 +396,6 @@ pub fn create_session(
                 title,
                 permission_mode.unwrap_or("default"),
                 action_kind,
-                &default_model,
                 &default_effort,
             ),
         )

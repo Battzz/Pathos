@@ -70,18 +70,18 @@ describe("inferDefaultModelId", () => {
 		);
 	});
 
-	it("falls back to first Claude model when no settings", () => {
-		expect(inferDefaultModelId(null, MODEL_SECTIONS)).toBe("default");
+	it("returns null when no settings default is provided", () => {
+		// ensureDefaultModel is responsible for populating the setting — this
+		// function no longer invents its own fallback.
+		expect(inferDefaultModelId(null, MODEL_SECTIONS)).toBeNull();
 	});
 
-	it("ignores invalid settings model ID", () => {
-		expect(inferDefaultModelId(null, MODEL_SECTIONS, "nonexistent")).toBe(
-			"default",
-		);
+	it("returns null when settings model ID is not in the catalog", () => {
+		expect(inferDefaultModelId(null, MODEL_SECTIONS, "nonexistent")).toBeNull();
 	});
 
 	it("returns null when model sections are empty", () => {
-		expect(inferDefaultModelId(null, [])).toBeNull();
+		expect(inferDefaultModelId(null, [], "default")).toBeNull();
 	});
 });
 

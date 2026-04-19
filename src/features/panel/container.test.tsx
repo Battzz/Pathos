@@ -470,6 +470,7 @@ describe("WorkspacePanelContainer loading semantics", () => {
 						...DEFAULT_SETTINGS,
 						defaultModelId: "gpt-5.4",
 					},
+					isLoaded: true,
 					updateSettings: vi.fn(),
 				}}
 			>
