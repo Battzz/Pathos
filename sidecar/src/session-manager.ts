@@ -76,28 +76,6 @@ export function formatModelLabel(id: string, rawLabel: string): string {
 	return label;
 }
 
-/**
- * Extract a numeric version from a model ID for sorting (e.g. "gpt-5.4" → 5.4).
- * "default" gets Infinity so it sorts first (it's the primary model).
- */
-function sortKey(id: string): number {
-	if (id === "default") return Infinity;
-	const m = id.match(/(\d+(?:\.\d+)?)/);
-	return m?.[1] ? Number.parseFloat(m[1]) : 0;
-}
-
-/** Sort models by version number descending, then alphabetically. */
-export function sortModelsByVersion(
-	models: ProviderModelInfo[],
-): ProviderModelInfo[] {
-	return [...models].sort((a, b) => {
-		const va = sortKey(a.id);
-		const vb = sortKey(b.id);
-		if (vb !== va) return vb - va;
-		return a.id.localeCompare(b.id);
-	});
-}
-
 export interface SessionManager {
 	/**
 	 * Stream a single user turn to the underlying provider SDK and forward

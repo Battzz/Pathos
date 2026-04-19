@@ -16,6 +16,7 @@ import {
 import type { SidecarEmitter } from "./emitter.js";
 import { parseImageRefs } from "./images.js";
 import { errorDetails, logger } from "./logger.js";
+import { sortCodexModels } from "./model-sort.js";
 import {
 	formatModelLabel,
 	type ListSlashCommandsParams,
@@ -23,7 +24,6 @@ import {
 	type SendMessageParams,
 	type SessionManager,
 	type SlashCommandInfo,
-	sortModelsByVersion,
 } from "./session-manager.js";
 import {
 	buildTitlePrompt,
@@ -787,7 +787,7 @@ function parseModelListResponse(result: unknown): ProviderModelInfo[] {
 
 		return [{ id, label, cliModel, effortLevels, supportsFastMode }];
 	});
-	return sortModelsByVersion(models);
+	return sortCodexModels(models);
 }
 
 /**
