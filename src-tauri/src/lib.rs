@@ -65,18 +65,11 @@ pub fn run() {
             // Ensure data directory structure exists
             data_dir::ensure_directory_structure()?;
 
-            // Initialize structured logging (must come before any tracing macro call)
+            // Initialize structured logging (must come before any tracing macro call).
+            // Logs live in `<data_dir>/logs/{rust,sidecar}.jsonl` with a `.1` backup;
+            // the size-ring appender bounds disk use without a cleanup pass.
             let logs_dir = data_dir::logs_dir()?;
             logging::init(&logs_dir)?;
-
-            // Background cleanup: compress old logs, purge > 7 days
-            let cleanup_dir = logs_dir;
-            if let Err(error) = std::thread::Builder::new()
-                .name("log-cleanup".into())
-                .spawn(move || logging::cleanup(&cleanup_dir))
-            {
-                tracing::error!(error = %error, "Failed to spawn log cleanup thread");
-            }
 
             // Initialize database schema
             let db_path = data_dir::db_path()?;
