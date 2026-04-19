@@ -403,6 +403,7 @@ export class ClaudeSessionManager implements SessionManager {
 				permissionMode: parsePermissionMode(permissionMode),
 				allowDangerouslySkipPermissions: true,
 				effort: parseEffort(effortLevel),
+				thinking: { type: "adaptive", display: "summarized" },
 				...(effectiveFastMode ? { settings: { fastMode: true } } : {}),
 				hooks: {
 					PreToolUse: [
