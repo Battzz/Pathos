@@ -17,6 +17,7 @@ import {
 	TABS_ANIMATION_MS,
 	TABS_EASING,
 } from "../layout";
+import { startScript } from "../script-store";
 
 const DEFAULT_CHANGES_RATIO = 0.6;
 const DEFAULT_ACTIONS_RATIO = 0.4;
@@ -43,18 +44,6 @@ export function useWorkspaceInspectorSidebar({
 }: UseWorkspaceInspectorSidebarArgs) {
 	const [tabsOpen, setTabsOpen] = useState(false);
 	const [activeTab, setActiveTab] = useState("setup");
-	const [pendingRunScript, setPendingRunScript] = useState(false);
-
-	// Listen for Cmd+R "run script" shortcut event.
-	useEffect(() => {
-		const handler = () => {
-			setTabsOpen(true);
-			setActiveTab("run");
-			setPendingRunScript(true);
-		};
-		window.addEventListener("helmor:run-script", handler);
-		return () => window.removeEventListener("helmor:run-script", handler);
-	}, []);
 	const [changesHeight, setChangesHeight] = useState(0);
 	const [actionsHeight, setActionsHeight] = useState(0);
 	const [resizeState, setResizeState] = useState<ResizeState | null>(null);
@@ -87,6 +76,19 @@ export function useWorkspaceInspectorSidebar({
 	});
 	const repoScripts: RepoScripts | null = repoScriptsQuery.data ?? null;
 	const scriptsLoaded = repoScriptsQuery.isFetched;
+
+	// Listen for Cmd+R "run script" shortcut event. Runs the script via the
+	// module-level script-store without touching tab visibility — the user
+	// can open the Run tab later to see output; it's replayed from buffer.
+	useEffect(() => {
+		const handler = () => {
+			if (!repoId || !workspaceId) return;
+			if (!repoScripts?.runScript?.trim()) return;
+			startScript(repoId, "run", workspaceId);
+		};
+		window.addEventListener("helmor:run-script", handler);
+		return () => window.removeEventListener("helmor:run-script", handler);
+	}, [repoId, workspaceId, repoScripts]);
 
 	const isResizing = resizeState !== null;
 	const isActionsResizing = resizeState?.target === "actions";
@@ -287,18 +289,12 @@ export function useWorkspaceInspectorSidebar({
 		[actionsHeight, changesHeight],
 	);
 
-	const clearPendingRunScript = useCallback(
-		() => setPendingRunScript(false),
-		[],
-	);
-
 	return {
 		actionsHeight,
 		actionsRef,
 		activeTab,
 		changes,
 		changesHeight,
-		clearPendingRunScript,
 		containerRef,
 		flashingPaths,
 		handleResizeStart,
@@ -306,7 +302,6 @@ export function useWorkspaceInspectorSidebar({
 		isActionsResizing,
 		isResizing,
 		isTabsResizing,
-		pendingRunScript,
 		repoScripts,
 		scriptsLoaded,
 		setActiveTab,

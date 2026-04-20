@@ -5,5 +5,6 @@ export function getCurrentWindow() {
 		setTitle: async () => {},
 		show: async () => {},
 		hide: async () => {},
+		setBadgeCount: async () => {},
 	};
 }

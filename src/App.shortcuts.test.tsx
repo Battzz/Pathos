@@ -49,6 +49,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 				};
 			},
 		),
+		setBadgeCount: vi.fn(async () => {}),
 	}),
 }));
 
@@ -574,9 +575,15 @@ describe("App global navigation shortcuts", () => {
 			expectSelectedWorkspace("Done workspace");
 			expectSelectedSession("Done session 1");
 		});
-		expect(apiMocks.loadWorkspaceDetail).not.toHaveBeenCalledWith(
-			WORKSPACE_IDS.review,
-		);
+		// Assert via UI rather than the `loadWorkspaceDetail` mock: the app
+		// warms non-selected workspace details in the background (see the
+		// warming effect in App.tsx), so the mock can be called with
+		// `workspace-review` on slow CI runners regardless of whether
+		// ArrowUp actually wrapped. Checking the sidebar selection is the
+		// assertion we actually care about.
+		expect(
+			screen.getByRole("button", { name: "Review workspace" }),
+		).not.toHaveClass("bg-accent");
 	});
 
 	it("navigates through archived workspaces after the active workspace list even while Archived stays collapsed", async () => {

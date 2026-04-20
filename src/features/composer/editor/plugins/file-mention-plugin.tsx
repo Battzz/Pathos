@@ -22,7 +22,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { $createTextNode, type TextNode } from "lexical";
 import { FileText } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { type RefObject, useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
 	Command,
@@ -90,8 +90,16 @@ export function filterFiles(
 
 export function FileMentionPlugin({
 	workspaceRootPath,
+	popupAnchorRef,
 }: {
 	workspaceRootPath: string | null;
+	/**
+	 * Optional portal target for the popup. When provided, the popup is rendered
+	 * inside this element (expected to be `position: relative`) so `bottom-full`
+	 * anchors the popup to the container's top edge rather than the caret. Falls
+	 * back to Lexical's caret-tracking anchor div when omitted.
+	 */
+	popupAnchorRef?: RefObject<HTMLElement | null>;
 }) {
 	const [editor] = useLexicalComposerContext();
 	const [query, setQuery] = useState<string | null>(null);
@@ -151,17 +159,26 @@ export function FileMentionPlugin({
 				anchorElementRef,
 				{ selectedIndex, selectOptionAndCleanUp, setHighlightedIndex },
 			) => {
-				if (!anchorElementRef.current) return null;
+				// Prefer the composer root (passed in via prop) so the popup hugs
+				// the input's top edge with an 8px gap. Fall back to Lexical's
+				// caret-tracking anchor when no explicit container is provided.
+				const portalTarget =
+					popupAnchorRef?.current ?? anchorElementRef.current;
+				if (!portalTarget) return null;
 				if (options.length === 0) return null;
 
 				const highlightValue = options[selectedIndex ?? 0]?.file.path ?? "";
 
 				return createPortal(
-					// Same anchor strategy as the slash command popup: open
-					// upward from the caret with a high-z isolated stacking
+					// Same anchor strategy as the slash command popup: `bottom-full`
+					// + `mb-2` relative to the composer root puts the popup 8px
+					// above the input's top edge with a high-z isolated stacking
 					// context so it sits above the Tauri title bar / scroll
 					// transforms in the conversation pane.
-					<div className="pointer-events-auto absolute bottom-full left-0 isolate z-[9999] mb-2 w-[min(640px,calc(100vw-2rem))]">
+					<div
+						data-typeahead-popup="mention"
+						className="pointer-events-auto absolute bottom-full left-0 isolate z-[9999] mb-2 w-[min(640px,calc(100vw-2rem))]"
+					>
 						<Command
 							value={highlightValue}
 							shouldFilter={false}
@@ -212,7 +229,7 @@ export function FileMentionPlugin({
 							</CommandList>
 						</Command>
 					</div>,
-					anchorElementRef.current,
+					portalTarget,
 				);
 			}}
 		/>

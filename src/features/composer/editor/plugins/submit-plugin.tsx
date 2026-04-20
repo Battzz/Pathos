@@ -9,10 +9,14 @@
  * `false` when a selection is in flight.
  *
  * We detect "menu has selectable items" by looking for a cmdk *item*
- * (`[cmdk-item]`) inside either typeahead anchor div, NOT just the cmdk
- * root. The slash popup also renders a state row (loading/error/empty)
- * inside the same root using a plain div — that should NOT block Enter
- * from submitting, because there's nothing for the user to select.
+ * (`[cmdk-item]`) inside any live typeahead popup wrapper, marked with
+ * `data-typeahead-popup`. We cannot key off Lexical's anchor div class
+ * anymore — the popup now portals into the composer root (so `bottom-full`
+ * aligns to the input's top edge instead of the caret), and Lexical's
+ * anchor div sits empty on `document.body`. The slash popup also renders
+ * a state row (loading/error/empty) inside the same popup using a plain
+ * div — that should NOT block Enter from submitting, because there's
+ * nothing for the user to select.
  *
  * IME guard: when a CJK IME (Chinese pinyin / Japanese kana / Korean
  * Hangul) is active and the user presses Enter to confirm a candidate
@@ -30,8 +34,7 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { COMMAND_PRIORITY_HIGH, KEY_ENTER_COMMAND } from "lexical";
 import { useEffect } from "react";
 
-const TYPEAHEAD_SELECTABLE_SELECTOR =
-	".slash-command-anchor [cmdk-item], .file-mention-anchor [cmdk-item]";
+const TYPEAHEAD_SELECTABLE_SELECTOR = "[data-typeahead-popup] [cmdk-item]";
 
 function isTypeaheadSelectable(): boolean {
 	if (typeof document === "undefined") return false;

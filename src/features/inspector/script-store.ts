@@ -5,7 +5,17 @@ export type ScriptStatus = "idle" | "running" | "exited";
 type Listener = {
 	onChunk: (data: string) => void;
 	onStatusChange: (status: ScriptStatus) => void;
+	/**
+	 * Called at the start of a fresh `startScript` invocation. Gives any
+	 * already-attached listener a chance to clear its terminal so output from
+	 * a previous run is not mixed with the new run's chunks — important when
+	 * `startScript` is triggered from outside the tab (e.g. Cmd+R shortcut)
+	 * while the tab is still mounted.
+	 */
+	onReset?: () => void;
 };
+
+type StatusListener = (status: ScriptStatus, exitCode: number | null) => void;
 
 /**
  * Max bytes of stdout/stderr retained per script entry. Long-running dev
@@ -46,6 +56,18 @@ function appendChunk(entry: ScriptEntry, data: string) {
 /** Module-level stores — survive React mount/unmount cycles. */
 const entries = new Map<string, ScriptEntry>();
 const listeners = new Map<string, Listener>();
+/**
+ * Status-only subscribers. Unlike `listeners` (one active consumer per key,
+ * typically the currently mounted tab panel), this supports multiple observers
+ * so both the tab panel and the tab label header can reflect live status.
+ */
+const statusListeners = new Map<string, Set<StatusListener>>();
+
+function emitStatus(k: string, status: ScriptStatus, exitCode: number | null) {
+	const subs = statusListeners.get(k);
+	if (!subs) return;
+	for (const sub of subs) sub(status, exitCode);
+}
 
 function key(workspaceId: string, scriptType: string) {
 	return `${workspaceId}:${scriptType}`;
@@ -62,6 +84,11 @@ export function startScript(
 ) {
 	const k = key(workspaceId, scriptType);
 
+	// Notify any already-attached listener to reset (e.g. clear its terminal)
+	// before we swap in the fresh entry — prevents old output from the
+	// previous run bleeding into the new run's stream.
+	listeners.get(k)?.onReset?.();
+
 	const entry: ScriptEntry = {
 		chunks: [],
 		bufferedBytes: 0,
@@ -72,6 +99,7 @@ export function startScript(
 	entries.set(k, entry);
 
 	listeners.get(k)?.onStatusChange("running");
+	emitStatus(k, "running", null);
 
 	executeRepoScript(
 		repoId,
@@ -91,13 +119,17 @@ export function startScript(
 					entry.status = "exited";
 					entry.exitCode = event.code;
 					listeners.get(k)?.onStatusChange("exited");
+					emitStatus(k, "exited", event.code);
 					break;
 				case "error": {
 					const msg = `\r\n\x1b[31m${event.message}\x1b[0m\r\n`;
 					appendChunk(entry, msg);
 					entry.status = "exited";
+					// No exit code from the backend here — treat as failure.
+					entry.exitCode = entry.exitCode ?? 1;
 					listeners.get(k)?.onChunk(msg);
 					listeners.get(k)?.onStatusChange("exited");
+					emitStatus(k, "exited", entry.exitCode);
 					break;
 				}
 			}
@@ -108,8 +140,10 @@ export function startScript(
 		const msg = `\r\n\x1b[31mFailed to start: ${err}\x1b[0m\r\n`;
 		appendChunk(entry, msg);
 		entry.status = "exited";
+		entry.exitCode = entry.exitCode ?? 1;
 		listeners.get(k)?.onChunk(msg);
 		listeners.get(k)?.onStatusChange("exited");
+		emitStatus(k, "exited", entry.exitCode);
 	});
 }
 
@@ -136,8 +170,34 @@ export function detach(workspaceId: string, scriptType: string) {
 	listeners.delete(key(workspaceId, scriptType));
 }
 
+/**
+ * Subscribe to status-only updates for a script. Multiple subscribers are
+ * allowed per key, so both the tab body and the tab header can observe live
+ * status changes in parallel. Returns an unsubscribe fn.
+ */
+export function subscribeStatus(
+	workspaceId: string,
+	scriptType: string,
+	listener: StatusListener,
+): () => void {
+	const k = key(workspaceId, scriptType);
+	let set = statusListeners.get(k);
+	if (!set) {
+		set = new Set();
+		statusListeners.set(k, set);
+	}
+	set.add(listener);
+	return () => {
+		const current = statusListeners.get(k);
+		if (!current) return;
+		current.delete(listener);
+		if (current.size === 0) statusListeners.delete(k);
+	};
+}
+
 /** Reset all state. Test-only. */
 export function _resetForTesting() {
 	entries.clear();
 	listeners.clear();
+	statusListeners.clear();
 }

@@ -508,7 +508,13 @@ export const WorkspaceComposerContainer = memo(
 			"When enabled, action sessions will close automatically when finished.";
 
 		return (
-			<div className="relative isolate flex flex-col">
+			// `z-20` lifts the entire composer stacking context above the thread
+			// viewport's `z-10` root (`thread-viewport.tsx:99`). Without this the
+			// slash/@ popup — which portals into the composer root — gets
+			// occluded by chat messages when it opens upward past the composer's
+			// top edge, because the composer's `isolate` traps popup z-index
+			// inside a stacking context whose outer z defaults to `auto`.
+			<div className="relative isolate z-20 flex flex-col">
 				{isActionSession ? (
 					<ActionRow
 						className={cn(

@@ -7,6 +7,7 @@ import type { DiffOpenOptions } from "@/lib/editor-session";
 import { cn } from "@/lib/utils";
 import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import { useWorkspaceInspectorSidebar } from "./hooks/use-inspector";
+import { useScriptStatus } from "./hooks/use-script-status";
 import { useSetupAutoRun } from "./hooks/use-setup-auto-run";
 import { HorizontalResizeHandle, InspectorTabsSection } from "./layout";
 import { ActionsSection } from "./sections/actions";
@@ -68,7 +69,6 @@ export function WorkspaceInspectorSidebar({
 		activeTab,
 		changes,
 		changesHeight,
-		clearPendingRunScript,
 		containerRef,
 		flashingPaths,
 		handleResizeStart,
@@ -76,7 +76,6 @@ export function WorkspaceInspectorSidebar({
 		isActionsResizing,
 		isResizing,
 		isTabsResizing,
-		pendingRunScript,
 		repoScripts,
 		scriptsLoaded,
 		setActiveTab,
@@ -97,6 +96,20 @@ export function WorkspaceInspectorSidebar({
 		setupScript: repoScripts?.setupScript ?? null,
 		scriptsLoaded,
 	});
+
+	// Per-tab status for the small indicator rendered next to each tab label.
+	// Subscribes at the sidebar level so the icons stay live even when the
+	// tab body itself is collapsed / not mounted.
+	const setupScriptState = useScriptStatus(
+		workspaceId ?? null,
+		"setup",
+		!!repoScripts?.setupScript?.trim(),
+	);
+	const runScriptState = useScriptStatus(
+		workspaceId ?? null,
+		"run",
+		!!repoScripts?.runScript?.trim(),
+	);
 
 	const handleOpenSettings = onOpenSettings ?? (() => {});
 
@@ -158,6 +171,8 @@ export function WorkspaceInspectorSidebar({
 				onToggle={handleToggleTabs}
 				activeTab={activeTab}
 				onTabChange={setActiveTab}
+				setupScriptState={setupScriptState}
+				runScriptState={runScriptState}
 			>
 				<SetupTab
 					repoId={repoId ?? null}
@@ -171,8 +186,6 @@ export function WorkspaceInspectorSidebar({
 					workspaceId={workspaceId ?? null}
 					runScript={repoScripts?.runScript ?? null}
 					isActive={activeTab === "run"}
-					pendingRun={pendingRunScript}
-					onPendingRunHandled={clearPendingRunScript}
 					onOpenSettings={handleOpenSettings}
 				/>
 			</InspectorTabsSection>
