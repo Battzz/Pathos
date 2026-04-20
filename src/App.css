@@ -501,6 +501,25 @@ body {
 	mask-image: linear-gradient(to left, transparent 1.2rem, black 2rem);
 }
 
+/* Workspace row: fade text under hover action icons (mirrors tab-content-fade).
+   Transparent/solid stops read from --row-fade-transparent/--row-fade-solid so
+   multi-icon variants (e.g. archived rows with restore + delete) can widen
+   the fade to match their actual content width. */
+.group\/row:hover .row-content-fade,
+.group\/row:focus-within .row-content-fade,
+.group\/row[data-busy="true"] .row-content-fade {
+	-webkit-mask-image: linear-gradient(
+		to left,
+		transparent var(--row-fade-transparent, 1.2rem),
+		black var(--row-fade-solid, 2rem)
+	);
+	mask-image: linear-gradient(
+		to left,
+		transparent var(--row-fade-transparent, 1.2rem),
+		black var(--row-fade-solid, 2rem)
+	);
+}
+
 /* Lexical composer: remove default paragraph margins */
 .composer-paragraph {
 	margin: 0;
