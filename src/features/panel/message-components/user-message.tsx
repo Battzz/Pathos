@@ -1,6 +1,9 @@
-import { FileText } from "lucide-react";
+import { FileText, ImageIcon } from "lucide-react";
 import { memo, useMemo } from "react";
-import { ImagePreviewBadge } from "@/components/image-preview";
+import {
+	createFilePreviewLoader,
+	InlineBadge,
+} from "@/components/inline-badge";
 import type { MessagePart } from "@/lib/api";
 import { basename } from "@/lib/path-util";
 import { useSettings } from "@/lib/settings";
@@ -56,7 +59,7 @@ const UserTextInline = memo(function UserTextInline({
 			{segments.map((segment, index) => {
 				if (segment.type === "image") {
 					return (
-						<ImagePreviewBadge
+						<BubbleImageBadge
 							key={`${segment.value}-${index}`}
 							path={segment.value}
 						/>
@@ -64,7 +67,7 @@ const UserTextInline = memo(function UserTextInline({
 				}
 				if (segment.type === "file") {
 					return (
-						<FileBadgeInline
+						<BubbleFileBadge
 							key={`${segment.value}-${index}`}
 							path={segment.value}
 						/>
@@ -76,20 +79,38 @@ const UserTextInline = memo(function UserTextInline({
 	);
 });
 
-function FileBadgeInline({ path }: { path: string }) {
+function BubbleFileBadge({ path }: { path: string }) {
 	const fileName = basename(path);
+	const previewLoader = useMemo(() => createFilePreviewLoader(path), [path]);
 	return (
-		<span className="mx-0.5 inline-flex items-center gap-1 rounded border border-border/60 align-middle text-[12px]">
-			<span className="inline-flex items-center gap-1.5 px-1.5 py-0.5">
+		<InlineBadge
+			nonSelectable={false}
+			icon={
 				<FileText
-					className="size-3 shrink-0 text-muted-foreground"
+					className="size-3.5 shrink-0 text-muted-foreground"
 					strokeWidth={1.8}
 				/>
-				<span className="max-w-[200px] truncate text-muted-foreground">
-					{fileName}
-				</span>
-			</span>
-		</span>
+			}
+			label={fileName}
+			previewLoader={previewLoader}
+		/>
+	);
+}
+
+function BubbleImageBadge({ path }: { path: string }) {
+	const fileName = basename(path);
+	return (
+		<InlineBadge
+			nonSelectable={false}
+			icon={
+				<ImageIcon
+					className="size-3.5 shrink-0 text-chart-3"
+					strokeWidth={1.8}
+				/>
+			}
+			label={fileName}
+			preview={{ kind: "image", title: fileName, path }}
+		/>
 	);
 }
 
@@ -113,7 +134,7 @@ export function ChatUserMessage({ message }: { message: RenderedMessage }) {
 							return <UserTextInline key={index} text={part.text} />;
 						}
 						if (isFileMentionPart(part)) {
-							return <FileBadgeInline key={index} path={part.path} />;
+							return <BubbleFileBadge key={index} path={part.path} />;
 						}
 						return null;
 					})}

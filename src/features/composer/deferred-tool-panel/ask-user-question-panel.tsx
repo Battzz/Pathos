@@ -9,21 +9,21 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActionRowButton } from "@/components/action-row";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type {
 	AskUserQuestionViewModel,
 	DeferredQuestion,
 } from "../deferred-tool";
 import {
-	autosizeTextarea,
-	DeferredToolCard,
-	type DeferredToolPanelProps,
-	INLINE_TEXTAREA_CLASS,
-} from "./shared";
+	InteractionFooter,
+	InteractionHeader,
+	InteractionOptionalInput,
+	InteractionOptionRow,
+	InteractionStepTabs,
+} from "../interaction";
+import { DeferredToolCard, type DeferredToolPanelProps } from "./shared";
 
 type AskQuestionResponseState = {
 	selectedOptionLabels: string[];
@@ -142,7 +142,6 @@ export function AskUserQuestionPanel({
 	);
 	const [questionIndex, setQuestionIndex] = useState(0);
 	const [responses, setResponses] = useState(initialResponses);
-	const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const otherInputRef = useRef<HTMLInputElement | null>(null);
 
 	useEffect(() => {
@@ -154,10 +153,6 @@ export function AskUserQuestionPanel({
 	const currentQuestion = questions[questionIndex] ?? questions[0];
 	const currentResponse =
 		responses[currentQuestion.key] ?? EMPTY_RESPONSE_STATE;
-
-	useEffect(() => {
-		autosizeTextarea(noteTextareaRef.current);
-	}, [currentQuestion.key, currentResponse.notes]);
 
 	const answeredCount = questions.filter((question) =>
 		isQuestionAnswered(
@@ -238,177 +233,108 @@ export function AskUserQuestionPanel({
 			updatedInput: buildAskUserQuestionInput(viewModel, responses),
 		});
 	}, [canSubmit, deferred, onResponse, responses, viewModel]);
-	const remainingCount = questions.length - answeredCount;
-	const progressLabel =
-		remainingCount === 0
-			? "Ready to send"
-			: `Answer ${remainingCount} more question${remainingCount === 1 ? "" : "s"}`;
 
 	return (
 		<DeferredToolCard>
-			<div className="flex items-start gap-3 px-1 pb-2">
-				<div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground">
-					<MessageSquareMore className="size-3.5" strokeWidth={1.8} />
-				</div>
-				<div className="min-w-0 flex-1">
-					<div className="flex flex-wrap items-start gap-1.5">
-						<p className="min-w-0 flex-1 text-[13px] font-medium leading-5 text-foreground">
-							{currentQuestion.question}
-						</p>
+			<InteractionHeader
+				icon={MessageSquareMore}
+				title={currentQuestion.question}
+				description={
+					currentQuestion.multiSelect
+						? "Choose one or more options."
+						: "Choose one option."
+				}
+				trailing={
+					<>
 						{viewModel.source ? (
-							<span className="rounded-full bg-muted/55 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+							<span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
 								{viewModel.source}
 							</span>
 						) : null}
-						<span className="rounded-full bg-muted/55 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+						<span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
 							{questionIndex + 1}/{questions.length}
 						</span>
-					</div>
-					<p className="mt-1 text-[11px] text-muted-foreground">
-						{currentQuestion.multiSelect
-							? "Choose one or more options."
-							: "Choose one option."}
-					</p>
-				</div>
-				{questions.length > 1 ? (
-					<div className="flex shrink-0 items-center gap-1">
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-xs"
-							aria-label="Previous question"
-							disabled={disabled || questionIndex === 0}
-							onClick={() =>
-								setQuestionIndex((current) => Math.max(0, current - 1))
-							}
-						>
-							<ChevronLeft className="size-3.5" strokeWidth={2} />
-						</Button>
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-xs"
-							aria-label="Next question"
-							disabled={disabled || questionIndex === questions.length - 1}
-							onClick={() =>
-								setQuestionIndex((current) =>
-									Math.min(questions.length - 1, current + 1),
-								)
-							}
-						>
-							<ChevronRight className="size-3.5" strokeWidth={2} />
-						</Button>
-					</div>
-				) : null}
-			</div>
+						{questions.length > 1 ? (
+							<div className="flex shrink-0 items-center gap-1">
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon-xs"
+									aria-label="Previous question"
+									disabled={disabled || questionIndex === 0}
+									onClick={() =>
+										setQuestionIndex((current) => Math.max(0, current - 1))
+									}
+								>
+									<ChevronLeft className="size-3.5" strokeWidth={2} />
+								</Button>
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon-xs"
+									aria-label="Next question"
+									disabled={disabled || questionIndex === questions.length - 1}
+									onClick={() =>
+										setQuestionIndex((current) =>
+											Math.min(questions.length - 1, current + 1),
+										)
+									}
+								>
+									<ChevronRight className="size-3.5" strokeWidth={2} />
+								</Button>
+							</div>
+						) : null}
+					</>
+				}
+			/>
 
-			{questions.length > 1 ? (
-				<div className="flex flex-wrap gap-1 px-1 pb-2">
-					{questions.map((question, index) => {
-						const answered = isQuestionAnswered(
-							question,
-							responses[question.key] ?? EMPTY_RESPONSE_STATE,
-						);
-						const active = index === questionIndex;
-
-						return (
-							<Button
-								key={question.key}
-								type="button"
-								variant="ghost"
-								size="xs"
-								disabled={disabled}
-								onClick={() => setQuestionIndex(index)}
-								className={cn(
-									"rounded-full px-2.5 text-[11px]",
-									active
-										? "bg-accent text-foreground"
-										: "text-muted-foreground hover:text-foreground",
-								)}
-							>
-								{answered ? <Check className="size-3" strokeWidth={2} /> : null}
-								<span>{question.header}</span>
-							</Button>
-						);
-					})}
-				</div>
-			) : null}
+			<InteractionStepTabs
+				items={questions.map((question) => ({
+					key: question.key,
+					label: question.header,
+					complete: isQuestionAnswered(
+						question,
+						responses[question.key] ?? EMPTY_RESPONSE_STATE,
+					),
+				}))}
+				value={currentQuestion.key}
+				onChange={(value) => {
+					const nextIndex = questions.findIndex((q) => q.key === value);
+					if (nextIndex >= 0) setQuestionIndex(nextIndex);
+				}}
+				disabled={disabled}
+			/>
 
 			<div className="grid gap-1 px-1">
 				{currentQuestion.options.map((option) => {
 					const selected = currentResponse.selectedOptionLabels.includes(
 						option.label,
 					);
+					const indicator = currentQuestion.multiSelect ? "checkbox" : "radio";
 
 					return (
-						<div
+						<InteractionOptionRow
 							key={option.label}
 							data-ask-option-row={option.label}
-							className={cn(
-								"rounded-lg px-2.5 py-2 transition-colors",
-								selected ? "bg-accent/55" : "hover:bg-accent/30",
-								disabled && "opacity-60",
-							)}
+							selected={selected}
+							indicator={indicator}
+							label={option.label}
+							description={option.description || undefined}
+							disabled={disabled}
+							onClick={() => handleOptionToggle(option.label)}
 						>
-							<button
-								type="button"
-								disabled={disabled}
-								aria-pressed={selected}
-								onClick={() => handleOptionToggle(option.label)}
-								className="flex w-full items-start gap-2 text-left"
-							>
-								<span className="mt-0.5 shrink-0 text-muted-foreground">
-									{currentQuestion.multiSelect ? (
-										selected ? (
-											<Check
-												className="size-3.5 text-foreground"
-												strokeWidth={2.4}
-											/>
-										) : (
-											<span className="block size-3.5 rounded-[6px] bg-background/80 ring-1 ring-inset ring-border/45" />
-										)
-									) : selected ? (
-										<CircleDot
-											className="size-3.5 text-foreground"
-											strokeWidth={1.9}
-										/>
-									) : (
-										<Circle
-											className="size-3.5 text-muted-foreground/60"
-											strokeWidth={1.9}
-										/>
-									)}
-								</span>
-								<div className="min-w-0 flex-1">
-									<div className="flex items-center gap-2">
-										<p className="text-[13px] font-medium text-foreground">
-											{option.label}
-										</p>
-										{selected ? (
-											<span className="rounded-full bg-background/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-												Selected
-											</span>
-										) : null}
-									</div>
-									{option.description ? (
-										<p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">
-											{option.description}
-										</p>
-									) : null}
-								</div>
-							</button>
 							{selected && option.preview ? (
 								<pre className="mt-2 ml-[1.6rem] max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-background/70 px-2.5 py-2 text-[11px] leading-5 text-muted-foreground">
 									{option.preview}
 								</pre>
 							) : null}
-						</div>
+						</InteractionOptionRow>
 					);
 				})}
 
 				<div
 					data-ask-option-row="other"
-					className={cn("px-2.5 py-2", disabled && "opacity-60")}
+					className={cn("px-2 py-1.5", disabled && "opacity-60")}
 					onClick={() => {
 						if (disabled) {
 							return;
@@ -416,7 +342,7 @@ export function AskUserQuestionPanel({
 						handleOtherActivate();
 					}}
 				>
-					<div className="flex items-center gap-2">
+					<div className="flex items-center gap-1.5">
 						<span className="mt-0.5 shrink-0 text-muted-foreground">
 							{currentQuestion.multiSelect ? (
 								currentResponse.useOther ? (
@@ -480,51 +406,39 @@ export function AskUserQuestionPanel({
 				</div>
 			</div>
 
-			<div className="px-1 pb-2 pt-2">
-				<div className="flex items-start gap-2 px-2 py-1.5">
-					<ClipboardList
-						className="mt-1 size-3.5 shrink-0 text-muted-foreground/70"
-						strokeWidth={1.8}
-					/>
-					<Textarea
-						ref={noteTextareaRef}
-						rows={1}
-						aria-label="Optional note for Claude"
-						disabled={disabled}
-						placeholder="Optional note for Claude"
-						value={currentResponse.notes}
-						onChange={(event) => {
-							const value = event.target.value;
-							updateResponse(currentQuestion.key, (current) => ({
-								...current,
-								notes: value,
-							}));
-						}}
-						className={INLINE_TEXTAREA_CLASS}
-					/>
-				</div>
-			</div>
+			<InteractionOptionalInput
+				icon={ClipboardList}
+				placeholder="Optional note for Claude"
+				value={currentResponse.notes}
+				onChange={(value) => {
+					updateResponse(currentQuestion.key, (current) => ({
+						...current,
+						notes: value,
+					}));
+				}}
+				disabled={disabled}
+			/>
 
-			<div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/30 px-1 pt-2">
-				<div className="text-[11px] text-muted-foreground">{progressLabel}</div>
-				<div className="flex flex-wrap items-center gap-2">
-					<ActionRowButton
-						disabled={disabled}
-						onClick={() => onResponse(deferred, "deny")}
-					>
-						<X className="size-3.5" strokeWidth={2} />
-						<span>Decline</span>
-					</ActionRowButton>
-					<ActionRowButton
-						active
-						disabled={!canSubmit}
-						onClick={handleSubmitAnswers}
-					>
-						<Check className="size-3.5" strokeWidth={2} />
-						<span>Send Answers</span>
-					</ActionRowButton>
-				</div>
-			</div>
+			<InteractionFooter>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={disabled}
+					onClick={() => onResponse(deferred, "deny")}
+				>
+					<X className="size-3.5" strokeWidth={2} />
+					<span>Decline</span>
+				</Button>
+				<Button
+					variant="default"
+					size="sm"
+					disabled={!canSubmit}
+					onClick={handleSubmitAnswers}
+				>
+					<Check className="size-3.5" strokeWidth={2} />
+					<span>Send Answers</span>
+				</Button>
+			</InteractionFooter>
 		</DeferredToolCard>
 	);
 }

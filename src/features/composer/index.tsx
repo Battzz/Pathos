@@ -342,7 +342,11 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 		<div
 			aria-label="Workspace composer"
 			className={cn(
-				"flex flex-col rounded-2xl border border-border/40 bg-sidebar px-4 pb-3 pt-3 shadow-[0_-1px_8px_rgba(0,0,0,0.05),0_0_0_1px_rgba(255,255,255,0.02)]",
+				"flex flex-col rounded-2xl border border-border/40 bg-sidebar shadow-[0_-1px_8px_rgba(0,0,0,0.05),0_0_0_1px_rgba(255,255,255,0.02)]",
+				// Pending-interaction panels fill the shell edge-to-edge and own
+				// their own internal padding; the default composer gets the
+				// legacy px-4 pt-3 pb-3 breathing room.
+				hasPendingInteraction ? "p-0" : "px-4 pb-3 pt-3",
 				inputDisabled &&
 					!hasPendingInteraction &&
 					"cursor-not-allowed opacity-60",

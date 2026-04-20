@@ -636,7 +636,7 @@ export function CollapsedToolGroup({
 				<span className="font-medium">{group.summary}</span>
 				{group.active ? (
 					<LoaderCircle
-						className="size-3 animate-spin text-chart-2"
+						className="size-3 animate-spin text-muted-foreground/50"
 						strokeWidth={2}
 					/>
 				) : (

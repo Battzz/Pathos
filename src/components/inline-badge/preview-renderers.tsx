@@ -84,10 +84,38 @@ const previewRenderers: {
 	),
 };
 
-export function renderComposerPreview(payload: ComposerPreviewPayload | null) {
+/** Render a preview payload. Returns null when payload is null. */
+export function renderInlineBadgePreview(
+	payload: ComposerPreviewPayload | null,
+) {
 	if (!payload) {
 		return null;
 	}
-
 	return previewRenderers[payload.kind](payload as never);
+}
+
+/** Placeholder frame used when a lazy preview fails to load. */
+export function PreviewErrorFrame({ title }: { title: string }) {
+	return (
+		<PreviewFrame
+			title={title}
+			bodyClassName="flex items-center justify-center px-4 py-6"
+		>
+			<span className="text-[12px] text-muted-foreground">
+				Unable to preview
+			</span>
+		</PreviewFrame>
+	);
+}
+
+/** Placeholder frame used while a lazy preview is still loading. */
+export function PreviewLoadingFrame({ title }: { title: string }) {
+	return (
+		<PreviewFrame
+			title={title}
+			bodyClassName="flex items-center justify-center px-4 py-6"
+		>
+			<span className="text-[12px] text-muted-foreground">Loading…</span>
+		</PreviewFrame>
+	);
 }

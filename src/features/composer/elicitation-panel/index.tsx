@@ -13,7 +13,6 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActionRowButton } from "@/components/action-row";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { PendingElicitation } from "@/features/conversation/pending-elicitation";
@@ -27,6 +26,12 @@ import type {
 	UnsupportedElicitationViewModel,
 } from "../elicitation";
 import { normalizeElicitation } from "../elicitation";
+import {
+	InteractionFooter,
+	InteractionHeader,
+	InteractionOptionRow,
+	InteractionStepTabs,
+} from "../interaction";
 
 type ElicitationPanelProps = {
 	elicitation: PendingElicitation;
@@ -129,7 +134,7 @@ function getFieldValidationState(
 
 	const text = (responses.stringValues[field.key] ?? "").trim();
 	if (field.required && text.length === 0) {
-		return { blocking: true, message: "Required" };
+		return { blocking: true, message: null };
 	}
 	if (text.length === 0) {
 		return { blocking: false, message: null };
@@ -197,8 +202,7 @@ function getFieldValidationState(
 }
 
 function getFieldPlaceholder(field: ElicitationFormField): string {
-	const base = field.label;
-	return field.required ? `${base} · Required` : base;
+	return field.label;
 }
 
 function buildResponseContent(
@@ -293,9 +297,6 @@ function FormElicitationPanel({
 			),
 		[responses, viewModel.fields],
 	);
-	const completedCount = viewModel.fields.filter(
-		(field) => !fieldValidation[field.key]?.blocking,
-	).length;
 	const canSubmit = viewModel.fields.every(
 		(field) => !fieldValidation[field.key]?.blocking,
 	);
@@ -363,11 +364,6 @@ function FormElicitationPanel({
 		}));
 	}, []);
 
-	const progressLabel = canSubmit
-		? "Ready to send"
-		: `${viewModel.fields.length - completedCount} field${
-				viewModel.fields.length - completedCount === 1 ? "" : "s"
-			} still need attention`;
 	const currentValidation = currentField
 		? fieldValidation[currentField.key]
 		: null;
@@ -386,116 +382,96 @@ function FormElicitationPanel({
 
 	return (
 		<DeferredToolCard>
-			<div className="flex items-start gap-3 px-1 pb-2">
-				<div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground">
-					<ShieldQuestion className="size-3.5" strokeWidth={1.8} />
-				</div>
-				<div className="min-w-0 flex-1">
-					<div className="flex flex-wrap items-start gap-1.5">
-						<p className="min-w-0 flex-1 text-[13px] font-medium leading-5 text-foreground">
-							{currentField.label}
-						</p>
-						<span className="rounded-full bg-muted/55 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+			<InteractionHeader
+				icon={ShieldQuestion}
+				title={currentField.label}
+				description={currentField.description || viewModel.message}
+				trailing={
+					<>
+						<span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
 							{viewModel.serverName}
 						</span>
-						<span className="rounded-full bg-muted/55 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+						<span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
 							{fieldIndex + 1}/{viewModel.fields.length}
 						</span>
-					</div>
-					<p className="mt-1 text-[11px] text-muted-foreground">
-						{currentField.description || viewModel.message}
-					</p>
-				</div>
-				{viewModel.fields.length > 1 ? (
-					<div className="flex shrink-0 items-center gap-1">
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-xs"
-							aria-label="Previous field"
-							disabled={disabled || fieldIndex === 0}
-							onClick={() =>
-								setFieldIndex((current) => Math.max(0, current - 1))
-							}
-						>
-							<ChevronLeft className="size-3.5" strokeWidth={2} />
-						</Button>
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-xs"
-							aria-label="Next field"
-							disabled={disabled || fieldIndex === viewModel.fields.length - 1}
-							onClick={() =>
-								setFieldIndex((current) =>
-									Math.min(viewModel.fields.length - 1, current + 1),
-								)
-							}
-						>
-							<ChevronRight className="size-3.5" strokeWidth={2} />
-						</Button>
-					</div>
-				) : null}
-			</div>
+						{viewModel.fields.length > 1 ? (
+							<div className="flex shrink-0 items-center gap-1">
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon-xs"
+									aria-label="Previous field"
+									disabled={disabled || fieldIndex === 0}
+									onClick={() =>
+										setFieldIndex((current) => Math.max(0, current - 1))
+									}
+								>
+									<ChevronLeft className="size-3.5" strokeWidth={2} />
+								</Button>
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon-xs"
+									aria-label="Next field"
+									disabled={
+										disabled || fieldIndex === viewModel.fields.length - 1
+									}
+									onClick={() =>
+										setFieldIndex((current) =>
+											Math.min(viewModel.fields.length - 1, current + 1),
+										)
+									}
+								>
+									<ChevronRight className="size-3.5" strokeWidth={2} />
+								</Button>
+							</div>
+						) : null}
+					</>
+				}
+			/>
 
-			{viewModel.fields.length > 1 ? (
-				<div className="flex flex-wrap gap-1 px-1 pb-2">
-					{viewModel.fields.map((field, index) => {
-						const active = index === fieldIndex;
-						const valid = !fieldValidation[field.key]?.blocking;
-
-						return (
-							<Button
-								key={field.key}
-								type="button"
-								variant="ghost"
-								size="xs"
-								disabled={disabled}
-								onClick={() => setFieldIndex(index)}
-								className={cn(
-									"rounded-full px-2.5 text-[11px]",
-									active
-										? "bg-accent text-foreground"
-										: "text-muted-foreground hover:text-foreground",
-								)}
-							>
-								{valid ? <Check className="size-3" strokeWidth={2} /> : null}
-								<span>{field.label}</span>
-							</Button>
-						);
-					})}
-				</div>
-			) : null}
+			<InteractionStepTabs
+				items={viewModel.fields.map((field) => ({
+					key: field.key,
+					label: field.label,
+					complete: !fieldValidation[field.key]?.blocking,
+					required: field.required,
+				}))}
+				value={currentField.key}
+				onChange={(value) => {
+					const nextIndex = viewModel.fields.findIndex((f) => f.key === value);
+					if (nextIndex >= 0) setFieldIndex(nextIndex);
+				}}
+				disabled={disabled}
+			/>
 
 			<div className="grid gap-1 px-1">
 				{currentField.kind === "string" ||
 				currentField.kind === "number" ||
 				currentField.kind === "integer" ? (
-					<div className="rounded-lg px-2.5 py-2">
-						<Input
-							disabled={disabled}
-							type={
-								currentField.kind === "string"
-									? currentField.format === "email"
-										? "email"
-										: currentField.format === "uri"
-											? "url"
-											: currentField.format === "date"
-												? "date"
-												: currentField.format === "date-time"
-													? "datetime-local"
-													: "text"
-									: "number"
-							}
-							step={currentField.kind === "integer" ? 1 : undefined}
-							value={responses.stringValues[currentField.key] ?? ""}
-							onChange={(event) =>
-								updateStringValue(currentField.key, event.target.value)
-							}
-							placeholder={getFieldPlaceholder(currentField)}
-							className="border-border/55 bg-background/70 placeholder:text-muted-foreground/70"
-						/>
-					</div>
+					<Input
+						disabled={disabled}
+						type={
+							currentField.kind === "string"
+								? currentField.format === "email"
+									? "email"
+									: currentField.format === "uri"
+										? "url"
+										: currentField.format === "date"
+											? "date"
+											: currentField.format === "date-time"
+												? "datetime-local"
+												: "text"
+								: "number"
+						}
+						step={currentField.kind === "integer" ? 1 : undefined}
+						value={responses.stringValues[currentField.key] ?? ""}
+						onChange={(event) =>
+							updateStringValue(currentField.key, event.target.value)
+						}
+						placeholder={getFieldPlaceholder(currentField)}
+						className="border-border/55 bg-background/70 placeholder:text-muted-foreground/70"
+					/>
 				) : null}
 
 				{currentField.kind === "boolean" ? (
@@ -507,40 +483,16 @@ function FormElicitationPanel({
 							const selected =
 								responses.booleanValues[currentField.key] === option.value;
 							return (
-								<div
+								<InteractionOptionRow
 									key={option.label}
-									className={cn(
-										"rounded-lg px-2.5 py-2 transition-colors",
-										selected ? "bg-accent/55" : "hover:bg-accent/30",
-										disabled && "opacity-60",
-									)}
-								>
-									<button
-										type="button"
-										disabled={disabled}
-										onClick={() =>
-											updateBooleanValue(currentField.key, option.value)
-										}
-										className="flex w-full items-start gap-2 text-left"
-									>
-										<span className="mt-0.5 shrink-0 text-muted-foreground">
-											{selected ? (
-												<CircleDot
-													className="size-3.5 text-foreground"
-													strokeWidth={1.9}
-												/>
-											) : (
-												<Circle
-													className="size-3.5 text-muted-foreground/60"
-													strokeWidth={1.9}
-												/>
-											)}
-										</span>
-										<p className="text-[13px] font-medium text-foreground">
-											{option.label}
-										</p>
-									</button>
-								</div>
+									selected={selected}
+									indicator="radio"
+									label={option.label}
+									onClick={() =>
+										updateBooleanValue(currentField.key, option.value)
+									}
+									disabled={disabled}
+								/>
 							);
 						})}
 					</div>
@@ -557,79 +509,42 @@ function FormElicitationPanel({
 									: (
 											responses.multiSelectValues[currentField.key] ?? []
 										).includes(option.value);
+							const indicator =
+								currentField.kind === "multi-select" ? "checkbox" : "radio";
 
 							return (
-								<div
+								<InteractionOptionRow
 									key={option.value}
-									className={cn(
-										"rounded-lg px-2.5 py-2 transition-colors",
-										selected ? "bg-accent/55" : "hover:bg-accent/30",
-										disabled && "opacity-60",
-									)}
-								>
-									<button
-										type="button"
-										disabled={disabled}
-										onClick={() => {
-											if (currentField.kind === "single-select") {
-												updateSingleSelectValue(currentField.key, option.value);
-												if (fieldIndex < viewModel.fields.length - 1) {
-													setFieldIndex(fieldIndex + 1);
-												}
-											} else {
-												toggleMultiSelectValue(currentField.key, option.value);
+									selected={selected}
+									indicator={indicator}
+									label={option.label}
+									description={option.description || undefined}
+									disabled={disabled}
+									onClick={() => {
+										if (currentField.kind === "single-select") {
+											updateSingleSelectValue(currentField.key, option.value);
+											if (fieldIndex < viewModel.fields.length - 1) {
+												setFieldIndex(fieldIndex + 1);
 											}
-										}}
-										className="flex w-full items-start gap-2 text-left"
-									>
-										<span className="mt-0.5 shrink-0 text-muted-foreground">
-											{currentField.kind === "multi-select" ? (
-												selected ? (
-													<Check
-														className="size-3.5 text-foreground"
-														strokeWidth={2.4}
-													/>
-												) : (
-													<span className="block size-3.5 rounded-[6px] bg-background/80 ring-1 ring-inset ring-border/45" />
-												)
-											) : selected ? (
-												<CircleDot
-													className="size-3.5 text-foreground"
-													strokeWidth={1.9}
-												/>
-											) : (
-												<Circle
-													className="size-3.5 text-muted-foreground/60"
-													strokeWidth={1.9}
-												/>
-											)}
-										</span>
-										<div className="min-w-0 flex-1">
-											<p className="text-[13px] font-medium text-foreground">
-												{option.label}
-											</p>
-											{option.description ? (
-												<p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">
-													{option.description}
-												</p>
-											) : null}
-										</div>
-									</button>
-								</div>
+										} else {
+											toggleMultiSelectValue(currentField.key, option.value);
+										}
+									}}
+								/>
 							);
 						})}
 						{currentField.kind === "single-select" &&
 						currentField.allowOther ? (
 							<div
 								className={cn(
-									"rounded-lg px-2.5 py-2 transition-colors",
+									"rounded-md px-2 py-1.5 transition-colors",
 									responses.singleSelectValues[currentField.key] === "__other__"
 										? "bg-accent/55"
 										: "hover:bg-accent/30",
 									disabled && "opacity-60",
 								)}
 							>
-								<div className="flex items-center gap-2">
+								<div className="flex items-center gap-1.5">
 									<span className="mt-0.5 shrink-0 text-muted-foreground">
 										{responses.singleSelectValues[currentField.key] ===
 										"__other__" ? (
@@ -680,33 +595,35 @@ function FormElicitationPanel({
 				</p>
 			</div>
 
-			<div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/30 px-1 pt-2">
-				<div className="text-[11px] text-muted-foreground">{progressLabel}</div>
-				<div className="flex flex-wrap items-center gap-2">
-					<ActionRowButton
-						disabled={disabled}
-						onClick={() => onResponse(elicitation, "cancel")}
-					>
-						<X className="size-3.5" strokeWidth={2} />
-						<span>Cancel</span>
-					</ActionRowButton>
-					<ActionRowButton
-						disabled={disabled}
-						onClick={() => onResponse(elicitation, "decline")}
-					>
-						<Info className="size-3.5" strokeWidth={2} />
-						<span>Decline</span>
-					</ActionRowButton>
-					<ActionRowButton
-						active
-						disabled={disabled || !canSubmit}
-						onClick={handleSubmit}
-					>
-						<Check className="size-3.5" strokeWidth={2} />
-						<span>Send Response</span>
-					</ActionRowButton>
-				</div>
-			</div>
+			<InteractionFooter>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={disabled}
+					onClick={() => onResponse(elicitation, "cancel")}
+				>
+					<X className="size-3.5" strokeWidth={2} />
+					<span>Cancel</span>
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={disabled}
+					onClick={() => onResponse(elicitation, "decline")}
+				>
+					<Info className="size-3.5" strokeWidth={2} />
+					<span>Decline</span>
+				</Button>
+				<Button
+					variant="default"
+					size="sm"
+					disabled={disabled || !canSubmit}
+					onClick={handleSubmit}
+				>
+					<Check className="size-3.5" strokeWidth={2} />
+					<span>Send Response</span>
+				</Button>
+			</InteractionFooter>
 		</DeferredToolCard>
 	);
 }
@@ -742,26 +659,20 @@ function UrlElicitationPanel({
 
 	return (
 		<DeferredToolCard>
-			<div className="flex items-start gap-3 px-1 pb-2">
-				<div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground">
-					<Globe className="size-3.5" strokeWidth={1.8} />
-				</div>
-				<div className="min-w-0 flex-1">
-					<div className="flex flex-wrap items-start gap-1.5">
-						<p className="min-w-0 flex-1 text-[13px] font-medium leading-5 text-foreground">
-							{viewModel.message}
-						</p>
-						<span className="rounded-full bg-muted/55 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-							{viewModel.serverName}
-						</span>
-					</div>
-					<p className="mt-1 text-[11px] text-muted-foreground">
-						{viewModel.host
-							? `Open ${viewModel.host} to continue.`
-							: "Open the requested URL to continue."}
-					</p>
-				</div>
-			</div>
+			<InteractionHeader
+				icon={Globe}
+				title={viewModel.message}
+				description={
+					viewModel.host
+						? `Open ${viewModel.host} to continue.`
+						: "Open the requested URL to continue."
+				}
+				trailing={
+					<span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+						{viewModel.serverName}
+					</span>
+				}
+			/>
 
 			<div className="grid gap-2 px-1 pb-2">
 				<div className="rounded-lg bg-accent/35 px-3 py-2">
@@ -778,41 +689,48 @@ function UrlElicitationPanel({
 				</div>
 			</div>
 
-			<div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/30 px-1 pt-2">
-				<div className="text-[11px] text-muted-foreground">
-					{copied
-						? "Link copied"
-						: "Opening the link counts as accepting this request."}
-				</div>
-				<div className="flex flex-wrap items-center gap-2">
-					<ActionRowButton
-						disabled={disabled}
-						onClick={() => onResponse(elicitation, "cancel")}
-					>
-						<X className="size-3.5" strokeWidth={2} />
-						<span>Cancel</span>
-					</ActionRowButton>
-					<ActionRowButton
-						disabled={disabled}
-						onClick={() => onResponse(elicitation, "decline")}
-					>
-						<Info className="size-3.5" strokeWidth={2} />
-						<span>Decline</span>
-					</ActionRowButton>
-					<ActionRowButton disabled={disabled} onClick={handleCopy}>
+			<InteractionFooter>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={disabled}
+					onClick={() => onResponse(elicitation, "cancel")}
+				>
+					<X className="size-3.5" strokeWidth={2} />
+					<span>Cancel</span>
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={disabled}
+					onClick={() => onResponse(elicitation, "decline")}
+				>
+					<Info className="size-3.5" strokeWidth={2} />
+					<span>Decline</span>
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={disabled}
+					onClick={handleCopy}
+				>
+					{copied ? (
+						<Check className="size-3.5" strokeWidth={2} />
+					) : (
 						<Copy className="size-3.5" strokeWidth={2} />
-						<span>Copy Link</span>
-					</ActionRowButton>
-					<ActionRowButton
-						active
-						disabled={disabled}
-						onClick={() => void handleOpen()}
-					>
-						<ExternalLink className="size-3.5" strokeWidth={2} />
-						<span>Open Link</span>
-					</ActionRowButton>
-				</div>
-			</div>
+					)}
+					<span>{copied ? "Copied" : "Copy Link"}</span>
+				</Button>
+				<Button
+					variant="default"
+					size="sm"
+					disabled={disabled}
+					onClick={() => void handleOpen()}
+				>
+					<ExternalLink className="size-3.5" strokeWidth={2} />
+					<span>Open Link</span>
+				</Button>
+			</InteractionFooter>
 		</DeferredToolCard>
 	);
 }
@@ -830,35 +748,31 @@ function UnsupportedElicitationPanel({
 }) {
 	return (
 		<DeferredToolCard>
-			<div className="flex items-start gap-3 px-1 pb-2">
-				<div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground">
-					<Info className="size-3.5" strokeWidth={1.8} />
-				</div>
-				<div className="min-w-0 flex-1">
-					<p className="text-[13px] font-medium leading-5 text-foreground">
-						{viewModel.message}
-					</p>
-					<p className="mt-1 text-[11px] text-muted-foreground">
-						{viewModel.reason}
-					</p>
-				</div>
-			</div>
-			<div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/30 px-1 pt-2">
-				<ActionRowButton
+			<InteractionHeader
+				icon={Info}
+				title={viewModel.message}
+				description={viewModel.reason}
+			/>
+			<InteractionFooter>
+				<Button
+					variant="outline"
+					size="sm"
 					disabled={disabled}
 					onClick={() => onResponse(elicitation, "cancel")}
 				>
 					<X className="size-3.5" strokeWidth={2} />
 					<span>Cancel</span>
-				</ActionRowButton>
-				<ActionRowButton
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
 					disabled={disabled}
 					onClick={() => onResponse(elicitation, "decline")}
 				>
 					<Info className="size-3.5" strokeWidth={2} />
 					<span>Decline</span>
-				</ActionRowButton>
-			</div>
+				</Button>
+			</InteractionFooter>
 		</DeferredToolCard>
 	);
 }

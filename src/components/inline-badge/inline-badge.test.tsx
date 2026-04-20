@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { ImageIcon, Tag } from "lucide-react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/render-with-providers";
-import { ComposerPreviewBadge } from "./composer-preview-badge";
+import { InlineBadge } from "./index";
 
 vi.mock("@tauri-apps/api/core", () => ({
 	convertFileSrc: vi.fn((path: string) => `asset://localhost${path}`),
@@ -25,12 +25,12 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("ComposerPreviewBadge", () => {
+describe("InlineBadge", () => {
 	it("shows an image preview on hover when preview data is provided", async () => {
 		const user = userEvent.setup();
 
 		renderWithProviders(
-			<ComposerPreviewBadge
+			<InlineBadge
 				icon={
 					<ImageIcon
 						className="size-3 shrink-0 text-chart-3"
@@ -57,7 +57,7 @@ describe("ComposerPreviewBadge", () => {
 		const user = userEvent.setup();
 
 		renderWithProviders(
-			<ComposerPreviewBadge
+			<InlineBadge
 				icon={
 					<Tag
 						className="size-3 shrink-0 text-muted-foreground"
@@ -77,7 +77,7 @@ describe("ComposerPreviewBadge", () => {
 		const user = userEvent.setup();
 
 		renderWithProviders(
-			<ComposerPreviewBadge
+			<InlineBadge
 				icon={<Tag className="size-3 shrink-0" strokeWidth={1.8} />}
 				label="CI summary"
 				preview={{
@@ -99,7 +99,7 @@ describe("ComposerPreviewBadge", () => {
 		const user = userEvent.setup();
 
 		renderWithProviders(
-			<ComposerPreviewBadge
+			<InlineBadge
 				icon={<Tag className="size-3 shrink-0" strokeWidth={1.8} />}
 				label="stack trace"
 				preview={{

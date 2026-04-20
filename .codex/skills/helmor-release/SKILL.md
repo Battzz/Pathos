@@ -1,6 +1,6 @@
 ---
 name: helmor-release
-description: Prepare Helmor releases by inspecting the current branch, drafting a complete user-facing Changesets entry first (bump + summary + bullets), writing it to `.changeset/`, and then showing the user the result with a short menu of adjustments they can pick from. Use when the user wants to cut a release, write a changeset, decide patch/minor/major, draft GitHub release notes, or summarize branch changes into release-ready language.
+description: Prepare Helmor releases by inspecting the current branch, drafting a concise user-facing Changesets entry first (bump + body — a single sentence when one fits, or summary line + bullets when there are multiple distinct changes), writing it to `.changeset/`, and then showing the user the result with a short menu of adjustments they can pick from. Use when the user wants to cut a release, write a changeset, decide patch/minor/major, draft GitHub release notes, or summarize branch changes into release-ready language.
 ---
 
 # Helmor Release
@@ -16,10 +16,12 @@ Use this skill to turn a branch's real changes into a clean `.changeset/*.md` en
    - a short suggested summary
 3. Draft the full changeset yourself, without asking the user upfront. Decide:
    - the bump (`patch` / `minor` / `major`) using the Versioning Guidance below
-   - the prose summary line
-   - the bullet list of user-visible changes
+   - the body shape — **one prose sentence** when one sentence is genuinely enough, or **summary line + bullets** when there are multiple distinct user-visible changes (see Default Changeset Format)
+   - the actual prose / bullets
 
    Prefer a conservative bump (`patch` unless there is a clear new user-visible capability). If you genuinely cannot decide the bump from the diff alone, default to `patch` and flag it in the confirmation step.
+
+   **Brevity bias.** Do not pad. If the change is "fix X" or "give Y more room", a single sentence is the right answer — do not invent bullets to fill a template. Reserve the summary+bullets shape for releases that genuinely have ≥2 distinct user-visible items worth enumerating.
 4. Write the changeset to a single file under `.changeset/` right away. Do not wait for approval before creating the file — the user will adjust from a real draft, not a hypothetical one.
 5. Then, and only then, show the user what you created and offer the adjustment menu described in "Confirmation Style".
 
@@ -30,10 +32,27 @@ Do not ask the user anything before the draft is written. Once the changeset fil
 Preferred pattern:
 
 1. State the file path you created.
-2. Echo back the chosen bump, the summary line, and the bullets in a compact block.
+2. Echo back the chosen bump and the body (single sentence, or summary+bullets) in a compact block.
 3. Present a numbered menu of the things the user might want to change. The user picks any subset (e.g. "1 and 3") or says nothing / "looks good" to accept. Never phrase this as an open question like "do you approve?".
 
-Example:
+Example (Shape A — single sentence):
+
+```text
+I've written .changeset/brave-otters-smile.md:
+
+  bump: patch
+  body: Give sidebar workspace titles the full row width at rest, and overlay archive/restore/delete buttons on hover with the title fading out beneath them.
+
+If you want to adjust anything, tell me which:
+  1. Version bump (currently: patch — say "make it minor" / "make it major")
+  2. Rewrite the body
+  3. Expand into summary + bullets
+  4. Add a thanks/credits line
+
+Otherwise we're done — no reply needed.
+```
+
+Example (Shape B — multi-change):
 
 ```text
 I've written .changeset/brave-otters-smile.md:
@@ -49,7 +68,8 @@ If you want to adjust anything, tell me which:
   1. Version bump (currently: minor — say "make it patch" / "make it major")
   2. Summary line
   3. The bullet list (add / remove / rewrite specific items)
-  4. Add a thanks/credits line
+  4. Collapse to a single sentence
+  5. Add a thanks/credits line
 
 Otherwise we're done — no reply needed.
 ```
@@ -62,9 +82,10 @@ Write changesets for users, not for maintainers.
 
 Do:
 
-- explain what changed from the user's point of view
-- always open the body with a prose summary line (no leading `- `), then enumerate concrete changes as `- ` sub-items underneath
-- keep bullets concrete and outcome-focused
+- explain what changed from the user's point of view, as briefly as possible
+- use **one sentence** when one sentence cleanly conveys the change
+- use **summary line + bullets** only when there are multiple distinct user-visible changes
+- keep prose / bullets concrete and outcome-focused
 - mention new workflows or capabilities
 - include a short thanks line only if the user explicitly wants credits
 
@@ -74,33 +95,32 @@ Do not:
 - list internal refactors unless they changed release behavior
 - mention implementation-only details like exact file names
 - create multiple changesets for one coordinated release task unless the user asks
-- start the changeset body with a `- ` bullet, or skip the summary line and go straight to bullets (see format rule below)
+- pad a single-change PR with bullets just to fit the summary+bullets template
+- start the changeset body with a `- ` bullet (see format rule below)
 
 ## Default Changeset Format
 
-Every changeset body has **two parts**:
+The body has **two allowed shapes**. Pick the smallest one that fits.
 
-1. A prose **summary line** that sets the release theme at a glance, written with no leading `- `.
-2. One or more **bullet sub-items** underneath (each starting with `- `) that enumerate concrete user-visible changes.
+**Shape A — single sentence.** Use this when one self-contained sentence captures the entire user-visible change. This is the default for most patch-level fixes and small polish PRs.
 
-Both parts are required, even when there is only one underlying change — the summary gives the CHANGELOG reader context; the bullets carry the outcomes.
+**Shape B — summary line + bullets.** Use this only when there are ≥2 distinct user-visible changes worth enumerating. The first line is a prose summary (usually ending with `:`); each concrete change is a `- ` sub-item underneath.
 
-`@changesets/changelog-github` inlines the first line of the body after `Thanks @user! -` when rendering `CHANGELOG.md` / GitHub Release. If the first line is itself a bullet (`- Fix X`), the output becomes `! - - Fix X` with the first item glued to the attribution. **Never start the body with `- `**, and never submit a changeset whose body is a single sentence with no bullets — always give readers a summary + at least one bullet.
+`@changesets/changelog-github` inlines the first line of the body after `Thanks @user! -` when rendering `CHANGELOG.md` / GitHub Release. A single prose sentence renders cleanly. A leading `- ` would produce `! - - Fix X` with the first item glued to the attribution. **Never start the body with `- `.**
 
-### Single-change example
+Decision rule: if you find yourself writing a summary that just restates the one bullet underneath it, collapse to Shape A. If a single sentence would force you to cram multiple ideas with "and"/";", expand to Shape B.
 
-Summary line describes the area; one bullet captures the specific outcome:
+### Shape A example (single sentence)
 
 ```md
 ---
 "helmor": patch
 ---
 
-Fix a Chinese IME regression in the composer:
-- Pressing Enter to confirm an IME candidate no longer accidentally sends the message.
+Fix a Chinese IME regression in the composer so pressing Enter to confirm an IME candidate no longer accidentally sends the message.
 ```
 
-### Multi-change example
+### Shape B example (multi-change)
 
 First line is a prose summary ending with `:`. Bullets start from the next line:
 
