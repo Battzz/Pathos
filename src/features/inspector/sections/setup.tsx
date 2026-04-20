@@ -15,6 +15,7 @@ import {
 	type ScriptStatus,
 	startScript,
 	stopScript,
+	TRUNCATION_NOTICE,
 } from "../script-store";
 
 type SetupTabProps = {
@@ -64,6 +65,7 @@ export function SetupTab({
 				const t = termRef.current;
 				if (!t) return;
 				t.clear();
+				if (existing.truncated) t.write(TRUNCATION_NOTICE);
 				for (const chunk of existing.chunks) t.write(chunk);
 			};
 			// Terminal already mounted → replay now; otherwise wait one frame

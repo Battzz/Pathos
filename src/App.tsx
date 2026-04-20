@@ -2104,7 +2104,7 @@ function AppShell({
 
 								<aside
 									aria-label="Inspector sidebar"
-									className="relative h-full shrink-0 overflow-hidden bg-sidebar"
+									className="relative h-full shrink-0 overflow-hidden bg-sidebar has-[[data-tabs-zoomed=true]]:overflow-visible"
 									style={{ width: `${inspectorWidth}px` }}
 								>
 									<WorkspaceInspectorSidebar
