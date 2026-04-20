@@ -96,6 +96,19 @@ pub fn run() {
                 Err(e) => tracing::warn!("Failed to purge orphaned workspaces: {e:#}"),
             }
 
+            // Clear rows stuck in `initializing` state past the cutoff —
+            // happens when the app is force-quit mid-create (Phase 2 never
+            // gets to flip the state to ready/setup_pending). Five minutes
+            // is well past the worst-case git worktree creation time.
+            const INITIALIZING_ORPHAN_CUTOFF_SECONDS: i64 = 300;
+            match workspace::workspaces::cleanup_orphaned_initializing_workspaces(
+                INITIALIZING_ORPHAN_CUTOFF_SECONDS,
+            ) {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(count = n, "Cleaned up orphan initializing workspaces"),
+                Err(e) => tracing::warn!("Failed to clean up initializing orphans: {e:#}"),
+            }
+
             // On macOS, GUI-launched apps only see the minimal system PATH.
             // Capture the user's login-shell PATH (Homebrew, nvm, bun, cargo,
             // etc.) so every child process — sidecar, git, workspace scripts —
@@ -140,6 +153,8 @@ pub fn run() {
             commands::github_commands::cancel_github_identity_connect,
             commands::workspace_commands::complete_workspace_setup,
             commands::workspace_commands::create_workspace_from_repo,
+            commands::workspace_commands::prepare_workspace_from_repo,
+            commands::workspace_commands::finalize_workspace_from_repo,
             commands::github_commands::disconnect_github_identity,
             commands::repository_commands::get_add_repository_defaults,
             commands::settings_commands::get_app_settings,

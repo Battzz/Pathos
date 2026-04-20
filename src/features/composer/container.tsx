@@ -32,7 +32,6 @@ import {
 	findModelOption,
 	getComposerContextKey,
 	isNewSession,
-	isOptimisticCreatingWorkspaceId,
 	resolveSessionSelectedModelId,
 } from "@/lib/workspace-helpers";
 import type { DeferredToolResponseHandler } from "./deferred-tool";
@@ -139,15 +138,11 @@ export const WorkspaceComposerContainer = memo(
 		const modelSectionsQuery = useQuery(agentModelSectionsQueryOptions());
 		const workspaceDetailQuery = useQuery({
 			...workspaceDetailQueryOptions(displayedWorkspaceId ?? "__none__"),
-			enabled:
-				Boolean(displayedWorkspaceId) &&
-				!isOptimisticCreatingWorkspaceId(displayedWorkspaceId),
+			enabled: Boolean(displayedWorkspaceId),
 		});
 		const sessionsQuery = useQuery({
 			...workspaceSessionsQueryOptions(displayedWorkspaceId ?? "__none__"),
-			enabled:
-				Boolean(displayedWorkspaceId) &&
-				!isOptimisticCreatingWorkspaceId(displayedWorkspaceId),
+			enabled: Boolean(displayedWorkspaceId),
 		});
 
 		const modelSections = modelSectionsQuery.data ?? EMPTY_MODEL_SECTIONS;
@@ -230,11 +225,24 @@ export const WorkspaceComposerContainer = memo(
 		const loadingConversationContext =
 			Boolean(displayedWorkspaceId) &&
 			(workspaceDetailQuery.isPending || sessionsQuery.isPending);
-		const composerDisabled =
+		// Split the "disabled" concept along two axes:
+		//
+		//   * `composerUnavailable` — the composer is conceptually not
+		//     usable here (no workspace selected, or workspace archived).
+		//     Entire UI dims to opacity-60, all toolbars disabled.
+		//
+		//   * `composerAwaitingFinalize` — workspace is still in Phase 2
+		//     (`initializing`). The composer is fully live visually so the
+		//     user can compose / tweak settings while the worktree is
+		//     materializing; only the Send button is blocked (see
+		//     `submitDisabled` below) to keep sends from racing with
+		//     finalize. The typical ~200-500ms window ends long before the
+		//     user finishes typing, so there is no visible transition.
+		const composerUnavailable =
 			displayedWorkspaceId === null ||
-			isOptimisticCreatingWorkspaceId(displayedWorkspaceId) ||
-			workspaceDetailQuery.data?.state === "initializing" ||
 			workspaceDetailQuery.data?.state === "archived";
+		const composerAwaitingFinalize =
+			workspaceDetailQuery.data?.state === "initializing";
 
 		// Auto-close opt-in state comes from settings: `auto_close_action_kinds`
 		// is the persistent list of action kinds the user has enabled. A given
@@ -546,7 +554,7 @@ export const WorkspaceComposerContainer = memo(
 								aria-label={
 									autoCloseEnabled ? "Disable Auto Close" : "Enable Auto Close"
 								}
-								disabled={composerDisabled}
+								disabled={composerUnavailable}
 								onClick={() => {
 									void handleToggleAutoClose();
 								}}
@@ -567,8 +575,10 @@ export const WorkspaceComposerContainer = memo(
 					<WorkspaceComposer
 						contextKey={composerContextKey}
 						onSubmit={handleComposerSubmit}
-						disabled={composerDisabled}
-						submitDisabled={disabled || loadingConversationContext}
+						disabled={composerUnavailable}
+						submitDisabled={
+							disabled || loadingConversationContext || composerAwaitingFinalize
+						}
 						onStop={onStop}
 						sending={sending}
 						selectedModelId={effectiveSelectedModelId}

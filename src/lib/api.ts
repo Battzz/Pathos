@@ -343,6 +343,23 @@ export type CreateWorkspaceResponse = {
 	branch: string;
 };
 
+export type PrepareWorkspaceResponse = {
+	workspaceId: string;
+	initialSessionId: string;
+	repoId: string;
+	repoName: string;
+	directoryName: string;
+	branch: string;
+	defaultBranch: string;
+	state: WorkspaceState;
+	repoScripts: RepoScripts;
+};
+
+export type FinalizeWorkspaceResponse = {
+	workspaceId: string;
+	finalState: WorkspaceState;
+};
+
 export type MarkWorkspaceReadResponse = undefined;
 
 export type SessionAttachmentRecord = {
@@ -1357,6 +1374,35 @@ export async function createWorkspaceFromRepo(
 	});
 }
 
+/**
+ * Phase 1 of workspace creation. Fast (<20ms): validates the repo,
+ * allocates a unique directory, computes the branch name, generates the
+ * workspace + session UUIDs, inserts the `initializing` DB row + initial
+ * session, and returns all metadata plus repo-level scripts. The
+ * frontend paints with this response immediately — no placeholders.
+ */
+export async function prepareWorkspaceFromRepo(
+	repoId: string,
+): Promise<PrepareWorkspaceResponse> {
+	return invoke<PrepareWorkspaceResponse>("prepare_workspace_from_repo", {
+		repoId,
+	});
+}
+
+/**
+ * Phase 2 of workspace creation. Slow (~200ms-2s): creates the git
+ * worktree, scaffolds `.context`, probes `helmor.json`, and flips the
+ * workspace row from `initializing` to `ready` / `setup_pending`. On
+ * failure, the workspace row is cleaned up automatically.
+ */
+export async function finalizeWorkspaceFromRepo(
+	workspaceId: string,
+): Promise<FinalizeWorkspaceResponse> {
+	return invoke<FinalizeWorkspaceResponse>("finalize_workspace_from_repo", {
+		workspaceId,
+	});
+}
+
 export async function completeWorkspaceSetup(
 	workspaceId: string,
 ): Promise<void> {
@@ -1855,6 +1901,19 @@ export type ScriptEvent =
 	| { type: "exited"; code: number | null }
 	| { type: "error"; message: string };
 
+/**
+ * Resolve repo scripts using a fixed priority (enforced in Rust):
+ *   1. Workspace worktree `helmor.json` (when `workspaceId` is given AND
+ *      the worktree exists on disk)
+ *   2. Source repo root `helmor.json` (fallback for any missing workspace
+ *      / worktree — archived, broken, or caller with no workspace context)
+ *   3. DB-level override (Settings UI edit)
+ *
+ * Pass `workspaceId` when you have a specific workspace context (runtime
+ * panel, inspector, script execution, archive hook). Omit for contexts
+ * that only care about the repo's defaults (Settings page editing a repo
+ * that isn't the current workspace's repo).
+ */
 export async function loadRepoScripts(
 	repoId: string,
 	workspaceId?: string | null,

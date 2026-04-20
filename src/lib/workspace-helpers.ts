@@ -13,21 +13,6 @@ import type {
 } from "./api";
 import { extractError } from "./errors";
 
-export const OPTIMISTIC_CREATING_WORKSPACE_ID_PREFIX = "creating-workspace:";
-
-export function createOptimisticCreatingWorkspaceId(repoId: string): string {
-	return `${OPTIMISTIC_CREATING_WORKSPACE_ID_PREFIX}${repoId}:${crypto.randomUUID()}`;
-}
-
-export function isOptimisticCreatingWorkspaceId(
-	workspaceId: string | null | undefined,
-): boolean {
-	return (
-		typeof workspaceId === "string" &&
-		workspaceId.startsWith(OPTIMISTIC_CREATING_WORKSPACE_ID_PREFIX)
-	);
-}
-
 export function createOptimisticCreatingWorkspaceDetail(
 	row: WorkspaceRow,
 	repoId: string,
