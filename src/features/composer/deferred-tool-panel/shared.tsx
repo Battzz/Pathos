@@ -16,16 +16,10 @@ export function DeferredToolCard({
 	children: ReactNode;
 	className?: string;
 }) {
-	return (
-		<div
-			className={cn(
-				"mb-3 rounded-[16px] bg-background/80 px-2.5 py-2.5 ring-1 ring-inset ring-border/35 backdrop-blur-sm",
-				className,
-			)}
-		>
-			{children}
-		</div>
-	);
+	// The composer outer shell already supplies the border / background /
+	// rounded corners — this wrapper just provides the internal breathing
+	// room and lets the panel's content fill the shell edge-to-edge.
+	return <div className={cn("px-4 py-3", className)}>{children}</div>;
 }
 
 export function autosizeTextarea(element: HTMLTextAreaElement | null) {

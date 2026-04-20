@@ -5,10 +5,12 @@
 "use no memo";
 
 import { useQuery } from "@tanstack/react-query";
-import { Check, ShieldQuestion, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActionRow, ActionRowButton } from "@/components/action-row";
 import { WorkspaceComposerContainer } from "@/features/composer/container";
+import type {
+	DeferredToolResponseHandler,
+	DeferredToolResponseOptions,
+} from "@/features/composer/deferred-tool";
 import { WorkspacePanelContainer } from "@/features/panel/container";
 import type { PullRequestInfo } from "@/lib/api";
 import type { ResolvedComposerInsertRequest } from "@/lib/composer-insert";
@@ -17,6 +19,10 @@ import { hasUnresolvedPlanReview } from "@/lib/plan-review";
 import { sessionThreadMessagesQueryOptions } from "@/lib/query-client";
 import { getComposerContextKey } from "@/lib/workspace-helpers";
 import { useConversationStreaming } from "./hooks/use-streaming";
+import {
+	adaptPermissionToDeferredTool,
+	permissionIdFromAdaptedToolUseId,
+} from "./permission-as-deferred-tool";
 
 type WorkspaceConversationContainerProps = {
 	selectedWorkspaceId: string | null;
@@ -215,7 +221,40 @@ export const WorkspaceConversationContainer = memo(
 				}),
 		);
 
-		const toolPermissions = pendingPermissions;
+		// Permission requests are rendered through the same `GenericDeferredToolPanel`
+		// as deferred-tool requests so both flows share one UI. Pick the head of the
+		// queue (one-at-a-time, same as `pendingDeferredTool`) and adapt it. The
+		// wrapped response handler routes callbacks back to the correct API.
+		const headPendingPermission = pendingPermissions[0] ?? null;
+		const permissionAsDeferredTool = useMemo(
+			() =>
+				headPendingPermission
+					? adaptPermissionToDeferredTool(headPendingPermission)
+					: null,
+			[headPendingPermission],
+		);
+
+		const effectivePendingDeferredTool =
+			pendingDeferredTool ?? permissionAsDeferredTool;
+
+		const effectiveDeferredToolResponse =
+			useCallback<DeferredToolResponseHandler>(
+				(deferred, behavior, options?: DeferredToolResponseOptions) => {
+					const permissionId = permissionIdFromAdaptedToolUseId(
+						deferred.toolUseId,
+					);
+					if (permissionId !== null) {
+						handlePermissionResponse(
+							permissionId,
+							behavior,
+							options?.reason ? { message: options.reason } : undefined,
+						);
+						return;
+					}
+					handleDeferredToolResponse(deferred, behavior, options);
+				},
+				[handlePermissionResponse, handleDeferredToolResponse],
+			);
 
 		return (
 			<>
@@ -240,66 +279,6 @@ export const WorkspaceConversationContainer = memo(
 
 				<div className="mt-auto px-4 pb-4 pt-0">
 					<div>
-						{toolPermissions.map((perm) => {
-							const action = perm.toolName || "Tool";
-							const target =
-								typeof perm.toolInput?.file_path === "string"
-									? perm.toolInput.file_path
-									: typeof perm.toolInput?.command === "string"
-										? perm.toolInput.command
-										: null;
-							const label =
-								perm.title ??
-								(perm.description ? `${action}: ${perm.description}` : null);
-							return (
-								<ActionRow
-									key={perm.permissionId}
-									className="relative z-10 mx-auto -mb-px w-[90%] rounded-t-[14px]"
-									leading={
-										<>
-											<ShieldQuestion
-												className="size-3.5 shrink-0 text-muted-foreground/60"
-												strokeWidth={1.8}
-												aria-hidden="true"
-											/>
-											<span className="truncate text-[12px] font-medium tracking-[0.01em] text-muted-foreground">
-												{label ?? (
-													<>
-														<span className="font-semibold">{action}</span>
-														{target && (
-															<span className="ml-1.5 text-muted-foreground/60">
-																{target}
-															</span>
-														)}
-													</>
-												)}
-											</span>
-										</>
-									}
-									trailing={
-										<>
-											<ActionRowButton
-												onClick={() =>
-													handlePermissionResponse(perm.permissionId, "deny")
-												}
-											>
-												<X className="size-[11px]" strokeWidth={2} />
-												Deny
-											</ActionRowButton>
-											<ActionRowButton
-												active
-												onClick={() =>
-													handlePermissionResponse(perm.permissionId, "allow")
-												}
-											>
-												<Check className="size-[11px]" strokeWidth={2} />
-												Allow
-											</ActionRowButton>
-										</>
-									}
-								/>
-							);
-						})}
 						<WorkspaceComposerContainer
 							displayedWorkspaceId={displayedWorkspaceId}
 							displayedSessionId={displayedSessionId}
@@ -314,8 +293,8 @@ export const WorkspaceConversationContainer = memo(
 							pendingElicitation={pendingElicitation}
 							onElicitationResponse={handleElicitationResponse}
 							elicitationResponsePending={elicitationResponsePending}
-							pendingDeferredTool={pendingDeferredTool}
-							onDeferredToolResponse={handleDeferredToolResponse}
+							pendingDeferredTool={effectivePendingDeferredTool}
+							onDeferredToolResponse={effectiveDeferredToolResponse}
 							hasPlanReview={hasPlanReview}
 							modelSelections={composerModelSelections}
 							effortLevels={composerEffortLevels}
