@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { helmorQueryKeys } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
+import { TABS_EASING, TABS_HOVER_TRANSITION_MS, useTabsZoom } from "../layout";
 import {
 	attach,
 	detach,
@@ -39,6 +40,7 @@ export function SetupTab({
 	const [status, setStatus] = useState<ScriptStatus>("idle");
 	const [hasRun, setHasRun] = useState(false);
 	const queryClient = useQueryClient();
+	const { isZoomPresented, isHoverExpanded } = useTabsZoom();
 
 	const hasScript = !!setupScript?.trim();
 
@@ -134,8 +136,15 @@ export function SetupTab({
 						/>
 					</div>
 
-					{(status === "running" || status === "exited") && (
-						<div className="absolute bottom-3 right-4">
+					{isZoomPresented && (status === "running" || status === "exited") && (
+						<div
+							className="absolute bottom-3 right-4"
+							style={{
+								opacity: isHoverExpanded ? 1 : 0,
+								pointerEvents: isHoverExpanded ? "auto" : "none",
+								transition: `opacity ${TABS_HOVER_TRANSITION_MS}ms ${TABS_EASING}`,
+							}}
+						>
 							<Button
 								variant={status === "running" ? "destructive" : "secondary"}
 								size="sm"

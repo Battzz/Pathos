@@ -186,7 +186,7 @@ export const WorkspaceRowItem = memo(
 					!selected && row.state === "archived" && "opacity-50",
 				)}
 			>
-				<div className="row-content-fade flex min-w-0 flex-1 items-center gap-2">
+				<div className="flex min-w-0 flex-1 items-center gap-2">
 					<WorkspaceAvatar
 						repoIconSrc={row.repoIconSrc}
 						repoInitials={row.repoInitials ?? row.avatar ?? null}
@@ -195,31 +195,34 @@ export const WorkspaceRowItem = memo(
 						badgeClassName={showStatusDot ? statusDotClassName : null}
 						badgeAriaLabel={statusDotLabel ?? undefined}
 					/>
-					{isSending && !isInteractionRequired ? (
-						<HelmorThinkingIndicator size={13} />
-					) : (
-						<GitBranch
-							className={cn(
-								"size-[13px] shrink-0",
-								branchToneClasses[branchTone],
-							)}
-							strokeWidth={1.9}
-						/>
-					)}
-					<span
-						className={cn(
-							"truncate leading-none",
-							selected
-								? row.hasUnread
-									? "font-semibold text-foreground"
-									: "font-medium text-foreground"
-								: row.hasUnread
-									? "font-semibold text-foreground"
-									: "font-medium",
+					{/* Fade is on an inner wrapper so the avatar's overflowing badge isn't clipped by mask-image. */}
+					<div className="row-content-fade flex min-w-0 flex-1 items-center gap-2">
+						{isSending && !isInteractionRequired ? (
+							<HelmorThinkingIndicator size={13} />
+						) : (
+							<GitBranch
+								className={cn(
+									"size-[13px] shrink-0",
+									branchToneClasses[branchTone],
+								)}
+								strokeWidth={1.9}
+							/>
 						)}
-					>
-						<HyperText text={displayTitle} className="inline" />
-					</span>
+						<span
+							className={cn(
+								"truncate leading-none",
+								selected
+									? row.hasUnread
+										? "font-semibold text-foreground"
+										: "font-medium text-foreground"
+									: row.hasUnread
+										? "font-semibold text-foreground"
+										: "font-medium",
+							)}
+						>
+							<HyperText text={displayTitle} className="inline" />
+						</span>
+					</div>
 				</div>
 
 				{hasActionHandler ? (

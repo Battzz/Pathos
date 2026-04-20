@@ -1,8 +1,10 @@
 import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Tabs } from "@/components/ui/tabs";
 import { renderWithProviders } from "@/test/render-with-providers";
+import { TabsZoomContext } from "../layout";
 import { _resetForTesting } from "../script-store";
 import { RunTab } from "./run";
 
@@ -42,12 +44,32 @@ const defaults = {
 	onOpenSettings: vi.fn(),
 };
 
-function renderRun(overrides: Partial<typeof defaults> = {}) {
+// The floating Stop/Rerun button only renders while the tabs panel is
+// hover-zoomed. Tests exercising that button wrap their tree with this
+// provider to simulate the zoomed state; the empty/idle state tests leave
+// it off to confirm the default-collapsed behavior.
+function ZoomedProvider({ children }: { children: ReactNode }) {
+	return (
+		<TabsZoomContext.Provider
+			value={{ isZoomPresented: true, isHoverExpanded: true }}
+		>
+			{children}
+		</TabsZoomContext.Provider>
+	);
+}
+
+function renderRun(
+	overrides: Partial<typeof defaults> = {},
+	{ zoomed = false }: { zoomed?: boolean } = {},
+) {
 	const props = { ...defaults, ...overrides };
-	return renderWithProviders(
+	const tree = (
 		<Tabs defaultValue="run">
 			<RunTab {...props} />
-		</Tabs>,
+		</Tabs>
+	);
+	return renderWithProviders(
+		zoomed ? <ZoomedProvider>{tree}</ZoomedProvider> : tree,
 	);
 }
 
@@ -99,9 +121,9 @@ describe("RunTab", () => {
 		);
 	});
 
-	it("shows Stop button while running", async () => {
+	it("shows Stop button while running (when zoomed)", async () => {
 		const user = userEvent.setup();
-		renderRun();
+		renderRun({}, { zoomed: true });
 
 		await user.click(screen.getByRole("button", { name: /^run$/i }));
 
@@ -110,7 +132,7 @@ describe("RunTab", () => {
 
 	it("Stop button calls stopRepoScript with workspace id", async () => {
 		const user = userEvent.setup();
-		renderRun();
+		renderRun({}, { zoomed: true });
 
 		await user.click(screen.getByRole("button", { name: /^run$/i }));
 		await user.click(screen.getByRole("button", { name: /stop/i }));
@@ -122,7 +144,7 @@ describe("RunTab", () => {
 		);
 	});
 
-	it("shows 'Rerun' button after script exits", async () => {
+	it("shows 'Rerun' button after script exits (when zoomed)", async () => {
 		const user = userEvent.setup();
 
 		let onEvent: (e: unknown) => void = () => {};
@@ -133,7 +155,7 @@ describe("RunTab", () => {
 			},
 		);
 
-		renderRun();
+		renderRun({}, { zoomed: true });
 		await user.click(screen.getByRole("button", { name: /^run$/i }));
 
 		onEvent({ type: "exited", code: 0 });
@@ -153,6 +175,18 @@ describe("RunTab", () => {
 		).not.toBeInTheDocument();
 		expect(
 			screen.queryByRole("button", { name: /rerun/i }),
+		).not.toBeInTheDocument();
+	});
+
+	it("hides the floating Stop button until the panel is zoomed", async () => {
+		const user = userEvent.setup();
+		renderRun();
+
+		await user.click(screen.getByRole("button", { name: /^run$/i }));
+
+		expect(screen.getByTestId("terminal")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /stop/i }),
 		).not.toBeInTheDocument();
 	});
 });

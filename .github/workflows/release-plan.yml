@@ -1,31 +1,29 @@
 name: Release Plan
 
-# Canonical changesets/action flow for a non-npm, single-package repo:
+# Changesets/action flow, adapted for our bun workspace layout:
 #
 # 1. A feature PR with `.changeset/*.md` merges to main.
-#    → changesets/action sees pending changesets, opens/updates the
-#      "chore(release): version packages" PR (version bump + CHANGELOG
-#      edits, consuming the changeset files).
+#    → changesets/action opens/updates the "chore(release): version
+#      packages" PR (version bump + CHANGELOG, consuming changeset files).
 #
 # 2. Maintainer merges that "version packages" PR.
-#    → changesets/action sees no pending changesets and runs the
-#      `publish:` command below. For this repo that's `changeset tag`,
-#      which creates a local `v<version>` git tag (single-package repos
-#      use the `v` prefix; monorepos would use `<name>@<version>`).
-#    → Action parses `"New tag: ..."` from stdout, pushes the tag
-#      (authenticated as HELMOR_RELEASE_PAT via the checkout step so
-#      GitHub actually fires downstream workflows), and creates a
-#      GitHub Release with the Changesets-formatted body (thanks,
-#      PR links, bullets).
+#    → changesets/action runs the `publish:` command below, which is
+#      `bun run release:tag` — a custom script that reads the root
+#      package.json version and creates a single `v<version>` git tag.
+#    → Why NOT `changeset tag`: once we added `apps/marketing` to the
+#      workspace, `@manypkg/get-packages` flips changesets into monorepo
+#      mode and tags become `<name>@<version>` (e.g. `helmor@0.2.0`),
+#      which (a) doesn't match publish.yml's `tags: v*` trigger and
+#      (b) additionally tags `@helmor/marketing@...` which we don't want.
 #
 # 3. The tag push triggers `publish.yml` (on: push: tags: v*), which
 #    builds + signs + notarizes the DMGs via tauri-action. tauri-action
-#    detects the existing Release and uploads the artifacts into it.
+#    creates the GitHub Release itself with the release notes body.
 #
-# Why PAT instead of the default GITHUB_TOKEN: GitHub suppresses
-# workflow runs for pushes authored by GITHUB_TOKEN (recursion guard).
-# A PAT-authored tag push does fire downstream workflows, which is how
-# publish.yml knows to build.
+# Why PAT instead of GITHUB_TOKEN: GitHub suppresses workflow runs for
+# pushes authored by GITHUB_TOKEN (recursion guard). A PAT-authored tag
+# push does fire downstream workflows, which is how publish.yml knows to
+# build.
 
 on:
   workflow_dispatch:
@@ -65,7 +63,7 @@ jobs:
         uses: changesets/action@v1
         with:
           version: bun run release:version
-          publish: bun run changeset tag
+          publish: bun run release:tag
           commit: "chore(release): version packages"
           title: "chore(release): version packages"
         env:
