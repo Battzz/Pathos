@@ -1,8 +1,10 @@
 import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Tabs } from "@/components/ui/tabs";
 import { renderWithProviders } from "@/test/render-with-providers";
+import { TabsZoomContext } from "../layout";
 import { _resetForTesting } from "../script-store";
 import { SetupTab } from "./setup";
 
@@ -42,12 +44,32 @@ const defaults = {
 	onOpenSettings: vi.fn(),
 };
 
-function renderSetup(overrides: Partial<typeof defaults> = {}) {
+// The floating Stop/Rerun button only renders while the tabs panel is
+// hover-zoomed. Tests exercising that button wrap their tree with this
+// provider to simulate the zoomed state; the empty/idle state tests leave
+// it off to confirm the default-collapsed behavior.
+function ZoomedProvider({ children }: { children: ReactNode }) {
+	return (
+		<TabsZoomContext.Provider
+			value={{ isZoomPresented: true, isHoverExpanded: true }}
+		>
+			{children}
+		</TabsZoomContext.Provider>
+	);
+}
+
+function renderSetup(
+	overrides: Partial<typeof defaults> = {},
+	{ zoomed = false }: { zoomed?: boolean } = {},
+) {
 	const props = { ...defaults, ...overrides };
-	return renderWithProviders(
+	const tree = (
 		<Tabs defaultValue="setup">
 			<SetupTab {...props} />
-		</Tabs>,
+		</Tabs>
+	);
+	return renderWithProviders(
+		zoomed ? <ZoomedProvider>{tree}</ZoomedProvider> : tree,
 	);
 }
 
@@ -102,9 +124,9 @@ describe("SetupTab", () => {
 		);
 	});
 
-	it("shows Stop button while running", async () => {
+	it("shows Stop button while running (when zoomed)", async () => {
 		const user = userEvent.setup();
-		renderSetup();
+		renderSetup({}, { zoomed: true });
 
 		await user.click(screen.getByRole("button", { name: /run setup/i }));
 
@@ -113,7 +135,7 @@ describe("SetupTab", () => {
 
 	it("Stop button calls stopRepoScript with workspace id", async () => {
 		const user = userEvent.setup();
-		renderSetup();
+		renderSetup({}, { zoomed: true });
 
 		await user.click(screen.getByRole("button", { name: /run setup/i }));
 		await user.click(screen.getByRole("button", { name: /stop/i }));
@@ -125,7 +147,7 @@ describe("SetupTab", () => {
 		);
 	});
 
-	it("shows 'Rerun setup' button after script exits", async () => {
+	it("shows 'Rerun setup' button after script exits (when zoomed)", async () => {
 		const user = userEvent.setup();
 
 		let onEvent: (e: unknown) => void = () => {};
@@ -136,7 +158,7 @@ describe("SetupTab", () => {
 			},
 		);
 
-		renderSetup();
+		renderSetup({}, { zoomed: true });
 		await user.click(screen.getByRole("button", { name: /run setup/i }));
 
 		// Simulate the exited event from the backend.
@@ -147,5 +169,19 @@ describe("SetupTab", () => {
 				screen.getByRole("button", { name: /rerun setup/i }),
 			).toBeInTheDocument();
 		});
+	});
+
+	it("hides the floating Stop button until the panel is zoomed", async () => {
+		const user = userEvent.setup();
+		renderSetup();
+
+		await user.click(screen.getByRole("button", { name: /run setup/i }));
+
+		// Terminal should be mounted (script has run), but the corner Stop
+		// button stays out of the DOM while the panel is at its resting size.
+		expect(screen.getByTestId("terminal")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /stop/i }),
+		).not.toBeInTheDocument();
 	});
 });

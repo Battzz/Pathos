@@ -124,6 +124,17 @@ export function WorkspaceInspectorSidebar({
 		!!repoScripts?.runScript?.trim(),
 	);
 
+	// Only allow hover-to-zoom when the active tab has real terminal output.
+	// "idle" = script configured but never run; "no-script" = nothing to run.
+	// In both cases the body is a placeholder (Run / Open-settings button)
+	// that doesn't benefit from — and shouldn't trigger — the enlargement.
+	const activeTabState =
+		activeTab === "setup" ? setupScriptState : runScriptState;
+	const canHoverExpand =
+		activeTabState === "running" ||
+		activeTabState === "success" ||
+		activeTabState === "failure";
+
 	const handleOpenSettings = onOpenSettings ?? (() => {});
 
 	return (
@@ -187,6 +198,7 @@ export function WorkspaceInspectorSidebar({
 				tabActions={runTabActions}
 				setupScriptState={setupScriptState}
 				runScriptState={runScriptState}
+				canHoverExpand={canHoverExpand}
 			>
 				<SetupTab
 					repoId={repoId ?? null}
