@@ -200,12 +200,12 @@ pub(super) fn handle_turn_completed(acc: &mut StreamAccumulator, raw_line: &str,
             "message": message,
         });
         let s = serde_json::to_string(&synthetic).unwrap_or_default();
-        acc.collect_message(&s, &synthetic, MessageRole::Error, None);
+        let turn_id = uuid::Uuid::new_v4().to_string();
+        acc.collect_message(&s, &synthetic, MessageRole::Error, Some(&turn_id));
         acc.turns.push(CollectedTurn {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: turn_id,
             role: MessageRole::Error,
             content_json: raw_line.to_string(),
-            collected_idx: None,
         });
         return;
     }
@@ -228,8 +228,9 @@ pub(super) fn handle_turn_completed(acc: &mut StreamAccumulator, raw_line: &str,
     let enriched_str = serde_json::to_string(&enriched).unwrap_or_else(|_| raw_line.to_string());
 
     acc.result_json = Some(enriched_str.clone());
-    acc.result_collected_idx = Some(acc.collected.len());
-    acc.collect_message(&enriched_str, &enriched, MessageRole::Assistant, None);
+    let id = uuid::Uuid::new_v4().to_string();
+    acc.result_id = Some(id.clone());
+    acc.collect_message(&enriched_str, &enriched, MessageRole::Assistant, Some(&id));
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +311,9 @@ fn handle_agent_message(
     item_id: Option<&str>,
     persist: bool,
 ) {
+    let collect_id = item_id
+        .map(|id| format!("codex-item:{id}"))
+        .unwrap_or_else(|| format!("codex-item:{}", acc.line_count));
     if persist {
         if let Some(text) = item.get("text").and_then(Value::as_str) {
             if !acc.assistant_text.is_empty() {
@@ -317,11 +321,12 @@ fn handle_agent_message(
             }
             acc.assistant_text.push_str(text);
         }
+        // Use the same id for the DB row and the live-rendered collected
+        // entry so historical reload and live streaming agree byte-for-byte.
         acc.turns.push(CollectedTurn {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: collect_id.clone(),
             role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
-            collected_idx: None,
         });
     }
     // Wrap in the envelope the adapter expects
@@ -330,12 +335,7 @@ fn handle_agent_message(
         "item": item,
     });
     let s = serde_json::to_string(&envelope).unwrap_or_default();
-    acc.collect_or_replace(
-        &s,
-        &envelope,
-        MessageRole::Assistant,
-        item_id.map(|id| format!("codex-item:{id}")),
-    );
+    acc.collect_or_replace(&s, &envelope, MessageRole::Assistant, Some(collect_id));
 }
 
 fn handle_command_execution(
@@ -375,12 +375,14 @@ fn handle_command_execution(
         }
     });
     let sa_str = serde_json::to_string(&synthetic_assistant).unwrap_or_default();
-    let asst_id = item_id.map(|id| format!("codex-cmd-asst:{id}"));
+    let asst_id = item_id
+        .map(|id| format!("codex-cmd-asst:{id}"))
+        .unwrap_or_else(|| format!("codex-cmd-asst:{}", acc.line_count));
     acc.collect_or_replace(
         &sa_str,
         &synthetic_assistant,
         MessageRole::Assistant,
-        asst_id,
+        Some(asst_id.clone()),
     );
 
     if !is_running {
@@ -407,10 +409,9 @@ fn handle_command_execution(
 
     if persist {
         acc.turns.push(CollectedTurn {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: asst_id,
             role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
-            collected_idx: None,
         });
     }
 }
@@ -450,12 +451,14 @@ fn handle_file_change(
         }
     });
     let sa_str = serde_json::to_string(&synthetic_assistant).unwrap_or_default();
-    let asst_id = item_id.map(|id| format!("codex-patch-asst:{id}"));
+    let asst_id = item_id
+        .map(|id| format!("codex-patch-asst:{id}"))
+        .unwrap_or_else(|| format!("codex-patch-asst:{}", acc.line_count));
     acc.collect_or_replace(
         &sa_str,
         &synthetic_assistant,
         MessageRole::Assistant,
-        asst_id,
+        Some(asst_id.clone()),
     );
 
     if let Some(s) = status {
@@ -481,10 +484,9 @@ fn handle_file_change(
 
     if persist {
         acc.turns.push(CollectedTurn {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: asst_id,
             role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
-            collected_idx: None,
         });
     }
 }
@@ -504,6 +506,9 @@ fn handle_reasoning(
     if text.is_empty() {
         return;
     }
+    let intermediate_id = item_id
+        .map(|id| format!("codex-reasoning:{id}"))
+        .unwrap_or_else(|| format!("codex-reasoning:{}", acc.line_count));
     let synthetic_assistant = serde_json::json!({
         "type": "assistant",
         "message": {
@@ -512,24 +517,23 @@ fn handle_reasoning(
             "content": [{
                 "type": "thinking",
                 "thinking": text,
+                "__part_id": format!("{intermediate_id}:blk:0"),
             }]
         }
     });
     let sa_str = serde_json::to_string(&synthetic_assistant).unwrap_or_default();
-    let intermediate_id = item_id.map(|id| format!("codex-reasoning:{id}"));
     acc.collect_or_replace(
         &sa_str,
         &synthetic_assistant,
         MessageRole::Assistant,
-        intermediate_id,
+        Some(intermediate_id.clone()),
     );
 
     if persist {
         acc.turns.push(CollectedTurn {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: intermediate_id,
             role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
-            collected_idx: None,
         });
     }
 }
@@ -586,12 +590,14 @@ fn handle_web_search(
         }
     });
     let sa_str = serde_json::to_string(&synthetic_assistant).unwrap_or_default();
-    let asst_id = item_id.map(|id| format!("codex-search-asst:{id}"));
+    let asst_id = item_id
+        .map(|id| format!("codex-search-asst:{id}"))
+        .unwrap_or_else(|| format!("codex-search-asst:{}", acc.line_count));
     acc.collect_or_replace(
         &sa_str,
         &synthetic_assistant,
         MessageRole::Assistant,
-        asst_id,
+        Some(asst_id.clone()),
     );
 
     if persist {
@@ -611,10 +617,9 @@ fn handle_web_search(
         acc.collect_or_replace(&sr_str, &synthetic_result, MessageRole::User, user_id);
 
         acc.turns.push(CollectedTurn {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: asst_id,
             role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
-            collected_idx: None,
         });
     }
 }
@@ -653,12 +658,14 @@ fn handle_mcp_tool_call(
         }
     });
     let sa_str = serde_json::to_string(&synthetic_assistant).unwrap_or_default();
-    let asst_id = item_id.map(|id| format!("codex-mcp-asst:{id}"));
+    let asst_id = item_id
+        .map(|id| format!("codex-mcp-asst:{id}"))
+        .unwrap_or_else(|| format!("codex-mcp-asst:{}", acc.line_count));
     acc.collect_or_replace(
         &sa_str,
         &synthetic_assistant,
         MessageRole::Assistant,
-        asst_id,
+        Some(asst_id.clone()),
     );
 
     if matches!(status, Some("completed") | Some("failed")) {
@@ -691,10 +698,9 @@ fn handle_mcp_tool_call(
 
     if persist {
         acc.turns.push(CollectedTurn {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: asst_id,
             role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
-            collected_idx: None,
         });
     }
 }
@@ -744,20 +750,21 @@ fn handle_todo_list(
         }
     });
     let sa_str = serde_json::to_string(&synthetic_assistant).unwrap_or_default();
-    let intermediate_id = item_id.map(|id| format!("codex-todo-msg:{id}"));
+    let intermediate_id = item_id
+        .map(|id| format!("codex-todo-msg:{id}"))
+        .unwrap_or_else(|| format!("codex-todo-msg:{}", acc.line_count));
     acc.collect_or_replace(
         &sa_str,
         &synthetic_assistant,
         MessageRole::Assistant,
-        intermediate_id,
+        Some(intermediate_id.clone()),
     );
 
     if persist {
         acc.turns.push(CollectedTurn {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: intermediate_id,
             role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
-            collected_idx: None,
         });
     }
 }
@@ -774,12 +781,10 @@ fn handle_plan_item(
         "item": item,
     });
     let s = serde_json::to_string(&envelope).unwrap_or_default();
-    acc.collect_or_replace(
-        &s,
-        &envelope,
-        MessageRole::Assistant,
-        item_id.map(|id| format!("codex-plan:{id}")),
-    );
+    let plan_id = item_id
+        .map(|id| format!("codex-plan:{id}"))
+        .unwrap_or_else(|| format!("codex-plan:{}", acc.line_count));
+    acc.collect_or_replace(&s, &envelope, MessageRole::Assistant, Some(plan_id.clone()));
 
     if persist {
         if let Some(text) = item.get("text").and_then(Value::as_str) {
@@ -789,10 +794,9 @@ fn handle_plan_item(
             acc.assistant_text.push_str(text);
         }
         acc.turns.push(CollectedTurn {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: plan_id,
             role: MessageRole::Assistant,
             content_json: raw_line.to_string(),
-            collected_idx: None,
         });
     }
 }
@@ -871,14 +875,14 @@ fn handle_error_item(acc: &mut StreamAccumulator, raw_line: &str, item: &Value, 
         "message": message,
     });
     let s = serde_json::to_string(&synthetic).unwrap_or_default();
-    acc.collect_message(&s, &synthetic, MessageRole::Error, None);
+    let err_id = uuid::Uuid::new_v4().to_string();
+    acc.collect_message(&s, &synthetic, MessageRole::Error, Some(&err_id));
 
     if persist {
         acc.turns.push(CollectedTurn {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: err_id,
             role: MessageRole::Error,
             content_json: raw_line.to_string(),
-            collected_idx: None,
         });
     }
 }

@@ -17,10 +17,7 @@ import {
 	workspaceSessionsQueryOptions,
 } from "@/lib/query-client";
 import { useSettings } from "@/lib/settings";
-import {
-	isOptimisticCreatingWorkspaceId,
-	resolveSessionDisplayProvider,
-} from "@/lib/workspace-helpers";
+import { resolveSessionDisplayProvider } from "@/lib/workspace-helpers";
 import {
 	WORKSPACE_SCRIPT_PROMPTS,
 	type WorkspaceScriptType,
@@ -73,16 +70,14 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 }: WorkspacePanelContainerProps) {
 	const queryClient = useQueryClient();
 	const { settings } = useSettings();
-	const isOptimisticWorkspace =
-		isOptimisticCreatingWorkspaceId(displayedWorkspaceId);
 
 	const detailQuery = useQuery({
 		...workspaceDetailQueryOptions(displayedWorkspaceId ?? "__none__"),
-		enabled: Boolean(displayedWorkspaceId) && !isOptimisticWorkspace,
+		enabled: Boolean(displayedWorkspaceId),
 	});
 	const sessionsQuery = useQuery({
 		...workspaceSessionsQueryOptions(displayedWorkspaceId ?? "__none__"),
-		enabled: Boolean(displayedWorkspaceId) && !isOptimisticWorkspace,
+		enabled: Boolean(displayedWorkspaceId),
 	});
 
 	const workspace = detailQuery.data ?? null;
@@ -277,18 +272,18 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 	}, [displayedSessionId, onResolveDisplayedSession, threadSessionId]);
 
 	useEffect(() => {
-		if (!threadSessionId || isOptimisticWorkspace) {
+		if (!threadSessionId) {
 			return;
 		}
 
 		void queryClient.prefetchQuery(
 			sessionThreadMessagesQueryOptions(threadSessionId),
 		);
-	}, [isOptimisticWorkspace, queryClient, threadSessionId]);
+	}, [queryClient, threadSessionId]);
 
 	const messagesQuery = useQuery({
 		...sessionThreadMessagesQueryOptions(threadSessionId ?? "__none__"),
-		enabled: Boolean(threadSessionId) && !isOptimisticWorkspace,
+		enabled: Boolean(threadSessionId),
 	});
 	const repoScriptsQuery = useQuery({
 		queryKey: helmorQueryKeys.repoScripts(
@@ -296,9 +291,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			displayedWorkspaceId,
 		),
 		queryFn: () => loadRepoScripts(workspace!.repoId, displayedWorkspaceId),
-		enabled:
-			Boolean(workspace?.repoId && displayedWorkspaceId) &&
-			!isOptimisticWorkspace,
+		enabled: Boolean(workspace?.repoId && displayedWorkspaceId),
 		staleTime: 0,
 	});
 

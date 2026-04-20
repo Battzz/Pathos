@@ -17,11 +17,16 @@ import {
 	type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { isAbortError } from "./abort.js";
+import {
+	applyClaudeModelOverrides,
+	claudeModelSupportsFastMode,
+} from "./claude-model-overrides.js";
 import type { SidecarEmitter } from "./emitter.js";
 import { resolveGitAccessDirectories } from "./git-access.js";
 import { readImageWithResize } from "./image-resize.js";
 import { parseImageRefs } from "./images.js";
 import { errorDetails, logger } from "./logger.js";
+import { sortClaudeModels } from "./model-sort.js";
 import {
 	formatModelLabel,
 	type ListSlashCommandsParams,
@@ -44,7 +49,7 @@ import {
  * unresponsive `claude-code` binary parks the request forever and the popup
  * spinner never resolves.
  */
-const SLASH_COMMANDS_TIMEOUT_MS = 8_000;
+const SLASH_COMMANDS_TIMEOUT_MS = 20_000;
 
 /**
  * `supportedModels()` resolves noticeably slower than `supportedCommands()`
@@ -54,12 +59,6 @@ const SLASH_COMMANDS_TIMEOUT_MS = 8_000;
  * makes model loading flap and the Claude model section render empty.
  */
 const MODEL_LIST_TIMEOUT_MS = 15_000;
-
-function claudeSupportsFastMode(model: string | undefined): boolean {
-	const id = model?.trim().toLowerCase();
-	if (!id) return false;
-	return id === "default" || id.includes("opus");
-}
 
 /**
  * Resolve the path to `@anthropic-ai/claude-code`'s `cli.js`, used as the
@@ -388,7 +387,7 @@ export class ClaudeSessionManager implements SessionManager {
 						yield await buildUserMessageWithImages(text, imagePaths);
 					})();
 		const effectiveFastMode =
-			fastMode === true && claudeSupportsFastMode(model);
+			fastMode === true && claudeModelSupportsFastMode(model);
 
 		const q = query({
 			prompt: promptValue,
@@ -624,7 +623,7 @@ export class ClaudeSessionManager implements SessionManager {
 	async listSlashCommands(
 		params: ListSlashCommandsParams,
 	): Promise<readonly SlashCommandInfo[]> {
-		const { cwd, model } = params;
+		const { cwd } = params;
 		const abortController = new AbortController();
 
 		let resolveDone: () => void = () => undefined;
@@ -653,7 +652,6 @@ export class ClaudeSessionManager implements SessionManager {
 				pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
 				...executableOptions(),
 				cwd: cwd || undefined,
-				model: model || undefined,
 				permissionMode: "bypassPermissions",
 				allowDangerouslySkipPermissions: true,
 				includePartialMessages: false,
@@ -675,7 +673,6 @@ export class ClaudeSessionManager implements SessionManager {
 				if (!isAbortError(err)) {
 					logger.error("Claude slash-command drain failed", {
 						cwd: cwd || "(none)",
-						model: model || "(default)",
 						...errorDetails(err),
 					});
 				}
@@ -696,7 +693,6 @@ export class ClaudeSessionManager implements SessionManager {
 			} catch (err) {
 				logger.error("Claude slash-command timeout abort failed", {
 					cwd: cwd || "(none)",
-					model: model || "(default)",
 					...errorDetails(err),
 				});
 			}
@@ -736,7 +732,6 @@ export class ClaudeSessionManager implements SessionManager {
 			} catch (err) {
 				logger.error("Claude slash-command cleanup failed during abort()", {
 					cwd: cwd || "(none)",
-					model: model || "(default)",
 					...errorDetails(err),
 				});
 			}
@@ -745,7 +740,6 @@ export class ClaudeSessionManager implements SessionManager {
 			} catch (err) {
 				logger.error("Claude slash-command cleanup failed during q.close()", {
 					cwd: cwd || "(none)",
-					model: model || "(default)",
 					...errorDetails(err),
 				});
 			}
@@ -753,7 +747,6 @@ export class ClaudeSessionManager implements SessionManager {
 				if (!isAbortError(err)) {
 					logger.error("Claude slash-command drain join failed", {
 						cwd: cwd || "(none)",
-						model: model || "(default)",
 						...errorDetails(err),
 					});
 				}
@@ -813,13 +806,13 @@ export class ClaudeSessionManager implements SessionManager {
 			// Pass `supportedEffortLevels` through as-is. Empty / missing means
 			// the model doesn't expose effort selection — the composer drops the
 			// effort picker entirely for that model, mirroring Claude Code.
-			return models.map((m) => ({
+			const mapped: ProviderModelInfo[] = models.map((m) => ({
 				id: m.value,
 				label: formatModelLabel(m.value, m.displayName || m.value),
 				cliModel: m.value,
 				effortLevels: m.supportedEffortLevels ?? [],
-				supportsFastMode: claudeSupportsFastMode(m.value),
 			}));
+			return sortClaudeModels(applyClaudeModelOverrides(mapped));
 		} catch (err) {
 			if (timedOut) {
 				throw new Error(

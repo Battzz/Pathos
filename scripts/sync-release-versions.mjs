@@ -4,6 +4,7 @@ import path from "node:path";
 const root = process.cwd();
 const packageJsonPath = path.join(root, "package.json");
 const cargoTomlPath = path.join(root, "src-tauri", "Cargo.toml");
+const cargoLockPath = path.join(root, "src-tauri", "Cargo.lock");
 const tauriConfigPath = path.join(root, "src-tauri", "tauri.conf.json");
 
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
@@ -24,6 +25,25 @@ if (cargoToml === nextCargoToml) {
 } else {
 	fs.writeFileSync(cargoTomlPath, nextCargoToml);
 	console.log(`Updated src-tauri/Cargo.toml to ${version}`);
+}
+
+// Cargo.lock keeps a `[[package]]` entry for the helmor crate with its own
+// version field. CI never runs cargo, so without this step the lockfile
+// drifts and everyone regenerates it locally via rust-analyzer.
+const cargoLock = fs.readFileSync(cargoLockPath, "utf8");
+const cargoLockPattern = /(^name = "helmor"\nversion = )"[^"]*"/m;
+if (!cargoLockPattern.test(cargoLock)) {
+	throw new Error(
+		'src-tauri/Cargo.lock is missing the `name = "helmor"` package entry',
+	);
+}
+const nextCargoLock = cargoLock.replace(cargoLockPattern, `$1"${version}"`);
+
+if (cargoLock === nextCargoLock) {
+	console.log(`Cargo.lock already matches ${version}`);
+} else {
+	fs.writeFileSync(cargoLockPath, nextCargoLock);
+	console.log(`Updated src-tauri/Cargo.lock to ${version}`);
 }
 
 const tauriConfig = JSON.parse(fs.readFileSync(tauriConfigPath, "utf8"));

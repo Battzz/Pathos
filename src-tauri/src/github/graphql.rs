@@ -150,6 +150,13 @@ pub fn lookup_workspace_pr(workspace_id: &str) -> Result<Option<PullRequestInfo>
         bail!("Workspace not found: {workspace_id}");
     };
 
+    // A workspace in Phase 1 hasn't been pushed yet — there can't be a PR.
+    // Short-circuit to match the post-ready answer and avoid a pointless
+    // GitHub round-trip plus the UI flicker that would come with it.
+    if record.state == crate::workspace_state::WorkspaceState::Initializing {
+        return Ok(None);
+    }
+
     let Some(remote_url) = record.remote_url.as_deref() else {
         return Ok(None);
     };
@@ -283,6 +290,13 @@ pub fn lookup_workspace_pr_action_status(workspace_id: &str) -> Result<Workspace
     let Some(record) = workspace_models::load_workspace_record_by_id(workspace_id)? else {
         bail!("Workspace not found: {workspace_id}");
     };
+
+    // Phase 1 workspace: definitively no PR yet. Return the `no_pr` state
+    // directly so the inspector paints the final empty review list from
+    // the first frame, without a GitHub round-trip.
+    if record.state == crate::workspace_state::WorkspaceState::Initializing {
+        return Ok(WorkspacePrActionStatus::no_pr());
+    }
 
     let Some(remote_url) = record.remote_url.as_deref() else {
         return Ok(WorkspacePrActionStatus::unavailable(

@@ -172,6 +172,10 @@ pub(super) fn persist_exit_plan_message(
     Ok((msg_id, now))
 }
 
+/// Persist the session result row and finalize session metadata. The
+/// `preassigned_result_id` param, when present, is used as the DB row key
+/// — pass the accumulator's `take_result_id()` so the live-rendered id
+/// and the persisted id match.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn persist_result_and_finalize(
     conn: &Connection,
@@ -183,9 +187,11 @@ pub(super) fn persist_result_and_finalize(
     usage: &AgentUsage,
     raw_result_json: Option<&str>,
     status: &str,
+    preassigned_result_id: Option<String>,
 ) -> Result<String> {
     let now = current_timestamp_string()?;
-    let result_message_id = uuid::Uuid::new_v4().to_string();
+    let result_message_id =
+        preassigned_result_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     let result_payload = raw_result_json.map(str::to_string).unwrap_or_else(|| {
         serde_json::json!({

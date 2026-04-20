@@ -228,7 +228,7 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<String> {
             let result = service::send_message(params, &mut |event| {
                 if let AgentStreamEvent::StreamingPartial { message } = event {
                     for part in &message.content {
-                        if let ExtendedMessagePart::Basic(MessagePart::Text { text }) = part {
+                        if let ExtendedMessagePart::Basic(MessagePart::Text { text, .. }) = part {
                             output.push_str(text);
                         }
                     }

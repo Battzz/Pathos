@@ -373,7 +373,7 @@ fn cmd_send(
         match event {
             AgentStreamEvent::StreamingPartial { message } => {
                 for part in &message.content {
-                    if let ExtendedMessagePart::Basic(MessagePart::Text { text }) = part {
+                    if let ExtendedMessagePart::Basic(MessagePart::Text { text, .. }) = part {
                         let _ = write!(stdout, "{text}");
                         let _ = stdout.flush();
                     }

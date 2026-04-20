@@ -55,6 +55,38 @@ pub struct CreateWorkspaceResponse {
     pub branch: String,
 }
 
+/// Response from the fast Phase 1 of workspace creation. Returned after
+/// the DB row has been inserted but before the git worktree has been
+/// materialized on disk. Contains everything the frontend needs to paint
+/// the final UI state (directory name, branch, repo scripts) without any
+/// placeholders. `state` is always `Initializing` at this point.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareWorkspaceResponse {
+    pub workspace_id: String,
+    pub initial_session_id: String,
+    pub repo_id: String,
+    pub repo_name: String,
+    pub directory_name: String,
+    pub branch: String,
+    pub default_branch: String,
+    pub state: WorkspaceState,
+    /// DB-level repo scripts. After Phase 2 (worktree creation) the frontend
+    /// may refetch to pick up any `helmor.json` overrides copied into the
+    /// worktree, but for a freshly cloned workspace these match exactly.
+    pub repo_scripts: repos::RepoScripts,
+}
+
+/// Response from the slow Phase 2 (git worktree + scaffold + setup probe).
+/// The workspace row has been upgraded from `Initializing` to whatever
+/// `final_state` reports (usually `Ready` or `SetupPending`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FinalizeWorkspaceResponse {
+    pub workspace_id: String,
+    pub final_state: WorkspaceState,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ValidateRestoreResponse {
@@ -72,7 +104,17 @@ pub struct TargetBranchConflict {
     pub remote: String,
 }
 
-pub fn create_workspace_from_repo_impl(repo_id: &str) -> Result<CreateWorkspaceResponse> {
+/// Phase 1 of workspace creation: all the fast (<20ms total) preparatory
+/// work. Validates the source repo, allocates a unique directory name,
+/// computes the branch name, inserts the initializing DB row + initial
+/// session, and loads repo-level scripts. Returns the full metadata the
+/// frontend needs to paint the final UI state.
+///
+/// Phase 2 (`finalize_workspace_from_repo_impl`) creates the actual git
+/// worktree on disk and flips the workspace row from `Initializing` to
+/// `Ready` / `SetupPending`. It can run in the background while the UI
+/// already shows the workspace.
+pub fn prepare_workspace_from_repo_impl(repo_id: &str) -> Result<PrepareWorkspaceResponse> {
     let repository = repos::load_repository_by_id(repo_id)?
         .with_context(|| format!("Repository not found: {repo_id}"))?;
     let repo_root = PathBuf::from(repository.root_path.trim());
@@ -100,9 +142,7 @@ pub fn create_workspace_from_repo_impl(repo_id: &str) -> Result<CreateWorkspaceR
         .unwrap_or_else(|| "main".to_string());
     let workspace_id = uuid::Uuid::new_v4().to_string();
     let session_id = uuid::Uuid::new_v4().to_string();
-    let workspace_dir = crate::data_dir::workspace_dir(&repository.name, &directory_name)?;
     let timestamp = db::current_timestamp()?;
-    let mut created_worktree = false;
 
     workspace_models::insert_initializing_workspace_and_session(
         &repository,
@@ -114,7 +154,77 @@ pub fn create_workspace_from_repo_impl(repo_id: &str) -> Result<CreateWorkspaceR
         &timestamp,
     )?;
 
-    let create_result = (|| -> Result<CreateWorkspaceResponse> {
+    // `load_repo_scripts` is the single truth source. The worktree
+    // doesn't exist yet, but the function knows to fall back to the
+    // source repo root's `helmor.json` when the worktree dir is missing
+    // — so the frontend gets the correct "missing script" count from
+    // the first paint.
+    let repo_scripts = match repos::load_repo_scripts(repo_id, Some(&workspace_id)) {
+        Ok(scripts) => scripts,
+        Err(error) => {
+            tracing::warn!(%error, "Failed to load repo scripts during prepare; defaulting to empty");
+            repos::RepoScripts {
+                setup_script: None,
+                run_script: None,
+                archive_script: None,
+                setup_from_project: false,
+                run_from_project: false,
+                archive_from_project: false,
+            }
+        }
+    };
+
+    Ok(PrepareWorkspaceResponse {
+        workspace_id,
+        initial_session_id: session_id,
+        repo_id: repository.id,
+        repo_name: repository.name,
+        directory_name,
+        branch,
+        default_branch,
+        state: WorkspaceState::Initializing,
+        repo_scripts,
+    })
+}
+
+/// Phase 2 of workspace creation: creates the git worktree, seeds the
+/// `.context` scaffold, probes `helmor.json` for a setup script, and
+/// upgrades the workspace row from `Initializing` to `Ready` /
+/// `SetupPending`. On failure, cleans up the worktree + DB rows so the
+/// caller can surface the error without leaving a broken workspace
+/// lingering.
+pub fn finalize_workspace_from_repo_impl(workspace_id: &str) -> Result<FinalizeWorkspaceResponse> {
+    let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
+        .with_context(|| format!("Workspace not found: {workspace_id}"))?;
+
+    if record.state != WorkspaceState::Initializing {
+        bail!(
+            "Workspace {workspace_id} is not in initializing state (current: {})",
+            record.state
+        );
+    }
+
+    let repository = repos::load_repository_by_id(&record.repo_id)?
+        .with_context(|| format!("Repository not found: {}", record.repo_id))?;
+    let repo_root = PathBuf::from(repository.root_path.trim());
+    let remote = repository
+        .remote
+        .clone()
+        .unwrap_or_else(|| "origin".to_string());
+    let default_branch = record
+        .default_branch
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "main".to_string());
+    let branch = helpers::non_empty(&record.branch)
+        .map(ToOwned::to_owned)
+        .with_context(|| format!("Workspace {workspace_id} is missing branch"))?;
+    let workspace_dir = crate::data_dir::workspace_dir(&repository.name, &record.directory_name)?;
+    let timestamp = db::current_timestamp()?;
+    let mut created_worktree = false;
+
+    let finalize_result = (|| -> Result<FinalizeWorkspaceResponse> {
         if workspace_dir.exists() {
             bail!(
                 "Workspace target already exists at {}",
@@ -147,7 +257,7 @@ pub fn create_workspace_from_repo_impl(repo_id: &str) -> Result<CreateWorkspaceR
         let initialization_files_copied = git_ops::tracked_file_count(&workspace_dir)?;
 
         workspace_models::update_workspace_initialization_metadata(
-            &workspace_id,
+            workspace_id,
             initialization_files_copied,
             &timestamp,
         )?;
@@ -166,24 +276,19 @@ pub fn create_workspace_from_repo_impl(repo_id: &str) -> Result<CreateWorkspaceR
         } else {
             WorkspaceState::Ready
         };
-        workspace_models::update_workspace_state(&workspace_id, final_state, &timestamp)?;
+        workspace_models::update_workspace_state(workspace_id, final_state, &timestamp)?;
 
-        Ok(CreateWorkspaceResponse {
-            created_workspace_id: workspace_id.clone(),
-            selected_workspace_id: workspace_id.clone(),
-            initial_session_id: session_id.clone(),
-            created_state: final_state,
-            directory_name,
-            branch: branch.clone(),
+        Ok(FinalizeWorkspaceResponse {
+            workspace_id: workspace_id.to_string(),
+            final_state,
         })
     })();
 
-    match create_result {
+    match finalize_result {
         Ok(response) => Ok(response),
         Err(error) => {
             cleanup_failed_created_workspace(
-                &workspace_id,
-                &session_id,
+                workspace_id,
                 &repo_root,
                 &workspace_dir,
                 &branch,
@@ -192,6 +297,67 @@ pub fn create_workspace_from_repo_impl(repo_id: &str) -> Result<CreateWorkspaceR
             Err(error)
         }
     }
+}
+
+/// Legacy combined flow. Runs Phase 1 + Phase 2 back-to-back and returns
+/// the old-shape response. Used by CLI, MCP, and `add_repository_from_local_path`
+/// — all non-UI callers that do not benefit from the prepare/finalize split.
+pub fn create_workspace_from_repo_impl(repo_id: &str) -> Result<CreateWorkspaceResponse> {
+    let prepared = prepare_workspace_from_repo_impl(repo_id)?;
+    let finalized = finalize_workspace_from_repo_impl(&prepared.workspace_id)?;
+
+    Ok(CreateWorkspaceResponse {
+        created_workspace_id: prepared.workspace_id.clone(),
+        selected_workspace_id: prepared.workspace_id,
+        initial_session_id: prepared.initial_session_id,
+        created_state: finalized.final_state,
+        directory_name: prepared.directory_name,
+        branch: prepared.branch,
+    })
+}
+
+/// Remove workspace rows stuck in the `Initializing` state longer than the
+/// supplied cutoff. Called at app startup to clean up rows left behind when
+/// the process exited mid-finalize (e.g. the app was force-quit while the
+/// git worktree was being created). Best-effort: returns the number of
+/// rows purged and logs failures rather than propagating them.
+pub fn cleanup_orphaned_initializing_workspaces(max_age_seconds: i64) -> Result<usize> {
+    let orphans = workspace_models::list_initializing_workspaces_older_than(max_age_seconds)?;
+    let orphan_count = orphans.len();
+
+    for orphan in orphans {
+        let record = &orphan.record;
+        let repo_root_value = record.root_path.as_deref().unwrap_or("").trim();
+        let repo_root = PathBuf::from(repo_root_value);
+        let workspace_dir =
+            match crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name) {
+                Ok(path) => path,
+                Err(error) => {
+                    tracing::warn!(
+                        workspace_id = %record.id,
+                        error = %error,
+                        "Failed to resolve workspace dir for orphan cleanup",
+                    );
+                    continue;
+                }
+            };
+        let branch = record.branch.as_deref().unwrap_or("");
+
+        cleanup_failed_created_workspace(
+            &record.id,
+            &repo_root,
+            &workspace_dir,
+            branch,
+            workspace_dir.exists(),
+        );
+
+        tracing::info!(
+            workspace_id = %record.id,
+            "Cleaned up orphaned initializing workspace",
+        );
+    }
+
+    Ok(orphan_count)
 }
 
 #[derive(Debug, Clone)]
@@ -720,7 +886,6 @@ pub fn restore_workspace_impl(
 
 fn cleanup_failed_created_workspace(
     workspace_id: &str,
-    session_id: &str,
     repo_root: &Path,
     workspace_dir: &Path,
     branch: &str,
@@ -731,8 +896,10 @@ fn cleanup_failed_created_workspace(
         let _ = fs::remove_dir_all(workspace_dir);
     }
 
-    let _ = git_ops::remove_branch(repo_root, branch);
-    let _ = workspace_models::delete_workspace_and_session_rows(workspace_id, session_id);
+    if !branch.is_empty() {
+        let _ = git_ops::remove_branch(repo_root, branch);
+    }
+    let _ = workspace_models::delete_workspace_and_session_rows(workspace_id);
 }
 
 fn cleanup_failed_restore(

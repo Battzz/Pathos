@@ -333,12 +333,14 @@ mod tests {
 
     fn text(t: &str) -> ExtendedMessagePart {
         ExtendedMessagePart::Basic(MessagePart::Text {
+            id: format!("txt-{t}"),
             text: t.to_string(),
         })
     }
 
     fn reasoning(t: &str) -> ExtendedMessagePart {
         ExtendedMessagePart::Basic(MessagePart::Reasoning {
+            id: format!("r-{t}"),
             text: t.to_string(),
             streaming: None,
         })

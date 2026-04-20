@@ -971,7 +971,7 @@ fn append_aborted_notice_appends_one_per_call() {
 }
 
 // -----------------------------------------------------------------------
-// ID unification: sync_persisted_ids / sync_result_id
+// ID unification: `collected[].id` == `CollectedTurn.id` by construction
 // -----------------------------------------------------------------------
 
 fn push_assistant_event(acc: &mut StreamAccumulator, msg_id: &str, text: &str) {
@@ -1007,7 +1007,7 @@ fn push_result_event(acc: &mut StreamAccumulator) {
 }
 
 #[test]
-fn sync_persisted_ids_propagates_turn_uuids_to_collected() {
+fn collected_and_turn_ids_match_by_construction() {
     let mut acc = StreamAccumulator::new("claude", "opus");
 
     // assistant turn (msg_id="m1") → collected[0]
@@ -1019,42 +1019,33 @@ fn sync_persisted_ids_propagates_turn_uuids_to_collected() {
     let asst_turn_id = acc.turn_at(0).id.clone();
     let user_turn_id = acc.turn_at(1).id.clone();
 
-    // Before sync: collected IDs are ephemeral stream:N:role
-    assert!(
-        acc.collected()[0].id.starts_with("stream:")
-            || acc.collected()[0].id.contains("stream-partial")
-    );
-    assert!(acc.collected()[1].id.starts_with("stream:"));
-
-    // Sync propagates turn UUIDs
-    acc.sync_persisted_ids();
+    // The new invariant: collected[].id equals the matching CollectedTurn.id
+    // without any post-hoc sync — they were minted together.
     assert_eq!(acc.collected()[0].id, asst_turn_id);
     assert_eq!(acc.collected()[1].id, user_turn_id);
 
-    // UUIDs are valid v4 format
     assert!(uuid::Uuid::parse_str(&asst_turn_id).is_ok());
     assert!(uuid::Uuid::parse_str(&user_turn_id).is_ok());
 }
 
 #[test]
-fn sync_result_id_propagates_to_result_collected_entry() {
+fn result_id_is_exposed_for_db_reuse() {
     let mut acc = StreamAccumulator::new("claude", "opus");
 
     push_assistant_event(&mut acc, "m1", "Thinking...");
     push_result_event(&mut acc);
 
-    // result is the last collected entry
     let result_idx = acc.collected().len() - 1;
-    let old_id = acc.collected()[result_idx].id.clone();
-    assert!(old_id.starts_with("stream:"));
-
-    let fake_db_id = "db-result-uuid-123";
-    acc.sync_result_id(fake_db_id);
-    assert_eq!(acc.collected()[result_idx].id, fake_db_id);
+    let collected_result_id = acc.collected()[result_idx].id.clone();
+    // `take_result_id` hands the accumulator-minted id to
+    // `persist_result_and_finalize` so the DB row key matches.
+    let taken = acc.take_result_id().expect("result id should be recorded");
+    assert_eq!(taken, collected_result_id);
+    assert!(uuid::Uuid::parse_str(&taken).is_ok());
 }
 
 #[test]
-fn sync_persisted_ids_with_multi_block_assistant() {
+fn multi_block_assistant_shares_one_turn_uuid() {
     let mut acc = StreamAccumulator::new("claude", "opus");
 
     // Two assistant events with same msg_id → batched into one turn
@@ -1067,12 +1058,11 @@ fn sync_persisted_ids_with_multi_block_assistant() {
     assert_eq!(acc.turns_len(), 1);
     let turn_id = acc.turn_at(0).id.clone();
 
-    // collected has 2 entries, but the turn maps to the FIRST
+    // Both collected entries share the same turn UUID — they represent
+    // one logical assistant turn split across multiple SDK events.
     assert_eq!(acc.collected().len(), 2);
-    acc.sync_persisted_ids();
     assert_eq!(acc.collected()[0].id, turn_id);
-    // Second entry keeps its original ID (collapse will merge them)
-    assert_ne!(acc.collected()[1].id, turn_id);
+    assert_eq!(acc.collected()[1].id, turn_id);
 }
 
 #[test]
@@ -1084,9 +1074,6 @@ fn deferred_pause_final_snapshot_uses_persisted_turn_id() {
 
     assert_eq!(acc.turns_len(), 1);
     let turn_id = acc.turn_at(0).id.clone();
-    assert_ne!(acc.collected()[0].id, turn_id);
-
-    acc.sync_persisted_ids();
 
     let snapshot = acc.snapshot("ctx", "sess");
     assert_eq!(snapshot.len(), 1);

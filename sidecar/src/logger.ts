@@ -1,13 +1,25 @@
 /**
  * Structured JSON logger for the sidecar process.
  *
- * - NDJSON to a single file per day: `sidecar.YYYY-MM-DD.jsonl`.
+ * - NDJSON to a single-file size ring: `sidecar.jsonl` (active) + `sidecar.jsonl.1`
+ *   (previous segment). Disk use is bounded at 2 × MAX_BYTES; no dates, no
+ *   cleanup pass.
  * - Dev stderr matches Rust tracing-subscriber's default format so both
  *   processes produce visually identical terminal output.
  * - stdout is NEVER touched — it is the exclusive JSON protocol channel.
  */
 
-import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
+import {
+	createWriteStream,
+	existsSync,
+	mkdirSync,
+	renameSync,
+	statSync,
+	unlinkSync,
+	type WriteStream,
+} from "node:fs";
+
+const MAX_BYTES = 10 * 1024 * 1024;
 
 type Level = "debug" | "info" | "error";
 const LEVELS: Record<Level, number> = { debug: 0, info: 1, error: 2 };
@@ -71,6 +83,9 @@ class Logger {
 	private minLevel: number;
 	private file: WriteStream | undefined;
 	private devStderr: boolean;
+	private primaryPath: string | undefined;
+	private backupPath: string | undefined;
+	private bytes = 0;
 
 	constructor() {
 		const envLevel = process.env.HELMOR_LOG?.toLowerCase();
@@ -86,10 +101,10 @@ class Logger {
 		const logDir = process.env.HELMOR_LOG_DIR;
 		if (logDir) {
 			mkdirSync(logDir, { recursive: true });
-			const today = localTs().slice(0, 10);
-			this.file = createWriteStream(`${logDir}/sidecar.${today}.jsonl`, {
-				flags: "a",
-			});
+			this.primaryPath = `${logDir}/sidecar.jsonl`;
+			this.backupPath = `${logDir}/sidecar.jsonl.1`;
+			this.bytes = fileSize(this.primaryPath);
+			this.file = createWriteStream(this.primaryPath, { flags: "a" });
 		}
 	}
 
@@ -115,7 +130,7 @@ class Logger {
 		const type = String(evt.type ?? "unknown");
 
 		const line = `${JSON.stringify({ ts, level: "debug", source: "sidecar", msg: "sdk_event", requestId, type, event })}\n`;
-		this.file?.write(line);
+		this.writeLine(line);
 
 		if (this.devStderr) {
 			const { label, color } = LEVEL_FMT.debug;
@@ -135,7 +150,7 @@ class Logger {
 
 		const ts = localTs();
 		const line = `${JSON.stringify({ ts, level, source: "sidecar", msg, ...data })}\n`;
-		this.file?.write(line);
+		this.writeLine(line);
 
 		// Human-readable stderr matching Rust tracing format
 		if (this.devStderr) {
@@ -150,6 +165,39 @@ class Logger {
 				`${DIM}${localTs()}${RESET} ${color}${label}${RESET} ${DIM}sidecar:${RESET} ${msg}${fields}\n`,
 			);
 		}
+	}
+
+	private writeLine(line: string): void {
+		if (!this.file || !this.primaryPath || !this.backupPath) return;
+		const len = Buffer.byteLength(line);
+		if (this.bytes + len > MAX_BYTES) {
+			this.rotate();
+		}
+		this.file.write(line);
+		this.bytes += len;
+	}
+
+	private rotate(): void {
+		if (!this.file || !this.primaryPath || !this.backupPath) return;
+		// Close async; already-buffered writes flush to the old fd (which, after
+		// rename, points to the backup file) — that's the desired behaviour.
+		this.file.end();
+		try {
+			if (existsSync(this.backupPath)) unlinkSync(this.backupPath);
+			renameSync(this.primaryPath, this.backupPath);
+		} catch {
+			// Best-effort: keep appending to whatever primary currently is.
+		}
+		this.file = createWriteStream(this.primaryPath, { flags: "a" });
+		this.bytes = fileSize(this.primaryPath);
+	}
+}
+
+function fileSize(path: string): number {
+	try {
+		return statSync(path).size;
+	} catch {
+		return 0;
 	}
 }
 

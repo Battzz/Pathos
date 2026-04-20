@@ -514,8 +514,6 @@ pub(super) fn stream_via_sidecar(
                                 }
                             }
                         }
-                        pipeline_state.accumulator.sync_persisted_ids();
-
                         let output = pipeline_state
                             .accumulator
                             .drain_output(resolved_session_id.as_deref());
@@ -534,7 +532,8 @@ pub(super) fn stream_via_sidecar(
                                     tracing::error!(rid = %rid, "Failed to finalize exchange: {error}");
                                 }
                             } else {
-                                match persist_result_and_finalize(
+                                let preassigned = pipeline_state.accumulator.take_result_id();
+                                if let Err(error) = persist_result_and_finalize(
                                     conn,
                                     ctx,
                                     &output.resolved_model,
@@ -544,13 +543,9 @@ pub(super) fn stream_via_sidecar(
                                     &output.usage,
                                     output.result_json.as_deref(),
                                     status,
+                                    preassigned,
                                 ) {
-                                    Ok(result_id) => {
-                                        pipeline_state.accumulator.sync_result_id(&result_id);
-                                    }
-                                    Err(error) => {
-                                        tracing::error!(rid = %rid, "Failed to finalize exchange: {error}");
-                                    }
+                                    tracing::error!(rid = %rid, "Failed to finalize exchange: {error}");
                                 }
                             }
                         }
@@ -661,8 +656,6 @@ pub(super) fn stream_via_sidecar(
                             }
                         }
 
-                        pipeline_state.accumulator.sync_persisted_ids();
-
                         let resolved_model =
                             pipeline_state.accumulator.resolved_model().to_string();
                         let persisted_metadata =
@@ -743,10 +736,9 @@ pub(super) fn stream_via_sidecar(
                         }
 
                         // Deferred pause is terminal for this stream from the
-                        // frontend's perspective. Sync persisted turn UUIDs before
-                        // the last Update so the cached thread keeps DB-stable ids
-                        // across the follow-up resume path.
-                        pipeline_state.accumulator.sync_persisted_ids();
+                        // frontend's perspective. IDs are already stable by
+                        // construction (same UUID in `collected[]` and
+                        // `CollectedTurn`), so no post-hoc sync is needed.
                         resolved_model = pipeline_state.accumulator.resolved_model().to_string();
 
                         let final_messages = pipeline_state.finish();

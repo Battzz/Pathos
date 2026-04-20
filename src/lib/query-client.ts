@@ -60,11 +60,8 @@ export const helmorQueryKeys = {
 	autoCloseActionKinds: ["autoCloseActionKinds"] as const,
 	autoCloseOptInAsked: ["autoCloseOptInAsked"] as const,
 	detectedEditors: ["detectedEditors"] as const,
-	slashCommands: (
-		provider: AgentProvider,
-		workingDirectory: string | null,
-		_modelId: string | null,
-	) => ["slashCommands", provider, workingDirectory ?? "", ""] as const,
+	slashCommands: (provider: AgentProvider, workingDirectory: string | null) =>
+		["slashCommands", provider, workingDirectory ?? ""] as const,
 };
 
 export function createHelmorQueryClient() {
@@ -190,19 +187,15 @@ export function sessionAttachmentsQueryOptions(sessionId: string) {
 export function slashCommandsQueryOptions(
 	provider: AgentProvider,
 	workingDirectory: string | null,
-	modelId: string | null,
+	repoId: string | null,
 ) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.slashCommands(
-			provider,
-			workingDirectory,
-			modelId,
-		),
+		queryKey: helmorQueryKeys.slashCommands(provider, workingDirectory),
 		queryFn: () =>
 			listSlashCommands({
 				provider,
 				workingDirectory,
-				modelId,
+				repoId,
 			}),
 		// The backend owns slash-command caching and background refresh. Keep
 		// the frontend layer as a thin request shell only.

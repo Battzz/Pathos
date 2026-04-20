@@ -59,7 +59,17 @@ pub(super) fn assistant_has_recognized_blocks(parsed: Option<&Value>) -> bool {
     })
 }
 
-pub(super) fn parse_assistant_parts(parsed: Option<&Value>) -> Vec<MessagePart> {
+/// Read the stable part id stamped onto a block by the accumulator
+/// (`__part_id`). Falls back to a deterministic `{msg_id}:blk:{idx}`
+/// synthesis for historical rows written before stable ids landed.
+fn resolve_part_id(obj: &serde_json::Map<String, Value>, msg_id: &str, idx: usize) -> String {
+    obj.get("__part_id")
+        .and_then(Value::as_str)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("{msg_id}:blk:{idx}"))
+}
+
+pub(super) fn parse_assistant_parts(parsed: Option<&Value>, msg_id: &str) -> Vec<MessagePart> {
     let parsed = match parsed {
         Some(p) => p,
         None => return Vec::new(),
@@ -88,6 +98,7 @@ pub(super) fn parse_assistant_parts(parsed: Option<&Value>) -> Vec<MessagePart> 
                         .and_then(Value::as_bool)
                         .unwrap_or(false);
                     parts.push(MessagePart::Reasoning {
+                        id: resolve_part_id(obj, msg_id, idx),
                         text: text.to_string(),
                         streaming: if is_streaming { Some(true) } else { None },
                     });
@@ -95,6 +106,7 @@ pub(super) fn parse_assistant_parts(parsed: Option<&Value>) -> Vec<MessagePart> 
             }
             "redacted_thinking" => {
                 parts.push(MessagePart::Reasoning {
+                    id: resolve_part_id(obj, msg_id, idx),
                     text: "[Thinking redacted]".to_string(),
                     streaming: None,
                 });
@@ -102,18 +114,22 @@ pub(super) fn parse_assistant_parts(parsed: Option<&Value>) -> Vec<MessagePart> 
             "text" => {
                 if let Some(text) = obj.get("text").and_then(Value::as_str) {
                     parts.push(MessagePart::Text {
+                        id: resolve_part_id(obj, msg_id, idx),
                         text: text.to_string(),
                     });
                 }
             }
             "image" => {
-                if let Some(part) = parse_image_block(obj) {
+                if let Some(part) = parse_image_block(obj, msg_id, idx) {
                     parts.push(part);
                 }
             }
             "document" => {
                 if let Some(text) = parse_document_block(obj) {
-                    parts.push(MessagePart::Text { text });
+                    parts.push(MessagePart::Text {
+                        id: resolve_part_id(obj, msg_id, idx),
+                        text,
+                    });
                 }
             }
             // All Claude server-tool *_tool_result blocks. The block
@@ -152,7 +168,7 @@ pub(super) fn parse_assistant_parts(parsed: Option<&Value>) -> Vec<MessagePart> 
                 let server_name = obj.get("server_name").and_then(Value::as_str).unwrap_or("");
                 let mcp_tool_short = obj.get("name").and_then(Value::as_str).unwrap_or("");
                 let synthesized = format!("mcp__{server_name}__{mcp_tool_short}");
-                push_tool_use(&mut parts, obj, idx, Some(synthesized));
+                push_tool_use(&mut parts, obj, idx, Some(synthesized), msg_id);
             }
             // BetaContainerUploadBlock { file_id }. The user explicitly
             // asked us NOT to render these — model-side container file
@@ -174,13 +190,14 @@ pub(super) fn parse_assistant_parts(parsed: Option<&Value>) -> Vec<MessagePart> 
                     .filter(|s| !s.trim().is_empty())
                     .map(str::to_string);
                 parts.push(MessagePart::SystemNotice {
+                    id: resolve_part_id(obj, msg_id, idx),
                     severity: NoticeSeverity::Info,
                     label: "Context compacted".to_string(),
                     body,
                 });
             }
             "tool_use" | "server_tool_use" => {
-                push_tool_use(&mut parts, obj, idx, None);
+                push_tool_use(&mut parts, obj, idx, None, msg_id);
             }
             _ => {}
         }
@@ -200,6 +217,7 @@ fn push_tool_use(
     obj: &serde_json::Map<String, Value>,
     idx: usize,
     name_override: Option<String>,
+    msg_id: &str,
 ) {
     let args = obj
         .get("input")
@@ -232,7 +250,10 @@ fn push_tool_use(
     // case we fall through to the regular ToolCall.
     if tool_name == "TodoWrite" {
         if let Some(items) = parse_claude_todowrite_items(&args) {
-            parts.push(MessagePart::TodoList { items });
+            parts.push(MessagePart::TodoList {
+                id: resolve_part_id(obj, msg_id, idx),
+                items,
+            });
             return;
         }
     }
@@ -583,7 +604,11 @@ fn attach_mcp_tool_result(parts: &mut [MessagePart], obj: &serde_json::Map<Strin
 /// Recognizes both base64 (`{type: "base64", data, media_type}`) and
 /// url (`{type: "url", url}`) source variants. Returns None for any
 /// shape we can't decode so the parser stays liberal.
-fn parse_image_block(obj: &serde_json::Map<String, Value>) -> Option<MessagePart> {
+fn parse_image_block(
+    obj: &serde_json::Map<String, Value>,
+    msg_id: &str,
+    idx: usize,
+) -> Option<MessagePart> {
     let source = obj.get("source")?.as_object()?;
     let source_type = source.get("type").and_then(Value::as_str);
     match source_type {
@@ -594,6 +619,7 @@ fn parse_image_block(obj: &serde_json::Map<String, Value>) -> Option<MessagePart
                 .and_then(Value::as_str)
                 .map(str::to_string);
             Some(MessagePart::Image {
+                id: resolve_part_id(obj, msg_id, idx),
                 source: ImageSource::Base64 { data },
                 media_type,
             })
@@ -601,6 +627,7 @@ fn parse_image_block(obj: &serde_json::Map<String, Value>) -> Option<MessagePart
         Some("url") => {
             let url = source.get("url").and_then(Value::as_str)?.to_string();
             Some(MessagePart::Image {
+                id: resolve_part_id(obj, msg_id, idx),
                 source: ImageSource::Url { url },
                 media_type: None,
             })

@@ -24,9 +24,11 @@ pub use super::branching::{
     UpdateIntendedTargetBranchResponse,
 };
 pub use super::lifecycle::{
-    archive_workspace_impl, create_workspace_from_repo_impl, prepare_archive_plan,
-    restore_workspace_impl, validate_archive_workspace, validate_restore_workspace,
-    ArchivePreparedPlan, ArchiveWorkspaceResponse, BranchRename, CreateWorkspaceResponse,
+    archive_workspace_impl, cleanup_orphaned_initializing_workspaces,
+    create_workspace_from_repo_impl, finalize_workspace_from_repo_impl, prepare_archive_plan,
+    prepare_workspace_from_repo_impl, restore_workspace_impl, validate_archive_workspace,
+    validate_restore_workspace, ArchivePreparedPlan, ArchiveWorkspaceResponse, BranchRename,
+    CreateWorkspaceResponse, FinalizeWorkspaceResponse, PrepareWorkspaceResponse,
     RestoreWorkspaceResponse, TargetBranchConflict, ValidateRestoreResponse,
 };
 
@@ -436,34 +438,49 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
 ///
 /// Called once at startup so that externally-deleted directories don't cause
 /// repeated errors (e.g. git-status polling a missing path every 10 s).
+///
+/// Archived workspaces are excluded — their worktree is intentionally gone, but
+/// their archived `.context` and session history must be preserved.
 pub fn purge_orphaned_workspaces() -> Result<usize> {
     let connection = db::open_connection(false)?;
     let mut stmt = connection.prepare(
-        "SELECT w.id, r.name, w.directory_name
+        "SELECT w.id, r.name, w.directory_name, w.state
          FROM workspaces w
-         JOIN repos r ON r.id = w.repository_id",
+         JOIN repos r ON r.id = w.repository_id
+         WHERE w.state != ?1",
     )?;
-    let orphans: Vec<(String, String, String)> = stmt
-        .query_map([], |row| {
+    let orphans: Vec<(String, String, String, WorkspaceState)> = stmt
+        .query_map([WorkspaceState::Archived], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
+                row.get::<_, WorkspaceState>(3)?,
             ))
         })?
         .filter_map(|r| r.ok())
-        .filter(|(_, repo_name, dir_name)| {
+        .filter(|(_, repo_name, dir_name, _)| {
             crate::data_dir::workspace_dir(repo_name, dir_name)
                 .map(|p| !p.is_dir())
                 .unwrap_or(false)
         })
         .collect();
 
-    let count = orphans.len();
-    for (id, repo_name, dir_name) in &orphans {
+    let mut count = 0;
+    for (id, repo_name, dir_name, state) in &orphans {
+        // Defense in depth: even if the SQL filter ever regresses, never purge
+        // an archived workspace (the worktree being gone is by design).
+        if *state == WorkspaceState::Archived {
+            tracing::warn!(
+                workspace_id = %id,
+                "Skipping archived workspace in orphan purge"
+            );
+            continue;
+        }
         if let Err(e) = permanently_delete_workspace(id) {
             tracing::warn!(workspace_id = %id, "Failed to purge orphaned workspace: {e:#}");
         } else {
+            count += 1;
             tracing::info!(
                 workspace_id = %id,
                 path = %format!("{}/{}", repo_name, dir_name),
@@ -557,4 +574,101 @@ pub fn permanently_delete_workspace(workspace_id: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testkit::{insert_repo, insert_workspace, TestEnv, WorkspaceFixture};
+    use std::fs;
+
+    fn count_workspaces(env: &TestEnv) -> usize {
+        env.db_connection()
+            .query_row("SELECT COUNT(*) FROM workspaces", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap() as usize
+    }
+
+    #[test]
+    fn purge_skips_archived_even_when_worktree_missing() {
+        let env = TestEnv::new("purge-archived");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-archived",
+                repo_id: "r1",
+                directory_name: "alpha",
+                state: WorkspaceState::Archived.as_str(),
+                branch: Some("feature/alpha"),
+                intended_target_branch: None,
+            },
+        );
+
+        // Simulate post-archive on-disk state: archived context exists, worktree
+        // does not.
+        let archived_ctx = env.root.join("archived-contexts/demo/alpha");
+        fs::create_dir_all(&archived_ctx).unwrap();
+        fs::write(archived_ctx.join("notes.md"), "preserved").unwrap();
+
+        let purged = purge_orphaned_workspaces().unwrap();
+
+        assert_eq!(purged, 0, "archived workspace must not be purged");
+        assert_eq!(count_workspaces(&env), 1, "DB row must remain");
+        assert!(
+            archived_ctx.join("notes.md").exists(),
+            "archived context files must remain on disk"
+        );
+    }
+
+    #[test]
+    fn purge_removes_ready_workspace_with_missing_dir() {
+        let env = TestEnv::new("purge-ready");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-ready",
+                repo_id: "r1",
+                directory_name: "beta",
+                state: WorkspaceState::Ready.as_str(),
+                branch: Some("feature/beta"),
+                intended_target_branch: None,
+            },
+        );
+        // No worktree dir created — simulates external deletion.
+
+        let purged = purge_orphaned_workspaces().unwrap();
+
+        assert_eq!(purged, 1, "ready workspace with missing dir must be purged");
+        assert_eq!(count_workspaces(&env), 0);
+    }
+
+    #[test]
+    fn purge_keeps_workspace_when_dir_exists() {
+        let env = TestEnv::new("purge-present");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-live",
+                repo_id: "r1",
+                directory_name: "gamma",
+                state: WorkspaceState::Ready.as_str(),
+                branch: Some("feature/gamma"),
+                intended_target_branch: None,
+            },
+        );
+        let ws_dir = crate::data_dir::workspace_dir("demo", "gamma").unwrap();
+        fs::create_dir_all(&ws_dir).unwrap();
+
+        let purged = purge_orphaned_workspaces().unwrap();
+
+        assert_eq!(purged, 0);
+        assert_eq!(count_workspaces(&env), 1);
+    }
 }

@@ -77,6 +77,7 @@ describe("stabilizeStreamingMessages", () => {
 				[
 					{
 						type: "collapsed-group",
+						id: "group:cmd1",
 						category: "shell",
 						active: true,
 						summary: "Running 2 read-only commands...",
@@ -107,7 +108,13 @@ describe("stabilizeStreamingMessages", () => {
 			assistant("a1", [toolCall("cmd1", "cat src/App.tsx")], true),
 			assistant(
 				"a2",
-				[{ type: "text", text: "Let me inspect another file." }],
+				[
+					{
+						type: "text",
+						id: "a2:txt:0",
+						text: "Let me inspect another file.",
+					},
+				],
 				true,
 			),
 			assistant(

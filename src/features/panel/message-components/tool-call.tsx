@@ -15,7 +15,11 @@ import {
 	ReasoningTrigger,
 } from "@/components/ai/reasoning";
 import { Button } from "@/components/ui/button";
-import type { ExtendedMessagePart, ToolCallPart } from "@/lib/api";
+import {
+	type ExtendedMessagePart,
+	partKey,
+	type ToolCallPart,
+} from "@/lib/api";
 import { childrenStructurallyEqual } from "@/lib/structural-equality";
 import { cn } from "@/lib/utils";
 import { TodoList } from "./content-parts";
@@ -507,7 +511,7 @@ const AgentChildrenBlock = memo(function AgentChildrenBlock({
 	const hiddenCount = parts.length - collapsedVisibleCount;
 	const hasMore =
 		toolCallParts.length >= AGENT_PREVIEW_STEPS && hiddenCount > 0;
-	const canToggle = hasMore && (expanded || !streaming);
+	const canToggle = hasMore;
 
 	return (
 		<div className="flex flex-col">
@@ -555,11 +559,12 @@ const AgentChildrenBlock = memo(function AgentChildrenBlock({
 				) : null}
 
 				<div className="flex flex-col gap-0.5">
-					{visibleParts.map((part, index) => {
+					{visibleParts.map((part) => {
+						const key = partKey(part);
 						if (isToolCallPart(part)) {
 							return (
 								<AssistantToolCall
-									key={part.toolCallId ?? `tool-${index}`}
+									key={key}
 									toolName={part.toolName ?? "unknown"}
 									args={part.args ?? {}}
 									result={part.result}
@@ -572,7 +577,7 @@ const AgentChildrenBlock = memo(function AgentChildrenBlock({
 						if (part.type === "text" && part.text) {
 							return (
 								<div
-									key={`text-${index}`}
+									key={key}
 									className="text-[13px] leading-6 text-muted-foreground"
 								>
 									{part.text.slice(0, 300)}
@@ -582,14 +587,14 @@ const AgentChildrenBlock = memo(function AgentChildrenBlock({
 						}
 						if (part.type === "reasoning" && part.text) {
 							return (
-								<Reasoning key={`reason-${index}`}>
+								<Reasoning key={key}>
 									<ReasoningTrigger />
 									<ReasoningContent>{part.text}</ReasoningContent>
 								</Reasoning>
 							);
 						}
 						if (isTodoListPart(part)) {
-							return <TodoList key={`todo-${index}`} part={part} />;
+							return <TodoList key={key} part={part} />;
 						}
 						return null;
 					})}
@@ -606,10 +611,7 @@ export function CollapsedToolGroup({
 }: {
 	group: import("@/lib/api").CollapsedGroupPart;
 }) {
-	const [open, setOpen] = useState(group.active);
-	useEffect(() => {
-		setOpen(group.active);
-	}, [group.active]);
+	const [open, setOpen] = useState(true);
 	const collapsedGroupIconClassName = "size-3.5 text-muted-foreground";
 
 	const icon =
@@ -661,9 +663,9 @@ export function CollapsedToolGroup({
 			</summary>
 			{open ? (
 				<div className="ml-5 flex flex-col gap-0.5 border-l border-border/30 pl-3 pt-1">
-					{group.tools.map((tool, index) => (
+					{group.tools.map((tool) => (
 						<AssistantToolCall
-							key={tool.toolCallId ?? `${tool.toolName}:${index}`}
+							key={tool.toolCallId}
 							toolName={tool.toolName}
 							args={tool.args}
 							result={tool.result}
