@@ -88,8 +88,17 @@ describe("MemoConversationMessage plan review", () => {
 			role: "assistant",
 			createdAt: "2026-04-12T12:00:00.000Z",
 			content: [
-				{ type: "reasoning", text: "internal notes", streaming: false },
-				{ type: "text", text: "Final answer line 1" },
+				{
+					type: "reasoning",
+					id: "assistant-copy-1:blk:0",
+					text: "internal notes",
+					streaming: false,
+				},
+				{
+					type: "text",
+					id: "assistant-copy-1:blk:1",
+					text: "Final answer line 1",
+				},
 				{
 					type: "tool-call",
 					toolCallId: "tool-1",
@@ -98,7 +107,11 @@ describe("MemoConversationMessage plan review", () => {
 					argsText: '{"cmd":"date"}',
 					result: "Thu Apr 16",
 				},
-				{ type: "text", text: "Final answer line 2" },
+				{
+					type: "text",
+					id: "assistant-copy-1:blk:3",
+					text: "Final answer line 2",
+				},
 			],
 		};
 		expect(serializeMessageForClipboard(message)).toBe(
@@ -114,11 +127,16 @@ describe("MemoConversationMessage plan review", () => {
 			content: [
 				{
 					type: "system-notice",
+					id: "system-copy-1:notice",
 					severity: "warning",
 					label: "Paused",
 					body: "Waiting for input",
 				},
-				{ type: "prompt-suggestion", text: "Continue" },
+				{
+					type: "prompt-suggestion",
+					id: "system-copy-1:suggestion",
+					text: "Continue",
+				},
 			],
 		};
 
@@ -132,7 +150,13 @@ describe("MemoConversationMessage plan review", () => {
 			id: "assistant-copy-source",
 			role: "assistant",
 			createdAt: "2026-04-12T11:59:00.000Z",
-			content: [{ type: "text", text: "Real assistant reply" }],
+			content: [
+				{
+					type: "text",
+					id: "assistant-copy-source:txt:0",
+					text: "Real assistant reply",
+				},
+			],
 		};
 		const systemMessage: ThreadMessageLike = {
 			id: "assistant-meta-row",
@@ -141,6 +165,7 @@ describe("MemoConversationMessage plan review", () => {
 			content: [
 				{
 					type: "system-notice",
+					id: "assistant-meta-row:notice",
 					severity: "warning",
 					label: "aborted by user",
 				},

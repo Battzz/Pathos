@@ -65,18 +65,11 @@ pub fn run() {
             // Ensure data directory structure exists
             data_dir::ensure_directory_structure()?;
 
-            // Initialize structured logging (must come before any tracing macro call)
+            // Initialize structured logging (must come before any tracing macro call).
+            // Logs live in `<data_dir>/logs/{rust,sidecar}.jsonl` with a `.1` backup;
+            // the size-ring appender bounds disk use without a cleanup pass.
             let logs_dir = data_dir::logs_dir()?;
             logging::init(&logs_dir)?;
-
-            // Background cleanup: compress old logs, purge > 7 days
-            let cleanup_dir = logs_dir;
-            if let Err(error) = std::thread::Builder::new()
-                .name("log-cleanup".into())
-                .spawn(move || logging::cleanup(&cleanup_dir))
-            {
-                tracing::error!(error = %error, "Failed to spawn log cleanup thread");
-            }
 
             // Initialize database schema
             let db_path = data_dir::db_path()?;
@@ -94,6 +87,19 @@ pub fn run() {
                 Ok(0) => {}
                 Ok(n) => tracing::info!(count = n, "Purged orphaned workspaces"),
                 Err(e) => tracing::warn!("Failed to purge orphaned workspaces: {e:#}"),
+            }
+
+            // Clear rows stuck in `initializing` state past the cutoff —
+            // happens when the app is force-quit mid-create (Phase 2 never
+            // gets to flip the state to ready/setup_pending). Five minutes
+            // is well past the worst-case git worktree creation time.
+            const INITIALIZING_ORPHAN_CUTOFF_SECONDS: i64 = 300;
+            match workspace::workspaces::cleanup_orphaned_initializing_workspaces(
+                INITIALIZING_ORPHAN_CUTOFF_SECONDS,
+            ) {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(count = n, "Cleaned up orphan initializing workspaces"),
+                Err(e) => tracing::warn!("Failed to clean up initializing orphans: {e:#}"),
             }
 
             // On macOS, GUI-launched apps only see the minimal system PATH.
@@ -133,6 +139,7 @@ pub fn run() {
             agents::respond_to_elicitation_request,
             agents::generate_session_title,
             agents::list_slash_commands,
+            agents::prewarm_slash_commands_for_workspace,
             commands::workspace_commands::prepare_archive_workspace,
             commands::workspace_commands::start_archive_workspace,
             commands::workspace_commands::validate_archive_workspace,
@@ -140,6 +147,8 @@ pub fn run() {
             commands::github_commands::cancel_github_identity_connect,
             commands::workspace_commands::complete_workspace_setup,
             commands::workspace_commands::create_workspace_from_repo,
+            commands::workspace_commands::prepare_workspace_from_repo,
+            commands::workspace_commands::finalize_workspace_from_repo,
             commands::github_commands::disconnect_github_identity,
             commands::repository_commands::get_add_repository_defaults,
             commands::settings_commands::get_app_settings,
@@ -202,8 +211,8 @@ pub fn run() {
             commands::editor_commands::read_file_at_ref,
             commands::workspace_commands::set_workspace_manual_status,
             commands::workspace_commands::trigger_workspace_fetch,
-            commands::system_commands::detect_installed_editors,
-            commands::system_commands::open_workspace_in_editor,
+            commands::editors::detect_installed_editors,
+            commands::editors::open_workspace_in_editor,
             commands::workspace_commands::permanently_delete_workspace,
             commands::workspace_commands::restore_workspace,
             commands::editor_commands::stat_editor_file,

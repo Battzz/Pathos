@@ -40,6 +40,7 @@ pub(super) fn render_item_completed(
                     id: Some(msg.id.clone()),
                     created_at: Some(msg.created_at.clone()),
                     content: vec![ExtendedMessagePart::Basic(MessagePart::Text {
+                        id: format!("{}:blk:0", msg.id),
                         text: text.to_string(),
                     })],
                     status: Some(MessageStatus {
@@ -113,7 +114,10 @@ fn render_todo_list(msg: &IntermediateMessage, item: &Value, result: &mut Vec<Th
             role: MessageRole::Assistant,
             id: Some(msg.id.clone()),
             created_at: Some(msg.created_at.clone()),
-            content: vec![ExtendedMessagePart::Basic(MessagePart::TodoList { items })],
+            content: vec![ExtendedMessagePart::Basic(MessagePart::TodoList {
+                id: format!("{}:blk:0", msg.id),
+                items,
+            })],
             status: Some(MessageStatus {
                 status_type: "complete".to_string(),
                 reason: Some("stop".to_string()),
@@ -131,6 +135,7 @@ fn render_reasoning(msg: &IntermediateMessage, item: &Value, result: &mut Vec<Th
                 id: Some(msg.id.clone()),
                 created_at: Some(msg.created_at.clone()),
                 content: vec![ExtendedMessagePart::Basic(MessagePart::Reasoning {
+                    id: format!("{}:blk:0", msg.id),
                     text: text.to_string(),
                     streaming: None,
                 })],

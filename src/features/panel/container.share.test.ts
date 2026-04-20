@@ -69,8 +69,8 @@ function taskCallMessage(
 	};
 }
 
-function textPart(text: string): ExtendedMessagePart {
-	return { type: "text", text };
+function textPart(text: string, id = `txt-${text}`): ExtendedMessagePart {
+	return { type: "text", id, text };
 }
 
 describe("messagesStructurallyEqual — Task children payloads", () => {
@@ -171,11 +171,13 @@ describe("partStructurallyEqual — direct branch coverage", () => {
 	it("treats reasoning parts equal when text and streaming match", () => {
 		const a: ExtendedMessagePart = {
 			type: "reasoning",
+			id: "r1",
 			text: "Considering the request",
 			streaming: false,
 		};
 		const b: ExtendedMessagePart = {
 			type: "reasoning",
+			id: "r1",
 			text: "Considering the request",
 			streaming: false,
 		};
@@ -183,8 +185,16 @@ describe("partStructurallyEqual — direct branch coverage", () => {
 	});
 
 	it("invalidates reasoning parts when text differs", () => {
-		const a: ExtendedMessagePart = { type: "reasoning", text: "first" };
-		const b: ExtendedMessagePart = { type: "reasoning", text: "second" };
+		const a: ExtendedMessagePart = {
+			type: "reasoning",
+			id: "r1",
+			text: "first",
+		};
+		const b: ExtendedMessagePart = {
+			type: "reasoning",
+			id: "r1",
+			text: "second",
+		};
 		expect(partStructurallyEqual(a, b)).toBe(false);
 	});
 
@@ -195,11 +205,13 @@ describe("partStructurallyEqual — direct branch coverage", () => {
 		// indicator on the post-completion render.
 		const a: ExtendedMessagePart = {
 			type: "reasoning",
+			id: "r1",
 			text: "same body",
 			streaming: true,
 		};
 		const b: ExtendedMessagePart = {
 			type: "reasoning",
+			id: "r1",
 			text: "same body",
 			streaming: false,
 		};
@@ -211,6 +223,7 @@ describe("partStructurallyEqual — direct branch coverage", () => {
 	): CollapsedGroupPart {
 		return {
 			type: "collapsed-group",
+			id: "group:tc1",
 			active: false,
 			category: "read",
 			summary: "Read 3 files",
@@ -359,7 +372,7 @@ describe("shareMessages — structural reference reuse", () => {
 			role: "user",
 			id,
 			createdAt: "2026-04-08T00:00:00Z",
-			content: [{ type: "text", text }],
+			content: [{ type: "text", id: `${id}:txt:0`, text }],
 		};
 	}
 

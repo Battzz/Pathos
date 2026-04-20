@@ -3,7 +3,6 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHelmorQueryClient, helmorQueryKeys } from "@/lib/query-client";
 import { DEFAULT_SETTINGS, SettingsContext } from "@/lib/settings";
-import { createOptimisticCreatingWorkspaceId } from "@/lib/workspace-helpers";
 import { renderWithProviders } from "@/test/render-with-providers";
 
 const apiMocks = vi.hoisted(() => ({
@@ -470,6 +469,7 @@ describe("WorkspacePanelContainer loading semantics", () => {
 						...DEFAULT_SETTINGS,
 						defaultModelId: "gpt-5.4",
 					},
+					isLoaded: true,
 					updateSettings: vi.fn(),
 				}}
 			>
@@ -1009,29 +1009,35 @@ describe("WorkspacePanelContainer loading semantics", () => {
 		expect(apiMocks.createSession).not.toHaveBeenCalled();
 	});
 
-	it("does not request thread messages for an optimistic workspace session", async () => {
+	it("renders a pre-seeded initializing workspace without re-fetching thread messages", async () => {
+		// When use-controller's prepare/paint/finalize flow seeds the detail
+		// + sessions + empty thread cache, the panel paints from cache alone.
+		// The thread messages query's SESSION_STALE_TIME keeps the seeded
+		// empty array fresh, so no backend fetch fires while Phase 2 is
+		// still materializing the worktree.
 		const queryClient = createHelmorQueryClient();
-		const optimisticWorkspaceId = createOptimisticCreatingWorkspaceId("repo-1");
-		const optimisticSessionId = `${optimisticWorkspaceId}:initial-session`;
+		const workspaceId = crypto.randomUUID();
+		const sessionId = crypto.randomUUID();
 
+		queryClient.setQueryData(helmorQueryKeys.workspaceDetail(workspaceId), {
+			...createWorkspaceDetail(workspaceId, sessionId),
+			state: "initializing",
+		});
+		queryClient.setQueryData(helmorQueryKeys.workspaceSessions(workspaceId), [
+			createWorkspaceSessionSummary(sessionId, {
+				workspaceId,
+				active: true,
+			}),
+		]);
 		queryClient.setQueryData(
-			helmorQueryKeys.workspaceDetail(optimisticWorkspaceId),
-			createWorkspaceDetail(optimisticWorkspaceId, optimisticSessionId),
-		);
-		queryClient.setQueryData(
-			helmorQueryKeys.workspaceSessions(optimisticWorkspaceId),
-			[
-				createWorkspaceSessionSummary(optimisticSessionId, {
-					workspaceId: optimisticWorkspaceId,
-					active: true,
-				}),
-			],
+			[...helmorQueryKeys.sessionMessages(sessionId), "thread"],
+			[],
 		);
 
 		renderWithProviders(
 			<WorkspacePanelContainer
-				selectedWorkspaceId={optimisticWorkspaceId}
-				displayedWorkspaceId={optimisticWorkspaceId}
+				selectedWorkspaceId={workspaceId}
+				displayedWorkspaceId={workspaceId}
 				selectedSessionId={null}
 				displayedSessionId={null}
 				sending={false}
@@ -1042,17 +1048,11 @@ describe("WorkspacePanelContainer loading semantics", () => {
 		);
 
 		await waitFor(() => {
-			expect(getLatestPanelProps().sessions).toMatchObject([
-				{ id: optimisticSessionId },
-			]);
+			expect(getLatestPanelProps().sessions).toMatchObject([{ id: sessionId }]);
 		});
 
 		expect(apiMocks.loadSessionThreadMessages).not.toHaveBeenCalledWith(
-			optimisticSessionId,
-		);
-		expect(apiMocks.loadRepoScripts).not.toHaveBeenCalledWith(
-			expect.any(String),
-			optimisticWorkspaceId,
+			sessionId,
 		);
 	});
 

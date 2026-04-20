@@ -8,6 +8,7 @@ input_file: tests/fixtures/pipeline/schedule_fetch/input.json
   createdAt: "2026-01-01T00:00:00.000Z"
   content:
     - type: reasoning
+      id: "uuid_22:blk:0"
       text: ""
     - type: tool-call
       toolCallId: toolu_1
@@ -18,6 +19,7 @@ input_file: tests/fixtures/pipeline/schedule_fetch/input.json
       argsText: "{\"max_results\":1,\"query\":\"select:TodoWrite\"}"
       result: ""
     - type: todo-list
+      id: "uuid_24:blk:0"
       items:
         - text: "Audit src-tauri/tests/fixtures/ for PII, tokens, absolute paths, and real identifiers"
           status: pending

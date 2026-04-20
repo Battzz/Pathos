@@ -231,7 +231,7 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		expect(last).toEqual({ id: "REQ-1", type: "end" });
 	});
 
-	test("lists fast mode support only for opus-class models", async () => {
+	test("supportsFastMode comes from the overrides table, not the SDK", async () => {
 		mockQueryImpl = () =>
 			makeMockQuery({
 				supportedModels: async () => [
@@ -254,24 +254,20 @@ describe("ClaudeSessionManager.sendMessage", () => {
 			});
 
 		const models = await manager.listModels();
+		const bySupports = Object.fromEntries(
+			models.map((m) => [m.id, m.supportsFastMode]),
+		);
 
-		expect(models).toEqual([
-			expect.objectContaining({
-				id: "default",
-				supportsFastMode: true,
-			}),
-			expect.objectContaining({
-				id: "claude-opus-4-7",
-				supportsFastMode: true,
-			}),
-			expect.objectContaining({
-				id: "claude-sonnet-4-7",
-				supportsFastMode: false,
-			}),
-		]);
+		// SDK-supplied models (not in the override table) carry no flag.
+		expect(bySupports.default).toBeUndefined();
+		expect(bySupports["claude-opus-4-7"]).toBeUndefined();
+		expect(bySupports["claude-sonnet-4-7"]).toBeUndefined();
+
+		// The override adds claude-opus-4-6[1m] with the flag set.
+		expect(bySupports["claude-opus-4-6[1m]"]).toBe(true);
 	});
 
-	test("ignores fast mode for non-opus Claude models", async () => {
+	test("ignores fastMode for models not in the override table", async () => {
 		mockQueryImpl = () => makeMockQuery();
 
 		await manager.sendMessage(
@@ -1014,12 +1010,21 @@ describe("ClaudeSessionManager.listModels", () => {
 
 		const models = await manager.listModels();
 
+		// Order follows sortClaudeModels: opus family first (default pinned to
+		// top via Infinity, then opus-4-6[1m] injected by the override), then
+		// sonnet, then haiku. supportsFastMode only appears on override entries.
 		expect(models).toEqual([
 			{
 				id: "default",
 				label: "Opus 4.7 1M",
 				cliModel: "default",
 				effortLevels: ["low", "medium", "high", "xhigh", "max"],
+			},
+			{
+				id: "claude-opus-4-6[1m]",
+				label: "Opus 4.6 1M",
+				cliModel: "claude-opus-4-6[1m]",
+				effortLevels: ["low", "medium", "high", "max"],
 				supportsFastMode: true,
 			},
 			{
@@ -1027,14 +1032,12 @@ describe("ClaudeSessionManager.listModels", () => {
 				label: "Sonnet 1M",
 				cliModel: "sonnet",
 				effortLevels: ["low", "medium", "high"],
-				supportsFastMode: false,
 			},
 			{
 				id: "haiku",
 				label: "Haiku",
 				cliModel: "haiku",
 				effortLevels: [],
-				supportsFastMode: false,
 			},
 		]);
 		expect(lastQueryArgs).toMatchObject({

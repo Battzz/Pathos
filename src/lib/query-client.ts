@@ -4,6 +4,8 @@ import {
 	type ActionKind,
 	type AgentProvider,
 	DEFAULT_WORKSPACE_GROUPS,
+	type DetectedEditor,
+	detectInstalledEditors,
 	listRepositories,
 	listSlashCommands,
 	listWorkspaceChangesWithContent,
@@ -57,11 +59,9 @@ export const helmorQueryKeys = {
 		["repoScripts", repoId, workspaceId ?? ""] as const,
 	autoCloseActionKinds: ["autoCloseActionKinds"] as const,
 	autoCloseOptInAsked: ["autoCloseOptInAsked"] as const,
-	slashCommands: (
-		provider: AgentProvider,
-		workingDirectory: string | null,
-		_modelId: string | null,
-	) => ["slashCommands", provider, workingDirectory ?? "", ""] as const,
+	detectedEditors: ["detectedEditors"] as const,
+	slashCommands: (provider: AgentProvider, workingDirectory: string | null) =>
+		["slashCommands", provider, workingDirectory ?? ""] as const,
 };
 
 export function createHelmorQueryClient() {
@@ -187,19 +187,15 @@ export function sessionAttachmentsQueryOptions(sessionId: string) {
 export function slashCommandsQueryOptions(
 	provider: AgentProvider,
 	workingDirectory: string | null,
-	modelId: string | null,
+	repoId: string | null,
 ) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.slashCommands(
-			provider,
-			workingDirectory,
-			modelId,
-		),
+		queryKey: helmorQueryKeys.slashCommands(provider, workingDirectory),
 		queryFn: () =>
 			listSlashCommands({
 				provider,
 				workingDirectory,
-				modelId,
+				repoId,
 			}),
 		// The backend owns slash-command caching and background refresh. Keep
 		// the frontend layer as a thin request shell only.
@@ -227,6 +223,25 @@ export function autoCloseOptInAskedQueryOptions() {
 		initialData: [] as ActionKind[],
 		initialDataUpdatedAt: 0,
 		staleTime: 60_000,
+	});
+}
+
+/**
+ * Installed third-party editors (Cursor, VS Code, JetBrains, terminals, Git GUIs).
+ * Detection is cheap but non-trivial — the Rust side stat()'s known app paths and
+ * falls back to a single batched `mdfind` for apps in non-standard locations.
+ * Cached for 60s so revisiting the dropdown does not re-scan; persisted across
+ * app restarts via the localStorage persister so the button shows up instantly
+ * on the next launch.
+ */
+export function detectedEditorsQueryOptions() {
+	return queryOptions({
+		queryKey: helmorQueryKeys.detectedEditors,
+		queryFn: detectInstalledEditors,
+		initialData: [] as DetectedEditor[],
+		initialDataUpdatedAt: 0,
+		staleTime: 60_000,
+		gcTime: PERSIST_GC_TIME,
 	});
 }
 

@@ -1,21 +1,28 @@
-//! Structured JSON logging with daily rotation.
+//! Structured JSON logging with a single-file size-based ring.
 //!
-//! Single file per component: `rust.YYYY-MM-DD.jsonl` under the data-dir `logs/` folder.
+//! Two files per component in the data-dir `logs/` folder:
+//!   `rust.jsonl`    — active, appended until it hits `MAX_BYTES`
+//!   `rust.jsonl.1`  — previous segment, overwritten on each rotation
+//!
+//! Total disk use is bounded at `2 × MAX_BYTES` per component. No dates in
+//! filenames, no background cleanup, no UTC/local races.
+//!
 //! Dev builds also print human-readable output to stderr.
-//! Old log files are gzip-compressed on startup; files older than 7 days are purged.
-//!
-//! Level defaults: `debug` (dev), `info` (release). Override with `HELMOR_LOG=debug|info|error`.
+//! Level defaults: `debug` (dev), `info` (release). Override with `HELMOR_LOG`.
 
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use anyhow::{Context, Result};
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{
-    filter::LevelFilter, fmt, fmt::time::ChronoLocal, layer::SubscriberExt,
+    filter::LevelFilter, fmt, fmt::time::ChronoLocal, fmt::MakeWriter, layer::SubscriberExt,
     util::SubscriberInitExt, Layer,
 };
+
+/// Per-file size cap. `rust.jsonl` + `rust.jsonl.1` together never exceed 2×.
+const MAX_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Set up the global tracing subscriber.
 ///
@@ -25,27 +32,17 @@ pub fn init(logs_dir: &Path) -> Result<()> {
     let is_dev = crate::data_dir::is_dev();
     let level = resolve_level(is_dev);
 
-    // Macro avoids repeating the json format config for each file layer.
-    // Each invocation produces the same concrete type so the registry chain compiles.
-    macro_rules! file_layer {
-        ($prefix:literal, $level:expr) => {{
-            let appender = RollingFileAppender::builder()
-                .rotation(Rotation::DAILY)
-                .filename_prefix($prefix)
-                .filename_suffix("jsonl")
-                .max_log_files(7)
-                .build(logs_dir)
-                .context(concat!("log appender: ", $prefix))?;
-            fmt::layer()
-                .json()
-                .flatten_event(true)
-                .with_current_span(false)
-                .with_span_list(false)
-                .with_timer(ChronoLocal::default())
-                .with_writer(appender)
-                .with_filter($level)
-        }};
-    }
+    fs::create_dir_all(logs_dir)
+        .with_context(|| format!("create logs dir: {}", logs_dir.display()))?;
+
+    let rust_layer = fmt::layer()
+        .json()
+        .flatten_event(true)
+        .with_current_span(false)
+        .with_span_list(false)
+        .with_timer(ChronoLocal::default())
+        .with_writer(SizeRingAppender::new(logs_dir, "rust.jsonl", MAX_BYTES)?)
+        .with_filter(level);
 
     let stderr_layer = is_dev.then(|| {
         fmt::layer()
@@ -56,45 +53,11 @@ pub fn init(logs_dir: &Path) -> Result<()> {
     });
 
     tracing_subscriber::registry()
-        .with(file_layer!("rust", level))
+        .with(rust_layer)
         .with(stderr_layer)
         .init();
 
     Ok(())
-}
-
-/// Compress yesterday's `.jsonl` files and delete `.jsonl.gz` older than 7 days.
-/// Run once on startup, typically from a background thread.
-pub fn cleanup(logs_dir: &Path) {
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let cutoff = (chrono::Local::now() - chrono::Duration::days(7))
-        .format("%Y-%m-%d")
-        .to_string();
-
-    let entries = match fs::read_dir(logs_dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-
-        // Compress non-today .jsonl -> .jsonl.gz
-        if name.ends_with(".jsonl") && !name.contains(&today) {
-            if let Err(e) = gzip(&path) {
-                tracing::warn!(file = %path.display(), "log compression failed: {e}");
-            }
-            continue;
-        }
-
-        // Purge old .jsonl.gz beyond retention
-        if name.ends_with(".jsonl.gz") && extract_date(name).is_some_and(|d| d < cutoff.as_str()) {
-            let _ = fs::remove_file(&path);
-        }
-    }
 }
 
 /// Returns the resolved `logs/` directory path. Convenience for callers that
@@ -103,7 +66,85 @@ pub fn logs_dir() -> Result<PathBuf> {
     crate::data_dir::logs_dir()
 }
 
-// --- helpers ----------------------------------------------------------------
+/// Single-file ring appender. When the active file exceeds `max_bytes`, it is
+/// renamed to `<name>.1` (replacing any prior backup) and a fresh active file
+/// is opened. Rotation is best-effort — if `rename` fails we keep appending.
+pub struct SizeRingAppender {
+    primary: PathBuf,
+    backup: PathBuf,
+    max_bytes: u64,
+    state: Mutex<AppenderState>,
+}
+
+struct AppenderState {
+    file: File,
+    written: u64,
+}
+
+impl SizeRingAppender {
+    fn new(logs_dir: &Path, name: &str, max_bytes: u64) -> Result<Self> {
+        let primary = logs_dir.join(name);
+        let backup = logs_dir.join(format!("{name}.1"));
+        let file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&primary)
+            .with_context(|| format!("open log file: {}", primary.display()))?;
+        let written = file.metadata().map(|m| m.len()).unwrap_or(0);
+        Ok(Self {
+            primary,
+            backup,
+            max_bytes,
+            state: Mutex::new(AppenderState { file, written }),
+        })
+    }
+
+    fn rotate(&self, state: &mut AppenderState) -> io::Result<()> {
+        let _ = fs::remove_file(&self.backup);
+        let _ = fs::rename(&self.primary, &self.backup);
+        let file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&self.primary)?;
+        let written = file.metadata().map(|m| m.len()).unwrap_or(0);
+        state.file = file;
+        state.written = written;
+        Ok(())
+    }
+}
+
+impl io::Write for &SizeRingAppender {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|e| io::Error::other(format!("log lock poisoned: {e}")))?;
+
+        if state.written.saturating_add(buf.len() as u64) > self.max_bytes {
+            // Best-effort; if rotation fails we keep appending and retry later.
+            let _ = self.rotate(&mut state);
+        }
+
+        let n = state.file.write(buf)?;
+        state.written = state.written.saturating_add(n as u64);
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|e| io::Error::other(format!("log lock poisoned: {e}")))?;
+        state.file.flush()
+    }
+}
+
+impl<'a> MakeWriter<'a> for SizeRingAppender {
+    type Writer = &'a SizeRingAppender;
+    fn make_writer(&'a self) -> Self::Writer {
+        self
+    }
+}
 
 fn resolve_level(is_dev: bool) -> LevelFilter {
     std::env::var("HELMOR_LOG")
@@ -123,70 +164,105 @@ fn resolve_level(is_dev: bool) -> LevelFilter {
         })
 }
 
-fn gzip(src: &Path) -> Result<()> {
-    use flate2::write::GzEncoder;
-    use flate2::Compression;
-
-    let dst = append_gz(src);
-    let input = fs::File::open(src).with_context(|| format!("open {}", src.display()))?;
-    let output = fs::File::create(&dst).with_context(|| format!("create {}", dst.display()))?;
-
-    let mut enc = GzEncoder::new(output, Compression::default());
-    io::copy(&mut io::BufReader::new(input), &mut enc)?;
-    enc.finish()?;
-
-    fs::remove_file(src)?;
-    Ok(())
-}
-
-fn append_gz(path: &Path) -> PathBuf {
-    let mut s = path.as_os_str().to_owned();
-    s.push(".gz");
-    PathBuf::from(s)
-}
-
-/// Extract the `YYYY-MM-DD` segment from a log filename like `rust-error.2026-04-11.jsonl.gz`.
-fn extract_date(filename: &str) -> Option<&str> {
-    filename.split('.').find(|s| {
-        s.len() == 10 && s.as_bytes().get(4) == Some(&b'-') && s.as_bytes().get(7) == Some(&b'-')
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn extract_date_from_jsonl() {
-        assert_eq!(
-            extract_date("rust-error.2026-04-11.jsonl"),
-            Some("2026-04-11")
-        );
-    }
-
-    #[test]
-    fn extract_date_from_gz() {
-        assert_eq!(
-            extract_date("sidecar-debug.2026-01-01.jsonl.gz"),
-            Some("2026-01-01")
-        );
-    }
-
-    #[test]
-    fn extract_date_returns_none_for_bad_name() {
-        assert_eq!(extract_date("random-file.txt"), None);
-    }
+    use std::io::{Read, Write};
 
     #[test]
     fn resolve_level_defaults_debug_in_dev() {
-        // In test (debug) builds, default should be DEBUG
-        let level = resolve_level(true);
-        assert_eq!(level, LevelFilter::DEBUG);
+        assert_eq!(resolve_level(true), LevelFilter::DEBUG);
     }
 
     #[test]
     fn resolve_level_defaults_info_in_prod() {
-        let level = resolve_level(false);
-        assert_eq!(level, LevelFilter::INFO);
+        assert_eq!(resolve_level(false), LevelFilter::INFO);
+    }
+
+    #[test]
+    fn appender_creates_primary_and_appends() {
+        let tmp = tempfile::tempdir().unwrap();
+        let appender = SizeRingAppender::new(tmp.path(), "rust.jsonl", 1024).unwrap();
+        let primary = tmp.path().join("rust.jsonl");
+        assert!(primary.exists());
+
+        (&appender).write_all(b"a\n").unwrap();
+        (&appender).write_all(b"b\n").unwrap();
+        (&appender).flush().unwrap();
+
+        let mut s = String::new();
+        File::open(&primary)
+            .unwrap()
+            .read_to_string(&mut s)
+            .unwrap();
+        assert_eq!(s, "a\nb\n");
+    }
+
+    #[test]
+    fn appender_rotates_when_exceeding_max_bytes() {
+        let tmp = tempfile::tempdir().unwrap();
+        // 16-byte cap: first line fits, second line triggers rotation.
+        let appender = SizeRingAppender::new(tmp.path(), "rust.jsonl", 16).unwrap();
+        let primary = tmp.path().join("rust.jsonl");
+        let backup = tmp.path().join("rust.jsonl.1");
+
+        (&appender).write_all(b"0123456789abcd\n").unwrap(); // 15 bytes
+        assert!(!backup.exists(), "first write should not rotate");
+
+        (&appender).write_all(b"second\n").unwrap();
+        assert!(backup.exists(), "second write should trigger rotation");
+
+        let mut old = String::new();
+        File::open(&backup)
+            .unwrap()
+            .read_to_string(&mut old)
+            .unwrap();
+        assert_eq!(old, "0123456789abcd\n");
+
+        let mut new_ = String::new();
+        File::open(&primary)
+            .unwrap()
+            .read_to_string(&mut new_)
+            .unwrap();
+        assert_eq!(new_, "second\n");
+    }
+
+    #[test]
+    fn second_rotation_overwrites_previous_backup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let appender = SizeRingAppender::new(tmp.path(), "rust.jsonl", 8).unwrap();
+        let backup = tmp.path().join("rust.jsonl.1");
+
+        (&appender).write_all(b"first\n").unwrap();
+        (&appender).write_all(b"second\n").unwrap(); // rotates: backup = "first\n"
+        (&appender).write_all(b"third\n").unwrap(); // rotates: backup = "second\n"
+
+        let mut s = String::new();
+        File::open(&backup).unwrap().read_to_string(&mut s).unwrap();
+        assert_eq!(s, "second\n", "backup keeps only the most recent segment");
+
+        // Only two files ever exist.
+        let entries: Vec<_> = fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.file_name()))
+            .collect();
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn appender_picks_up_existing_file_size() {
+        let tmp = tempfile::tempdir().unwrap();
+        let primary = tmp.path().join("rust.jsonl");
+        fs::write(&primary, b"preexisting\n").unwrap();
+
+        let appender = SizeRingAppender::new(tmp.path(), "rust.jsonl", 20).unwrap();
+        // "preexisting\n" = 12 bytes; next write of 10 bytes should trigger rotate.
+        (&appender).write_all(b"abcdefghi\n").unwrap();
+
+        let backup = tmp.path().join("rust.jsonl.1");
+        assert!(backup.exists(), "rotation should honor starting-file size");
+        let mut s = String::new();
+        File::open(&backup).unwrap().read_to_string(&mut s).unwrap();
+        assert_eq!(s, "preexisting\n");
     }
 }

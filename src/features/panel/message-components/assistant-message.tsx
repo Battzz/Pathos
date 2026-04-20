@@ -5,7 +5,11 @@ import {
 	ReasoningContent,
 	ReasoningTrigger,
 } from "@/components/ai/reasoning";
-import type { ExtendedMessagePart, ToolCallPart } from "@/lib/api";
+import {
+	type ExtendedMessagePart,
+	partKey,
+	type ToolCallPart,
+} from "@/lib/api";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { ImageBlock, PlanReviewCard, TodoList } from "./content-parts";
@@ -150,22 +154,16 @@ export function ChatAssistantMessage({
 			data-message-role="assistant"
 			className="flex min-w-0 max-w-full flex-col gap-1"
 		>
-			{parts.map((part, index) => {
+			{parts.map((part) => {
+				const key = partKey(part);
 				if (isTextPart(part)) {
 					return (
-						<AssistantText
-							key={`text:${index}`}
-							text={part.text}
-							streaming={streaming}
-						/>
+						<AssistantText key={key} text={part.text} streaming={streaming} />
 					);
 				}
 				if (isReasoningPart(part)) {
 					return (
-						<Reasoning
-							key={`reasoning:${index}`}
-							isStreaming={part.streaming === true}
-						>
+						<Reasoning key={key} isStreaming={part.streaming === true}>
 							<ReasoningTrigger />
 							<ReasoningContent fontSize={settings.fontSize}>
 								{part.text}
@@ -174,17 +172,12 @@ export function ChatAssistantMessage({
 					);
 				}
 				if (isCollapsedGroupPart(part)) {
-					return (
-						<CollapsedToolGroup
-							key={`group-${part.tools[0]?.toolCallId ?? index}`}
-							group={part}
-						/>
-					);
+					return <CollapsedToolGroup key={key} group={part} />;
 				}
 				if (isToolCallPart(part)) {
 					return (
 						<AssistantToolCall
-							key={`tc:${part.toolCallId ?? `${part.toolName}:${index}`}`}
+							key={key}
 							toolName={part.toolName}
 							args={part.args}
 							result={part.result}
@@ -199,18 +192,13 @@ export function ChatAssistantMessage({
 					);
 				}
 				if (isTodoListPart(part)) {
-					return <TodoList key={`todo:${index}`} part={part} />;
+					return <TodoList key={key} part={part} />;
 				}
 				if (isImagePart(part)) {
-					return <ImageBlock key={`img:${index}`} part={part} />;
+					return <ImageBlock key={key} part={part} />;
 				}
 				if (isPlanReviewPart(part)) {
-					return (
-						<PlanReviewCard
-							key={`plan-review:${part.toolUseId}:${index}`}
-							part={part}
-						/>
-					);
+					return <PlanReviewCard key={key} part={part} />;
 				}
 				return null;
 			})}

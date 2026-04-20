@@ -671,6 +671,7 @@ describe("App", () => {
 			content: [
 				{
 					type: "text" as const,
+					id: `assistant-${index}:txt:0`,
 					text: `message ${index} `.repeat(8),
 				},
 			],

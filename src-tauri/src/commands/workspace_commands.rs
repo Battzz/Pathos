@@ -16,6 +16,48 @@ fn notify_workspace_changed_in_background(app: AppHandle) {
     });
 }
 
+/// Phase 1: fast (<20ms) preparation. Inserts the DB row in `initializing`
+/// state and returns the full metadata (directory name, branch, scripts,
+/// generated workspace/session IDs) needed to paint the final UI. The
+/// frontend should follow up with `finalize_workspace_from_repo` to kick
+/// off the slow git worktree creation; UI remains visible during that
+/// phase with state=initializing.
+#[tauri::command]
+pub async fn prepare_workspace_from_repo(
+    app: AppHandle,
+    repo_id: String,
+) -> CmdResult<workspaces::PrepareWorkspaceResponse> {
+    let result = {
+        let _lock = db::WORKSPACE_MUTATION_LOCK.lock().await;
+        run_blocking(move || workspaces::prepare_workspace_from_repo_impl(&repo_id)).await?
+    };
+    notify_workspace_changed_in_background(app);
+    Ok(result)
+}
+
+/// Phase 2: slow (~200ms-2s) materialization. Creates the git worktree,
+/// scaffolds `.context`, probes `helmor.json` for a setup script, and flips
+/// the workspace row from `initializing` to `ready` / `setup_pending`. On
+/// failure, the workspace + session rows are deleted and the worktree is
+/// cleaned up so the user can retry.
+#[tauri::command]
+pub async fn finalize_workspace_from_repo(
+    app: AppHandle,
+    workspace_id: String,
+) -> CmdResult<workspaces::FinalizeWorkspaceResponse> {
+    let ws_lock = db::workspace_mutation_lock(&workspace_id);
+    let _lock = ws_lock.lock().await;
+    let result = {
+        let workspace_id = workspace_id.clone();
+        run_blocking(move || workspaces::finalize_workspace_from_repo_impl(&workspace_id)).await?
+    };
+    notify_workspace_changed_in_background(app);
+    Ok(result)
+}
+
+/// Legacy combined flow (prepare + finalize in a single call). Retained
+/// for CLI / MCP / add-repository callers that don't benefit from the
+/// two-phase UI split.
 #[tauri::command]
 pub async fn create_workspace_from_repo(
     app: AppHandle,

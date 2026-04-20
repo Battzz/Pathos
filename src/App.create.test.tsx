@@ -10,12 +10,17 @@ const apiMocks = vi.hoisted(() => ({
 	loadWorkspaceSessions: vi.fn(),
 	loadSessionThreadMessages: vi.fn(),
 	loadSessionAttachments: vi.fn(),
+	loadRepoScripts: vi.fn(),
 	listRepositories: vi.fn(),
 	createWorkspaceFromRepo: vi.fn(),
+	prepareWorkspaceFromRepo: vi.fn(),
+	finalizeWorkspaceFromRepo: vi.fn(),
 }));
 
 const createRuntime = vi.hoisted(() => ({
 	created: false,
+	workspaceId: null as string | null,
+	sessionId: null as string | null,
 }));
 
 vi.mock("./App.css", () => ({}));
@@ -36,8 +41,11 @@ vi.mock("./lib/api", async (importOriginal) => {
 		loadSessionMessages: apiMocks.loadSessionThreadMessages,
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
 		loadSessionAttachments: apiMocks.loadSessionAttachments,
+		loadRepoScripts: apiMocks.loadRepoScripts,
 		listRepositories: apiMocks.listRepositories,
 		createWorkspaceFromRepo: apiMocks.createWorkspaceFromRepo,
+		prepareWorkspaceFromRepo: apiMocks.prepareWorkspaceFromRepo,
+		finalizeWorkspaceFromRepo: apiMocks.finalizeWorkspaceFromRepo,
 	};
 });
 
@@ -46,6 +54,8 @@ import App from "./App";
 describe("App create workspace flow", () => {
 	beforeEach(() => {
 		createRuntime.created = false;
+		createRuntime.workspaceId = null;
+		createRuntime.sessionId = null;
 
 		apiMocks.loadWorkspaceGroups.mockReset();
 		apiMocks.loadArchivedWorkspaces.mockReset();
@@ -54,6 +64,15 @@ describe("App create workspace flow", () => {
 		apiMocks.loadWorkspaceSessions.mockReset();
 		apiMocks.loadSessionThreadMessages.mockReset();
 		apiMocks.loadSessionAttachments.mockReset();
+		apiMocks.loadRepoScripts.mockReset();
+		apiMocks.loadRepoScripts.mockResolvedValue({
+			setupScript: null,
+			runScript: null,
+			archiveScript: null,
+			setupFromProject: false,
+			runFromProject: false,
+			archiveFromProject: false,
+		});
 		apiMocks.listRepositories.mockReset();
 		apiMocks.createWorkspaceFromRepo.mockReset();
 
@@ -70,39 +89,43 @@ describe("App create workspace flow", () => {
 				id: "progress",
 				label: "In progress",
 				tone: "progress",
-				rows: createRuntime.created
-					? [
-							{
-								id: "workspace-existing",
-								title: "Existing workspace",
-								repoName: "helmor-core",
-								state: "ready",
-							},
-							{
-								id: "workspace-created",
-								title: "Acamar",
-								directoryName: "acamar",
-								repoName: "dosu-cli",
-								state: "ready",
-							},
-						]
-					: [
-							{
-								id: "workspace-existing",
-								title: "Existing workspace",
-								repoName: "helmor-core",
-								state: "ready",
-							},
-						],
+				rows:
+					createRuntime.created && createRuntime.workspaceId
+						? [
+								{
+									id: "workspace-existing",
+									title: "Existing workspace",
+									repoName: "helmor-core",
+									state: "ready",
+								},
+								{
+									id: createRuntime.workspaceId,
+									title: "Acamar",
+									directoryName: "acamar",
+									repoName: "dosu-cli",
+									state: "ready",
+								},
+							]
+						: [
+								{
+									id: "workspace-existing",
+									title: "Existing workspace",
+									repoName: "helmor-core",
+									state: "ready",
+								},
+							],
 			},
 		]);
 		apiMocks.loadArchivedWorkspaces.mockResolvedValue([]);
 		apiMocks.loadAgentModelSections.mockResolvedValue([]);
 		apiMocks.loadWorkspaceDetail.mockImplementation(
 			async (workspaceId: string) => {
-				if (workspaceId === "workspace-created") {
+				if (
+					createRuntime.workspaceId &&
+					workspaceId === createRuntime.workspaceId
+				) {
 					return {
-						id: "workspace-created",
+						id: workspaceId,
 						title: "Acamar",
 						repoId: "repo-1",
 						repoName: "dosu-cli",
@@ -114,7 +137,7 @@ describe("App create workspace flow", () => {
 						unreadSessionCount: 0,
 						derivedStatus: "in-progress",
 						manualStatus: null,
-						activeSessionId: "session-created",
+						activeSessionId: createRuntime.sessionId,
 						activeSessionTitle: "Untitled",
 						activeSessionAgentType: "claude",
 						activeSessionStatus: "idle",
@@ -165,11 +188,15 @@ describe("App create workspace flow", () => {
 		);
 		apiMocks.loadWorkspaceSessions.mockImplementation(
 			async (workspaceId: string) => {
-				if (workspaceId === "workspace-created") {
+				if (
+					createRuntime.workspaceId &&
+					workspaceId === createRuntime.workspaceId &&
+					createRuntime.sessionId
+				) {
 					return [
 						{
-							id: "session-created",
-							workspaceId: "workspace-created",
+							id: createRuntime.sessionId,
+							workspaceId,
 							title: "Untitled",
 							agentType: "claude",
 							status: "idle",
@@ -224,17 +251,45 @@ describe("App create workspace flow", () => {
 		);
 		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
 		apiMocks.loadSessionAttachments.mockResolvedValue([]);
-		apiMocks.createWorkspaceFromRepo.mockImplementation(async () => {
-			createRuntime.created = true;
-
+		apiMocks.prepareWorkspaceFromRepo.mockReset();
+		apiMocks.finalizeWorkspaceFromRepo.mockReset();
+		apiMocks.prepareWorkspaceFromRepo.mockImplementation(async () => {
+			// Backend generates the ids now. Mirror by generating once per
+			// call and stashing for subsequent finalize + detail mocks.
+			createRuntime.workspaceId = crypto.randomUUID();
+			createRuntime.sessionId = crypto.randomUUID();
 			return {
-				createdWorkspaceId: "workspace-created",
-				selectedWorkspaceId: "workspace-created",
-				initialSessionId: "session-created",
-				createdState: "ready",
+				workspaceId: createRuntime.workspaceId,
+				initialSessionId: createRuntime.sessionId,
+				repoId: "repo-1",
+				repoName: "dosu-cli",
 				directoryName: "acamar",
 				branch: "testuser/acamar",
+				defaultBranch: "main",
+				state: "initializing",
+				repoScripts: {
+					setupScript: null,
+					runScript: null,
+					archiveScript: null,
+					setupFromProject: false,
+					runFromProject: false,
+					archiveFromProject: false,
+				},
 			};
+		});
+		apiMocks.finalizeWorkspaceFromRepo.mockImplementation(async () => {
+			createRuntime.created = true;
+			return {
+				workspaceId: createRuntime.workspaceId!,
+				finalState: "ready",
+			};
+		});
+		// Combined create path is unused under the prepare/finalize flow —
+		// still mock it so accidental calls surface clearly in test output.
+		apiMocks.createWorkspaceFromRepo.mockImplementation(async () => {
+			throw new Error(
+				"createWorkspaceFromRepo should not be called under prepare/finalize flow",
+			);
 		});
 	});
 
@@ -252,24 +307,27 @@ describe("App create workspace flow", () => {
 		await user.click(await screen.findByText("dosu-cli"));
 
 		await waitFor(() => {
-			expect(apiMocks.createWorkspaceFromRepo).toHaveBeenCalledWith("repo-1");
+			expect(apiMocks.prepareWorkspaceFromRepo).toHaveBeenCalledWith("repo-1");
 		});
 		await waitFor(() => {
-			expect(apiMocks.loadWorkspaceDetail).toHaveBeenCalledWith(
-				"workspace-created",
+			expect(createRuntime.workspaceId).not.toBeNull();
+		});
+		await waitFor(() => {
+			expect(apiMocks.finalizeWorkspaceFromRepo).toHaveBeenCalledWith(
+				createRuntime.workspaceId,
 			);
 		});
 		await waitFor(() => {
-			expect(apiMocks.loadWorkspaceSessions).toHaveBeenCalledWith(
-				"workspace-created",
-			);
+			expect(screen.getByText("Acamar")).toBeInTheDocument();
 		});
-		await waitFor(() => {
-			expect(apiMocks.loadSessionThreadMessages).toHaveBeenCalledWith(
-				"session-created",
-			);
-		});
-
-		expect(screen.getByText("Acamar")).toBeInTheDocument();
+		// Thread messages for the newly created session are NOT fetched —
+		// use-controller pre-seeds an empty thread via the prepare response
+		// so the panel paints "nothing here yet" on the first frame without
+		// a cold placeholder. Loads from unrelated sessions (e.g. the
+		// previously selected workspace) are fine; this test only cares
+		// about the new one.
+		expect(apiMocks.loadSessionThreadMessages).not.toHaveBeenCalledWith(
+			createRuntime.sessionId,
+		);
 	});
 });

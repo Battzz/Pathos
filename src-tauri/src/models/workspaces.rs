@@ -278,10 +278,7 @@ pub(crate) fn update_workspace_state(
     Ok(())
 }
 
-pub(crate) fn delete_workspace_and_session_rows(
-    workspace_id: &str,
-    session_id: &str,
-) -> Result<()> {
+pub(crate) fn delete_workspace_and_session_rows(workspace_id: &str) -> Result<()> {
     let mut connection = db::open_connection(true)?;
     let transaction = connection
         .transaction()
@@ -289,19 +286,24 @@ pub(crate) fn delete_workspace_and_session_rows(
 
     transaction
         .execute(
-            "DELETE FROM attachments WHERE session_id = ?1",
-            [session_id],
+            "DELETE FROM attachments
+             WHERE session_id IN (SELECT id FROM sessions WHERE workspace_id = ?1)",
+            [workspace_id],
         )
         .context("Failed to delete create-flow attachments")?;
     transaction
         .execute(
-            "DELETE FROM session_messages WHERE session_id = ?1",
-            [session_id],
+            "DELETE FROM session_messages
+             WHERE session_id IN (SELECT id FROM sessions WHERE workspace_id = ?1)",
+            [workspace_id],
         )
         .context("Failed to delete create-flow session messages")?;
     transaction
-        .execute("DELETE FROM sessions WHERE id = ?1", [session_id])
-        .context("Failed to delete create-flow session")?;
+        .execute(
+            "DELETE FROM sessions WHERE workspace_id = ?1",
+            [workspace_id],
+        )
+        .context("Failed to delete create-flow sessions")?;
     transaction
         .execute("DELETE FROM workspaces WHERE id = ?1", [workspace_id])
         .context("Failed to delete create-flow workspace")?;
@@ -309,6 +311,34 @@ pub(crate) fn delete_workspace_and_session_rows(
     transaction
         .commit()
         .context("Failed to commit create cleanup transaction")
+}
+
+/// Orphan lookup for the startup cleanup path: returns workspace rows
+/// stuck in `initializing` state whose `created_at` is older than
+/// `max_age_seconds` seconds ago. These are typically left behind when
+/// the app was force-quit during Phase 2 of workspace creation.
+pub(crate) fn list_initializing_workspaces_older_than(
+    max_age_seconds: i64,
+) -> Result<Vec<OrphanedInitializingWorkspace>> {
+    let connection = db::open_connection(false)?;
+    let cutoff = format!("datetime('now', '-{} seconds')", max_age_seconds.max(0));
+    let sql = format!("{WORKSPACE_RECORD_SQL} WHERE w.state = ?1 AND w.created_at < {cutoff}",);
+    let mut statement = connection.prepare(&sql)?;
+    let rows = statement.query_map(
+        [WorkspaceState::Initializing.as_str()],
+        workspace_record_from_row,
+    )?;
+
+    let records: Vec<WorkspaceRecord> = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+
+    Ok(records
+        .into_iter()
+        .map(|record| OrphanedInitializingWorkspace { record })
+        .collect())
+}
+
+pub(crate) struct OrphanedInitializingWorkspace {
+    pub record: WorkspaceRecord,
 }
 
 pub(crate) fn update_archived_workspace_state(

@@ -8,6 +8,7 @@ input_file: tests/fixtures/pipeline/small_chat_claude/input.json
   createdAt: "2026-01-01T00:00:01.000Z"
   content:
     - type: text
+      id: "hist-2:blk:0"
       text: Fixture smoke test.
   status:
     type: complete

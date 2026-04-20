@@ -45,6 +45,7 @@ import {
 import { EditorIcon } from "@/shell/editor-icon";
 import { GithubIdentityGate } from "@/shell/github-identity-gate";
 import { GithubStatusMenu } from "@/shell/github-status-menu";
+import { useEnsureDefaultModel } from "@/shell/hooks/use-ensure-default-model";
 import { useGithubIdentity } from "@/shell/hooks/use-github-identity";
 import { useShellPanels } from "@/shell/hooks/use-panels";
 import {
@@ -61,8 +62,6 @@ import {
 	type ConductorWorkspace,
 	createSession,
 	type DerivedStatus,
-	type DetectedEditor,
-	detectInstalledEditors,
 	drainPendingCliSends,
 	isConductorAvailable,
 	listConductorRepos,
@@ -70,6 +69,7 @@ import {
 	listenGitBranchChanged,
 	listenGitRefsChanged,
 	openWorkspaceInEditor,
+	prewarmSlashCommandsForWorkspace,
 	setWorkspaceManualStatus,
 	triggerWorkspaceFetch,
 	type WorkspaceDetail,
@@ -86,6 +86,7 @@ import { isPathWithinRoot } from "./lib/editor-session";
 import {
 	archivedWorkspacesQueryOptions,
 	createHelmorQueryClient,
+	detectedEditorsQueryOptions,
 	helmorQueryKeys,
 	helmorQueryPersister,
 	sessionThreadMessagesQueryOptions,
@@ -108,10 +109,7 @@ import {
 	useSettings,
 } from "./lib/settings";
 import { useOsNotifications } from "./lib/use-os-notifications";
-import {
-	isOptimisticCreatingWorkspaceId,
-	summaryToArchivedRow,
-} from "./lib/workspace-helpers";
+import { summaryToArchivedRow } from "./lib/workspace-helpers";
 import {
 	type WorkspaceToastOptions,
 	WorkspaceToastProvider,
@@ -135,6 +133,7 @@ function App() {
 	const settingsContextValue = useMemo(
 		() => ({
 			settings: appSettings ?? preloadSettings,
+			isLoaded: appSettings !== null,
 			updateSettings: (patch: Partial<AppSettings>) => {
 				setAppSettings((previous) => {
 					const next = { ...(previous ?? DEFAULT_SETTINGS), ...patch };
@@ -143,7 +142,7 @@ function App() {
 				});
 			},
 		}),
-		[appSettings],
+		[appSettings, preloadSettings],
 	);
 
 	const [splashVisible, setSplashVisible] = useState(true);
@@ -441,10 +440,10 @@ function AppShell({
 
 	const { settings: appSettings } = useSettings();
 	useAppUpdater();
+	useEnsureDefaultModel();
 	const notify = useOsNotifications(appSettings);
-	const [installedEditors, setInstalledEditors] = useState<DetectedEditor[]>(
-		[],
-	);
+	const installedEditorsQuery = useQuery(detectedEditorsQueryOptions());
+	const installedEditors = installedEditorsQuery.data ?? [];
 	const [preferredEditorId, setPreferredEditorId] = useState<string | null>(
 		() => localStorage.getItem(PREFERRED_EDITOR_STORAGE_KEY),
 	);
@@ -483,10 +482,7 @@ function AppShell({
 	);
 	const selectedWorkspaceDetailQuery = useQuery({
 		...workspaceDetailQueryOptions(selectedWorkspaceId ?? "__none__"),
-		enabled:
-			isIdentityConnected &&
-			selectedWorkspaceId !== null &&
-			!isOptimisticCreatingWorkspaceId(selectedWorkspaceId),
+		enabled: isIdentityConnected && selectedWorkspaceId !== null,
 	});
 	const handleOpenSettings = useCallback(() => {
 		onOpenSettings(
@@ -531,12 +527,12 @@ function AppShell({
 
 	// Persistent PR state for the current workspace's branch. Drives the
 	// commit button's resting mode and the "Git · PR #xxx" header badge.
+	// No `initializing` gate: the Rust impls short-circuit to the
+	// canonical "fresh workspace" answers (no PR, clean git tree) so the
+	// Phase 1 paint already matches what the Phase 2 refetch returns.
 	const workspacePrQuery = useQuery({
 		...workspacePrQueryOptions(selectedWorkspaceId ?? "__none__"),
-		enabled:
-			isIdentityConnected &&
-			selectedWorkspaceId !== null &&
-			!isOptimisticCreatingWorkspaceId(selectedWorkspaceId),
+		enabled: isIdentityConnected && selectedWorkspaceId !== null,
 	});
 	const workspacePrInfo = workspacePrQuery.data ?? null;
 
@@ -545,10 +541,7 @@ function AppShell({
 	// button's mode derivation — shared cache with inspector's actions.tsx.
 	const workspacePrActionStatusQuery = useQuery({
 		...workspacePrActionStatusQueryOptions(selectedWorkspaceId ?? "__none__"),
-		enabled:
-			isIdentityConnected &&
-			selectedWorkspaceId !== null &&
-			!isOptimisticCreatingWorkspaceId(selectedWorkspaceId),
+		enabled: isIdentityConnected && selectedWorkspaceId !== null,
 	});
 	const workspacePrActionStatus = workspacePrActionStatusQuery.data ?? null;
 
@@ -556,7 +549,6 @@ function AppShell({
 		...workspaceGitActionStatusQueryOptions(selectedWorkspaceId ?? "__none__"),
 		enabled:
 			selectedWorkspaceId !== null &&
-			!isOptimisticCreatingWorkspaceId(selectedWorkspaceId) &&
 			selectedWorkspaceDetail?.state !== "archived",
 	});
 	const workspaceGitActionStatus = workspaceGitActionStatusQuery.data ?? null;
@@ -631,10 +623,6 @@ function AppShell({
 	}, []);
 
 	useEffect(() => {
-		void detectInstalledEditors().then(setInstalledEditors);
-	}, []);
-
-	useEffect(() => {
 		selectedWorkspaceIdRef.current = selectedWorkspaceId;
 	}, [selectedWorkspaceId]);
 
@@ -692,6 +680,10 @@ function AppShell({
 			const effective = resolveTheme(appSettings.theme);
 			document.documentElement.classList.toggle("dark", effective === "dark");
 			document.documentElement.style.colorScheme = effective;
+			// Monaco's theme is synced via a MutationObserver inside
+			// `monaco-runtime.ts` — avoid importing it here to keep Monaco out
+			// of the critical boot path and out of tests that never open the
+			// editor.
 		};
 
 		apply();
@@ -857,13 +849,6 @@ function AppShell({
 
 	const primeWorkspaceDisplay = useCallback(
 		async (workspaceId: string) => {
-			if (isOptimisticCreatingWorkspaceId(workspaceId)) {
-				return {
-					workspaceId,
-					sessionId: null,
-				};
-			}
-
 			const [workspaceDetail, workspaceSessions] = await Promise.all([
 				queryClient.ensureQueryData(workspaceDetailQueryOptions(workspaceId)),
 				queryClient.ensureQueryData(workspaceSessionsQueryOptions(workspaceId)),
@@ -910,7 +895,6 @@ function AppShell({
 				null;
 			const hasSessionMessages =
 				sessionId === null ||
-				isOptimisticCreatingWorkspaceId(workspaceId) ||
 				queryClient.getQueryData([
 					...helmorQueryKeys.sessionMessages(sessionId),
 					"thread",
@@ -1079,8 +1063,18 @@ function AppShell({
 			setSelectedSessionId(immediateSessionId);
 
 			if (workspaceId) {
-				if (!isOptimisticCreatingWorkspaceId(workspaceId)) {
+				// Skip git fetch while the worktree is still being created —
+				// `state === "initializing"` means Phase 2 hasn't finished
+				// materializing the worktree on disk yet.
+				const cachedDetail = queryClient.getQueryData<WorkspaceDetail | null>(
+					helmorQueryKeys.workspaceDetail(workspaceId),
+				);
+				if (cachedDetail?.state !== "initializing") {
 					triggerWorkspaceFetch(workspaceId);
+					// Prewarm the slash-command cache for the new workspace so
+					// the next `/` press hits warm data (or at least falls back
+					// to the repo-level cache while this refresh completes).
+					void prewarmSlashCommandsForWorkspace(workspaceId);
 				}
 			}
 

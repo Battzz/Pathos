@@ -44,6 +44,7 @@
 	"dependencies": {
 		"@chenglou/pretext": "0.0.4",
 		"@fontsource-variable/geist": "^5.2.8",
+		"@fontsource-variable/geist-mono": "^5.2.7",
 		"@lexical/react": "^0.42.0",
 		"@lobehub/icons": "^5.4.0",
 		"@primer/octicons-react": "^19.23.1",
@@ -94,6 +95,7 @@
 		"react-loading-skeleton": "^3.5.0",
 		"shadcn": "^4.1.2",
 		"shiki": "^4.0.2",
+		"simple-icons": "^16.17.0",
 		"sonner": "^2.0.7",
 		"streamdown": "^2.5.0",
 		"tailwind-merge": "^3.5.0",

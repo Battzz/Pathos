@@ -780,7 +780,13 @@ fn current_upstream_ref(workspace_dir: &Path) -> Option<String> {
     .filter(|value| !value.is_empty())
 }
 
-fn resolve_remote_tracking_ref(workspace_dir: &Path, remote: Option<&str>) -> Option<String> {
+/// Returns the workspace branch's effective remote-tracking ref, if any.
+/// Tries upstream config first, then falls back to a literal
+/// `refs/remotes/<remote>/<branch>` lookup so manually-pushed branches
+/// (without `-u`) are still recognised. `None` means the local branch has
+/// no corresponding remote ref Helmor can see — treat as "branch was
+/// never published".
+pub fn resolve_remote_tracking_ref(workspace_dir: &Path, remote: Option<&str>) -> Option<String> {
     if let Some(upstream) = current_upstream_ref(workspace_dir) {
         return Some(upstream);
     }
@@ -1333,6 +1339,73 @@ mod tests {
         assert!(
             !has_upstream(clone.path(), "workspace/test"),
             "workspace branch should have no upstream after creation"
+        );
+    }
+
+    #[test]
+    fn resolve_remote_tracking_ref_is_none_for_freshly_created_workspace() {
+        // After `create_worktree_from_start_point` unsets upstream, no
+        // remote-tracking ref should be reported even though the branch
+        // shares a name with `origin/main`'s history.
+        let (_origin, clone) = init_repo_with_remote();
+        let wt_dir = tempfile::tempdir().unwrap();
+        create_worktree_from_start_point(
+            clone.path(),
+            wt_dir.path(),
+            "dohooo/whirlpool",
+            "origin/main",
+        )
+        .unwrap();
+
+        assert_eq!(
+            resolve_remote_tracking_ref(wt_dir.path(), Some("origin")),
+            None,
+        );
+    }
+
+    #[test]
+    fn resolve_remote_tracking_ref_returns_upstream_after_push() {
+        let (_origin, clone) = init_repo_with_remote();
+        let wt_dir = tempfile::tempdir().unwrap();
+        create_worktree_from_start_point(
+            clone.path(),
+            wt_dir.path(),
+            "feature/published",
+            "origin/main",
+        )
+        .unwrap();
+
+        push_current_branch(wt_dir.path(), "origin").unwrap();
+
+        assert_eq!(
+            resolve_remote_tracking_ref(wt_dir.path(), Some("origin")).as_deref(),
+            Some("origin/feature/published"),
+        );
+    }
+
+    #[test]
+    fn resolve_remote_tracking_ref_recovers_via_remote_ref_when_upstream_unset() {
+        // Manual `git push origin <branch>` (no `-u`) leaves upstream unset
+        // but populates `refs/remotes/origin/<branch>`. The fallback path
+        // should still recognise the branch as published.
+        let (_origin, clone) = init_repo_with_remote();
+        let wt_dir = tempfile::tempdir().unwrap();
+        create_worktree_from_start_point(
+            clone.path(),
+            wt_dir.path(),
+            "feature/manual-push",
+            "origin/main",
+        )
+        .unwrap();
+        run(
+            wt_dir.path(),
+            &["push", "origin", "HEAD:refs/heads/feature/manual-push"],
+        );
+
+        assert!(!has_upstream(wt_dir.path(), "feature/manual-push"));
+        assert_eq!(
+            resolve_remote_tracking_ref(wt_dir.path(), Some("origin")).as_deref(),
+            Some("origin/feature/manual-push"),
         );
     }
 }

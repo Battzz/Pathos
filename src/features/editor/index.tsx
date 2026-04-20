@@ -379,10 +379,10 @@ export function WorkspaceEditorSurface({
 	return (
 		<section
 			aria-label="Workspace editor surface"
-			className="flex h-full min-h-0 flex-col overflow-hidden bg-[#161514] text-[#cccccc]"
+			className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground"
 		>
 			<div
-				className="flex h-9 items-center border-b border-[#2b2b2b]"
+				className="flex h-9 items-center border-b border-border"
 				data-tauri-drag-region
 			>
 				{/* Traffic-light inset. macOS: left; Windows / Linux: right. */}
@@ -397,14 +397,14 @@ export function WorkspaceEditorSurface({
 						size="icon-xs"
 						onClick={onExit}
 						aria-label="Close"
-						className="aspect-square h-full text-[#8f8f8f] hover:bg-transparent hover:text-white"
+						className="aspect-square h-full text-muted-foreground hover:bg-transparent hover:text-foreground"
 					>
 						<X className="size-3.5" strokeWidth={1.8} />
 					</Button>
 				</div>
 			</div>
 
-			<div className="relative flex min-h-0 flex-1 bg-[#161514]">
+			<div className="relative flex min-h-0 flex-1 bg-background">
 				<div
 					ref={editorHostRef}
 					aria-label="Editor canvas"
@@ -412,7 +412,7 @@ export function WorkspaceEditorSurface({
 				/>
 
 				{surfaceStatus.kind === "error" && (
-					<div className="absolute inset-0 flex items-center justify-center bg-[#161514]">
+					<div className="absolute inset-0 flex items-center justify-center bg-background">
 						<SurfaceMessage message={surfaceStatus.message} />
 					</div>
 				)}
@@ -422,7 +422,9 @@ export function WorkspaceEditorSurface({
 }
 
 function SurfaceMessage({ message }: { message: string }) {
-	return <p className="text-[13px] leading-5 text-[#8f8f8f]">{message}</p>;
+	return (
+		<p className="text-[13px] leading-5 text-muted-foreground">{message}</p>
+	);
 }
 
 function disposeControllers({
