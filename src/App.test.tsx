@@ -103,6 +103,10 @@ describe("App", () => {
 		).toBeInTheDocument();
 		expect(resizeHandle).toHaveAttribute("aria-valuenow", "336");
 		expect(inspectorResizeHandle).toHaveAttribute("aria-valuenow", "336");
+		expect(inspectorResizeHandle).toHaveStyle({
+			right: "316px",
+			width: "20px",
+		});
 		expect(safeAreas).toHaveLength(1);
 		expect(groupsScrollRegion).toHaveClass("overflow-y-auto");
 		expect(groupsScrollRegion).toHaveClass("flex-1");

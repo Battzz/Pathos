@@ -2090,13 +2090,13 @@ function AppShell({
 									onKeyDown={handleResizeKeyDown("inspector")}
 									className="group absolute inset-y-0 z-30 cursor-ew-resize touch-none outline-none"
 									style={{
-										right: `${inspectorWidth - SIDEBAR_RESIZE_HIT_AREA / 2}px`,
+										right: `${Math.max(0, inspectorWidth - SIDEBAR_RESIZE_HIT_AREA)}px`,
 										width: `${SIDEBAR_RESIZE_HIT_AREA}px`,
 									}}
 								>
 									<span
 										aria-hidden="true"
-										className={`pointer-events-none absolute inset-y-0 left-1/2 -translate-x-1/2 transition-[width,background-color,box-shadow] ${
+										className={`pointer-events-none absolute inset-y-0 left-0 transition-[width,background-color,box-shadow] ${
 											isInspectorResizing
 												? "w-[2px] bg-transparent shadow-none"
 												: "w-px bg-border group-hover:w-[2px] group-hover:bg-muted-foreground/75 group-focus-visible:w-[2px] group-focus-visible:bg-muted-foreground/75"
