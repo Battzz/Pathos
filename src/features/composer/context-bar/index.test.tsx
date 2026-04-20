@@ -25,7 +25,7 @@ describe("ContextBar", () => {
 		expect(container.firstChild).toBeNull();
 	});
 
-	test("renders one chip per directory with name and branch, hides path by default", () => {
+	test("renders one chip per directory with the display name, hides branch + path", () => {
 		render(
 			<ContextBar
 				directories={[
@@ -41,9 +41,11 @@ describe("ContextBar", () => {
 		);
 		expect(screen.getByText("helmor-sdk")).toBeInTheDocument();
 		expect(screen.getByText("helmor-sidecar")).toBeInTheDocument();
-		expect(screen.getByText("main")).toBeInTheDocument();
-		expect(screen.getByText("feat/cli")).toBeInTheDocument();
-		// The path is NOT rendered in the chip body — only on hover via tooltip.
+		// Branch labels and full paths are intentionally NOT shown on chips —
+		// the chip is just "this workspace is linked" and the branch/path
+		// come from the popup / hover tooltip respectively.
+		expect(screen.queryByText("main")).not.toBeInTheDocument();
+		expect(screen.queryByText("feat/cli")).not.toBeInTheDocument();
 		expect(screen.queryByText("/code/sdk")).not.toBeInTheDocument();
 	});
 
