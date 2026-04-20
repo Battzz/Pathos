@@ -151,10 +151,16 @@ pub fn role_str(role: &MessageRole) -> String {
 
 fn normalize_basic(part: &MessagePart) -> NormPart {
     match part {
-        MessagePart::Text { text } => NormPart::Text {
+        // Part `id` is intentionally omitted from the normalized form so
+        // snapshots stay stable across UUID changes. The stable-id
+        // invariants are covered by dedicated pinning tests that read
+        // `part.part_id()` directly.
+        MessagePart::Text { text, .. } => NormPart::Text {
             text: truncate(text),
         },
-        MessagePart::Reasoning { text, streaming } => NormPart::Reasoning {
+        MessagePart::Reasoning {
+            text, streaming, ..
+        } => NormPart::Reasoning {
             text_length: utf16_len(text),
             text_preview: truncate(text),
             streaming: *streaming,
@@ -210,26 +216,29 @@ fn normalize_basic(part: &MessagePart) -> NormPart {
             severity,
             label,
             body,
+            ..
         } => NormPart::SystemNotice {
             severity: format!("{severity:?}").to_lowercase(),
             label: truncate(label),
             body: body.as_deref().map(truncate),
         },
-        MessagePart::TodoList { items } => NormPart::TodoList {
+        MessagePart::TodoList { items, .. } => NormPart::TodoList {
             item_count: items.len(),
             statuses: items
                 .iter()
                 .map(|i| format!("{:?}", i.status).to_lowercase())
                 .collect(),
         },
-        MessagePart::Image { source, media_type } => NormPart::Image {
+        MessagePart::Image {
+            source, media_type, ..
+        } => NormPart::Image {
             kind: match source {
                 helmor_lib::pipeline::types::ImageSource::Base64 { .. } => "base64".to_string(),
                 helmor_lib::pipeline::types::ImageSource::Url { .. } => "url".to_string(),
             },
             media_type: media_type.clone(),
         },
-        MessagePart::PromptSuggestion { text } => NormPart::PromptSuggestion {
+        MessagePart::PromptSuggestion { text, .. } => NormPart::PromptSuggestion {
             text_length: utf16_len(text),
             text_preview: truncate(text),
         },
@@ -250,7 +259,7 @@ fn normalize_basic(part: &MessagePart) -> NormPart {
                 .map(|entry| entry.tool.clone())
                 .collect(),
         },
-        MessagePart::FileMention { path } => NormPart::FileMention { path: path.clone() },
+        MessagePart::FileMention { path, .. } => NormPart::FileMention { path: path.clone() },
     }
 }
 

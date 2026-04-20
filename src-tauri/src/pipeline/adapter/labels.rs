@@ -18,6 +18,7 @@ pub(super) fn make_system(msg: &IntermediateMessage, text: &str) -> ThreadMessag
         id: Some(msg.id.clone()),
         created_at: Some(msg.created_at.clone()),
         content: vec![ExtendedMessagePart::Basic(MessagePart::Text {
+            id: format!("{}:label", msg.id),
             text: text.to_string(),
         })],
         status: None,
@@ -43,7 +44,14 @@ pub(super) fn make_system_notice(
 /// invoked for `status = "rejected"` (the caller hides every other
 /// status), so the output is always a Warning notice describing which
 /// bucket was hit and when it resets.
-pub(super) fn build_rate_limit_notice(parsed: Option<&Value>) -> MessagePart {
+/// Derive a stable id for a single-part system message.
+/// Every builder in this module uses this so the id is a deterministic
+/// function of the owning message id.
+pub(super) fn notice_part_id(msg_id: &str) -> String {
+    format!("{msg_id}:notice")
+}
+
+pub(super) fn build_rate_limit_notice(parsed: Option<&Value>, msg_id: &str) -> MessagePart {
     let info = parsed.and_then(|p| p.get("rate_limit_info"));
     let status = info
         .and_then(|i| i.get("status"))
@@ -71,6 +79,7 @@ pub(super) fn build_rate_limit_notice(parsed: Option<&Value>) -> MessagePart {
     let body = resets_at.map(|ts| format!("Resets at unix {ts}"));
 
     MessagePart::SystemNotice {
+        id: notice_part_id(msg_id),
         severity,
         label,
         body,
@@ -92,6 +101,7 @@ fn format_rate_limit_kind(kind: &str) -> String {
 pub(super) fn build_subagent_notice(
     subtype: Option<&str>,
     parsed: Option<&Value>,
+    msg_id: &str,
 ) -> Option<MessagePart> {
     let parsed = parsed?;
     let description = parsed
@@ -106,16 +116,19 @@ pub(super) fn build_subagent_notice(
 
     match subtype {
         Some("task_started") => Some(MessagePart::SystemNotice {
+            id: notice_part_id(msg_id),
             severity: NoticeSeverity::Info,
             label: "Subagent started".to_string(),
             body: description,
         }),
         Some("task_progress") => Some(MessagePart::SystemNotice {
+            id: notice_part_id(msg_id),
             severity: NoticeSeverity::Info,
             label: "Subagent progress".to_string(),
             body: summary.or(description),
         }),
         Some("task_completed") => Some(MessagePart::SystemNotice {
+            id: notice_part_id(msg_id),
             severity: NoticeSeverity::Info,
             label: "Subagent completed".to_string(),
             body: summary.or(description),
@@ -128,6 +141,7 @@ pub(super) fn build_subagent_notice(
                 _ => (NoticeSeverity::Info, format!("Subagent {status}")),
             };
             Some(MessagePart::SystemNotice {
+                id: notice_part_id(msg_id),
                 severity,
                 label,
                 body: summary.or(description),
@@ -147,7 +161,7 @@ pub(super) fn build_subagent_notice(
 /// reshape-target events (tool_use_summary, local_command_output)
 /// route through this single function so the frontend never has to
 /// distinguish between them.
-pub(super) fn build_system_notice(parsed: Option<&Value>) -> Option<MessagePart> {
+pub(super) fn build_system_notice(parsed: Option<&Value>, msg_id: &str) -> Option<MessagePart> {
     let parsed = parsed?;
     let sub = parsed.get("subtype").and_then(Value::as_str)?;
     match sub {
@@ -157,6 +171,7 @@ pub(super) fn build_system_notice(parsed: Option<&Value>) -> Option<MessagePart>
                 .and_then(Value::as_str)
                 .map(str::to_string);
             Some(MessagePart::SystemNotice {
+                id: notice_part_id(msg_id),
                 severity: NoticeSeverity::Info,
                 label: "Local command output".to_string(),
                 body: content,
@@ -178,13 +193,14 @@ pub(super) fn build_system_notice(parsed: Option<&Value>) -> Option<MessagePart>
                 "Tool output summarized".to_string()
             };
             Some(MessagePart::SystemNotice {
+                id: notice_part_id(msg_id),
                 severity: NoticeSeverity::Info,
                 label,
                 body: Some(summary),
             })
         }
-        "compact_boundary" => Some(build_compact_boundary_notice(parsed)),
-        "api_retry" => Some(build_api_retry_notice(parsed)),
+        "compact_boundary" => Some(build_compact_boundary_notice(parsed, msg_id)),
+        "api_retry" => Some(build_api_retry_notice(parsed, msg_id)),
         _ => None,
     }
 }
@@ -194,7 +210,7 @@ pub(super) fn build_system_notice(parsed: Option<&Value>) -> Option<MessagePart>
 /// just got shorter — Claude-only event, but the rendered shape is
 /// provider-agnostic so a future Codex equivalent can flow through
 /// the same UI.
-fn build_compact_boundary_notice(parsed: &Value) -> MessagePart {
+fn build_compact_boundary_notice(parsed: &Value, msg_id: &str) -> MessagePart {
     let meta = parsed.get("compact_metadata");
     let trigger = meta
         .and_then(|m| m.get("trigger"))
@@ -215,6 +231,7 @@ fn build_compact_boundary_notice(parsed: &Value) -> MessagePart {
         (other, None) => format!("Compacted ({other})"),
     };
     MessagePart::SystemNotice {
+        id: notice_part_id(msg_id),
         severity: NoticeSeverity::Info,
         label: "Context compacted".to_string(),
         body: Some(body),
@@ -225,7 +242,7 @@ fn build_compact_boundary_notice(parsed: &Value) -> MessagePart {
 /// error_status, error }`. Renders as a Warning notice during transient
 /// API failures — Claude-only at the source (Codex retries are
 /// SDK-internal and never surface).
-fn build_api_retry_notice(parsed: &Value) -> MessagePart {
+fn build_api_retry_notice(parsed: &Value, msg_id: &str) -> MessagePart {
     let attempt = parsed.get("attempt").and_then(Value::as_i64).unwrap_or(0);
     let max = parsed
         .get("max_retries")
@@ -251,6 +268,7 @@ fn build_api_retry_notice(parsed: &Value) -> MessagePart {
     body.push_str(&format!(" · {error}"));
 
     MessagePart::SystemNotice {
+        id: notice_part_id(msg_id),
         severity: NoticeSeverity::Warning,
         label: "Retrying".to_string(),
         body: Some(body),

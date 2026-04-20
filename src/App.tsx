@@ -69,6 +69,7 @@ import {
 	listenGitBranchChanged,
 	listenGitRefsChanged,
 	openWorkspaceInEditor,
+	prewarmSlashCommandsForWorkspace,
 	setWorkspaceManualStatus,
 	triggerWorkspaceFetch,
 	type WorkspaceDetail,
@@ -108,10 +109,7 @@ import {
 	useSettings,
 } from "./lib/settings";
 import { useOsNotifications } from "./lib/use-os-notifications";
-import {
-	isOptimisticCreatingWorkspaceId,
-	summaryToArchivedRow,
-} from "./lib/workspace-helpers";
+import { summaryToArchivedRow } from "./lib/workspace-helpers";
 import {
 	type WorkspaceToastOptions,
 	WorkspaceToastProvider,
@@ -484,10 +482,7 @@ function AppShell({
 	);
 	const selectedWorkspaceDetailQuery = useQuery({
 		...workspaceDetailQueryOptions(selectedWorkspaceId ?? "__none__"),
-		enabled:
-			isIdentityConnected &&
-			selectedWorkspaceId !== null &&
-			!isOptimisticCreatingWorkspaceId(selectedWorkspaceId),
+		enabled: isIdentityConnected && selectedWorkspaceId !== null,
 	});
 	const handleOpenSettings = useCallback(() => {
 		onOpenSettings(
@@ -532,12 +527,12 @@ function AppShell({
 
 	// Persistent PR state for the current workspace's branch. Drives the
 	// commit button's resting mode and the "Git · PR #xxx" header badge.
+	// No `initializing` gate: the Rust impls short-circuit to the
+	// canonical "fresh workspace" answers (no PR, clean git tree) so the
+	// Phase 1 paint already matches what the Phase 2 refetch returns.
 	const workspacePrQuery = useQuery({
 		...workspacePrQueryOptions(selectedWorkspaceId ?? "__none__"),
-		enabled:
-			isIdentityConnected &&
-			selectedWorkspaceId !== null &&
-			!isOptimisticCreatingWorkspaceId(selectedWorkspaceId),
+		enabled: isIdentityConnected && selectedWorkspaceId !== null,
 	});
 	const workspacePrInfo = workspacePrQuery.data ?? null;
 
@@ -546,10 +541,7 @@ function AppShell({
 	// button's mode derivation — shared cache with inspector's actions.tsx.
 	const workspacePrActionStatusQuery = useQuery({
 		...workspacePrActionStatusQueryOptions(selectedWorkspaceId ?? "__none__"),
-		enabled:
-			isIdentityConnected &&
-			selectedWorkspaceId !== null &&
-			!isOptimisticCreatingWorkspaceId(selectedWorkspaceId),
+		enabled: isIdentityConnected && selectedWorkspaceId !== null,
 	});
 	const workspacePrActionStatus = workspacePrActionStatusQuery.data ?? null;
 
@@ -557,7 +549,6 @@ function AppShell({
 		...workspaceGitActionStatusQueryOptions(selectedWorkspaceId ?? "__none__"),
 		enabled:
 			selectedWorkspaceId !== null &&
-			!isOptimisticCreatingWorkspaceId(selectedWorkspaceId) &&
 			selectedWorkspaceDetail?.state !== "archived",
 	});
 	const workspaceGitActionStatus = workspaceGitActionStatusQuery.data ?? null;
@@ -858,13 +849,6 @@ function AppShell({
 
 	const primeWorkspaceDisplay = useCallback(
 		async (workspaceId: string) => {
-			if (isOptimisticCreatingWorkspaceId(workspaceId)) {
-				return {
-					workspaceId,
-					sessionId: null,
-				};
-			}
-
 			const [workspaceDetail, workspaceSessions] = await Promise.all([
 				queryClient.ensureQueryData(workspaceDetailQueryOptions(workspaceId)),
 				queryClient.ensureQueryData(workspaceSessionsQueryOptions(workspaceId)),
@@ -911,7 +895,6 @@ function AppShell({
 				null;
 			const hasSessionMessages =
 				sessionId === null ||
-				isOptimisticCreatingWorkspaceId(workspaceId) ||
 				queryClient.getQueryData([
 					...helmorQueryKeys.sessionMessages(sessionId),
 					"thread",
@@ -1080,8 +1063,18 @@ function AppShell({
 			setSelectedSessionId(immediateSessionId);
 
 			if (workspaceId) {
-				if (!isOptimisticCreatingWorkspaceId(workspaceId)) {
+				// Skip git fetch while the worktree is still being created —
+				// `state === "initializing"` means Phase 2 hasn't finished
+				// materializing the worktree on disk yet.
+				const cachedDetail = queryClient.getQueryData<WorkspaceDetail | null>(
+					helmorQueryKeys.workspaceDetail(workspaceId),
+				);
+				if (cachedDetail?.state !== "initializing") {
 					triggerWorkspaceFetch(workspaceId);
+					// Prewarm the slash-command cache for the new workspace so
+					// the next `/` press hits warm data (or at least falls back
+					// to the repo-level cache while this refresh completes).
+					void prewarmSlashCommandsForWorkspace(workspaceId);
 				}
 			}
 

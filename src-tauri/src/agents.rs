@@ -42,6 +42,18 @@ pub fn prewarm_slash_command_cache(app: &AppHandle) {
     queries::prewarm_slash_command_cache(app);
 }
 
+/// Tauri command — called from the frontend on workspace switch.
+/// Kicks off a background refresh for the target workspace so the next
+/// `/` press in the composer hits a warm cache.
+#[tauri::command]
+pub async fn prewarm_slash_commands_for_workspace(
+    app: AppHandle,
+    workspace_id: String,
+) -> CmdResult<()> {
+    queries::prewarm_slash_command_cache_for_workspace(&app, &workspace_id);
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Streaming event types
 // ---------------------------------------------------------------------------
@@ -645,6 +657,7 @@ mod tests {
             },
             None,
             "idle",
+            None,
         )
         .unwrap();
 
@@ -795,6 +808,7 @@ mod tests {
             },
             None,
             "idle",
+            None,
         )
         .unwrap();
 
@@ -850,7 +864,6 @@ mod tests {
             content_json:
                 r#"{"type":"assistant","message":{"content":[{"type":"text","text":"I'll help"}]}}"#
                     .to_string(),
-            collected_idx: None,
         };
         let turn2 = CollectedTurn {
             id: Uuid::new_v4().to_string(),
@@ -858,7 +871,6 @@ mod tests {
             content_json:
                 r#"{"type":"user","content":[{"type":"tool_result","tool_use_id":"t1"}]}"#
                     .to_string(),
-            collected_idx: None,
         };
 
         let _ = persist_turn_message(&conn, &ctx, &turn1, "opus").unwrap();

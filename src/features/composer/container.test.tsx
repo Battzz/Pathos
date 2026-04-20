@@ -30,6 +30,8 @@ vi.mock("./index", async () => {
 			contextKey: string;
 			selectedModelId: string | null;
 			fastMode?: boolean;
+			disabled?: boolean;
+			submitDisabled?: boolean;
 		}) => {
 			composerMockState.renders.push(props.contextKey);
 			React.useEffect(() => {
@@ -43,6 +45,8 @@ vi.mock("./index", async () => {
 				<div
 					data-testid="workspace-composer-mock"
 					data-fast-mode={props.fastMode ? "on" : "off"}
+					data-disabled={props.disabled ? "true" : "false"}
+					data-submit-disabled={props.submitDisabled ? "true" : "false"}
 				>
 					{props.contextKey}:{props.selectedModelId ?? "none"}
 				</div>
@@ -350,7 +354,7 @@ describe("WorkspaceComposerContainer", () => {
 			expect(apiMockState.listSlashCommands).toHaveBeenCalledWith({
 				provider: "claude",
 				workingDirectory: "/tmp/helmor",
-				modelId: "opus-1m",
+				repoId: "repo-1",
 			}),
 		);
 	});
@@ -434,5 +438,77 @@ describe("WorkspaceComposerContainer", () => {
 			"data-fast-mode",
 			"on",
 		);
+	});
+
+	// `composerUnavailable` vs `composerAwaitingFinalize`: the composer
+	// container must ONLY dim the whole UI when the workspace is genuinely
+	// unusable (archived / no selection). During the Phase 2 initializing
+	// window the editor + toolbar stay fully live and only the send action
+	// is blocked, so users can type-ahead without a visible 60% dim.
+	const renderContainerForState = (workspaceState: string) => {
+		const queryClient = createHelmorQueryClient();
+		queryClient.setQueryData(
+			helmorQueryKeys.agentModelSections,
+			MODEL_SECTIONS,
+		);
+		queryClient.setQueryData(helmorQueryKeys.workspaceDetail("workspace-1"), {
+			...WORKSPACE_DETAIL,
+			state: workspaceState,
+		});
+		queryClient.setQueryData(
+			helmorQueryKeys.workspaceSessions("workspace-1"),
+			WORKSPACE_SESSIONS,
+		);
+
+		render(
+			<QueryClientProvider client={queryClient}>
+				<WorkspaceComposerContainer
+					displayedWorkspaceId="workspace-1"
+					displayedSessionId="session-1"
+					disabled={false}
+					sending={false}
+					sendError={null}
+					restoreDraft={null}
+					restoreImages={[]}
+					restoreFiles={[]}
+					restoreNonce={0}
+					modelSelections={{}}
+					effortLevels={{}}
+					permissionModes={{}}
+					fastModes={{}}
+					onSelectModel={vi.fn()}
+					onSelectEffort={vi.fn()}
+					onChangePermissionMode={vi.fn()}
+					onChangeFastMode={vi.fn()}
+					onSubmit={vi.fn()}
+				/>
+			</QueryClientProvider>,
+		);
+	};
+
+	it("stays fully enabled while the workspace is initializing, blocking only the send action", () => {
+		renderContainerForState("initializing");
+
+		const composer = screen.getByTestId("workspace-composer-mock");
+		// Editor + toolbar must NOT be dimmed — the user can type and pick
+		// model/effort while Phase 2 finishes.
+		expect(composer).toHaveAttribute("data-disabled", "false");
+		// Send is gated so messages can't race with finalize.
+		expect(composer).toHaveAttribute("data-submit-disabled", "true");
+	});
+
+	it("fully disables the composer for archived workspaces", () => {
+		renderContainerForState("archived");
+
+		const composer = screen.getByTestId("workspace-composer-mock");
+		expect(composer).toHaveAttribute("data-disabled", "true");
+	});
+
+	it("is fully interactive for ready workspaces", () => {
+		renderContainerForState("ready");
+
+		const composer = screen.getByTestId("workspace-composer-mock");
+		expect(composer).toHaveAttribute("data-disabled", "false");
+		expect(composer).toHaveAttribute("data-submit-disabled", "false");
 	});
 });

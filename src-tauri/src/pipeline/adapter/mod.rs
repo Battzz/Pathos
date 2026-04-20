@@ -143,6 +143,7 @@ fn convert_flat(messages: &[IntermediateMessage]) -> Vec<ThreadMessageLike> {
                     id: Some(msg.id.clone()),
                     created_at: Some(msg.created_at.clone()),
                     content: vec![ExtendedMessagePart::Basic(MessagePart::PromptSuggestion {
+                        id: format!("{}:suggestion", msg.id),
                         text,
                     })],
                     status: None,
@@ -163,7 +164,7 @@ fn convert_flat(messages: &[IntermediateMessage]) -> Vec<ThreadMessageLike> {
         // assistant (by JSON type or by role for plain-text live messages)
         if msg_type == Some("assistant") || (parsed.is_none() && msg.role == MessageRole::Assistant)
         {
-            let mut parts = parse_assistant_parts(parsed);
+            let mut parts = parse_assistant_parts(parsed, &msg.id);
             // Pull the parent_tool_use_id (if any) so we can encode it in
             // the message id below — the grouping pass uses it to attach
             // the child to the EXACT parent Task tool, not whichever
@@ -209,7 +210,10 @@ fn convert_flat(messages: &[IntermediateMessage]) -> Vec<ThreadMessageLike> {
             if parts.is_empty() && !assistant_has_recognized_blocks(parsed) {
                 let fb = extract_fallback(msg);
                 if !fb.is_empty() {
-                    parts.push(MessagePart::Text { text: fb });
+                    parts.push(MessagePart::Text {
+                        id: format!("{}:fallback", msg.id),
+                        text: fb,
+                    });
                 }
             }
 
@@ -278,7 +282,7 @@ fn convert_flat(messages: &[IntermediateMessage]) -> Vec<ThreadMessageLike> {
                         .collect()
                 })
                 .unwrap_or_default();
-            let parts = grouping::split_user_text_with_files(&text, &files);
+            let parts = grouping::split_user_text_with_files(&text, &files, &msg.id);
             result.push(ThreadMessageLike {
                 role: MessageRole::User,
                 id: Some(msg.id.clone()),
@@ -497,7 +501,7 @@ fn convert_system_msg(msg: &IntermediateMessage, out: &mut Vec<ThreadMessageLike
             return;
         }
     }
-    if let Some(part) = build_subagent_notice(sub, parsed) {
+    if let Some(part) = build_subagent_notice(sub, parsed, &msg.id) {
         // Mark with `child:<tool_use_id>:<msg_id>` so the parent-grouping
         // pass folds these notices into the corresponding Task tool
         // call's children block. The tool_use_id field on the SDK
@@ -517,7 +521,7 @@ fn convert_system_msg(msg: &IntermediateMessage, out: &mut Vec<ThreadMessageLike
     // tool_use_summary, local_command_output) flow through a single
     // dispatcher in `labels::build_system_notice`. Adding a new
     // subtype is one match arm, no convert_system_msg edits.
-    if let Some(part) = build_system_notice(parsed) {
+    if let Some(part) = build_system_notice(parsed, &msg.id) {
         out.push(make_system_notice(msg, part));
         return;
     }
@@ -563,7 +567,10 @@ fn convert_rate_limit_msg(msg: &IntermediateMessage, out: &mut Vec<ThreadMessage
         .and_then(|i| i.get("status"))
         .and_then(Value::as_str);
     if status == Some("rejected") {
-        out.push(make_system_notice(msg, build_rate_limit_notice(parsed)));
+        out.push(make_system_notice(
+            msg,
+            build_rate_limit_notice(parsed, &msg.id),
+        ));
     }
 }
 

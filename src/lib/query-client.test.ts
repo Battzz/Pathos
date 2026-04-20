@@ -5,28 +5,9 @@ import type {
 	WorkspacePrActionStatus,
 } from "./api";
 import {
-	helmorQueryKeys,
 	prActionStatusRefetchInterval,
 	prRefetchInterval,
 } from "./query-client";
-
-describe("helmorQueryKeys.slashCommands", () => {
-	it("ignores model id for claude keys", () => {
-		expect(
-			helmorQueryKeys.slashCommands("claude", "/tmp/workspace", "default"),
-		).toEqual(
-			helmorQueryKeys.slashCommands("claude", "/tmp/workspace", "opus-1m"),
-		);
-	});
-
-	it("ignores model id for codex keys", () => {
-		expect(
-			helmorQueryKeys.slashCommands("codex", "/tmp/workspace", "gpt-5.4"),
-		).toEqual(
-			helmorQueryKeys.slashCommands("codex", "/tmp/workspace", "gpt-5"),
-		);
-	});
-});
 
 const OPEN_PR: PullRequestInfo = {
 	url: "https://github.com/acme/repo/pull/1",

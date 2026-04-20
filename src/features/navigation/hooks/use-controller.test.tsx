@@ -26,6 +26,8 @@ const apiMocks = vi.hoisted(() => {
 	return {
 		addRepositoryFromLocalPath: vi.fn(),
 		createWorkspaceFromRepo: vi.fn(),
+		prepareWorkspaceFromRepo: vi.fn(),
+		finalizeWorkspaceFromRepo: vi.fn(),
 		listRepositories: vi.fn(),
 		loadAddRepositoryDefaults: vi.fn(),
 		loadArchivedWorkspaces: vi.fn(),
@@ -75,6 +77,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
 		...actual,
 		addRepositoryFromLocalPath: apiMocks.addRepositoryFromLocalPath,
 		createWorkspaceFromRepo: apiMocks.createWorkspaceFromRepo,
+		prepareWorkspaceFromRepo: apiMocks.prepareWorkspaceFromRepo,
+		finalizeWorkspaceFromRepo: apiMocks.finalizeWorkspaceFromRepo,
 		listRepositories: apiMocks.listRepositories,
 		loadAddRepositoryDefaults: apiMocks.loadAddRepositoryDefaults,
 		loadArchivedWorkspaces: apiMocks.loadArchivedWorkspaces,
@@ -392,22 +396,17 @@ describe("useWorkspacesSidebarController archive flow", () => {
 		expect(pushWorkspaceToast).not.toHaveBeenCalled();
 	});
 
-	it("inserts an initializing placeholder while creating a workspace, then swaps to the real one", async () => {
+	it("paints the workspace with final metadata after prepare, then finalizes to ready in place", async () => {
 		const queryClient = new QueryClient({
 			defaultOptions: { queries: { retry: false } },
 		});
 		const onSelectWorkspace = vi.fn();
 		const pushWorkspaceToast = vi.fn();
-		let resolveCreate:
-			| ((value: {
-					createdWorkspaceId: string;
-					selectedWorkspaceId: string;
-					initialSessionId: string;
-					createdState: string;
-					directoryName: string;
-					branch: string;
-			  }) => void)
+		let resolveFinalize:
+			| ((value: { workspaceId: string; finalState: string }) => void)
 			| null = null;
+		const generatedWorkspaceId = crypto.randomUUID();
+		const generatedSessionId = crypto.randomUUID();
 
 		apiMocks.listRepositories.mockResolvedValue([
 			{
@@ -417,10 +416,28 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				repoInitials: "HE",
 			},
 		]);
-		apiMocks.createWorkspaceFromRepo.mockImplementation(
+		apiMocks.prepareWorkspaceFromRepo.mockResolvedValue({
+			workspaceId: generatedWorkspaceId,
+			initialSessionId: generatedSessionId,
+			repoId: "repo-1",
+			repoName: "helmor",
+			directoryName: "vega",
+			branch: "feature/vega",
+			defaultBranch: "main",
+			state: "initializing" as const,
+			repoScripts: {
+				setupScript: null,
+				runScript: null,
+				archiveScript: null,
+				setupFromProject: false,
+				runFromProject: false,
+				archiveFromProject: false,
+			},
+		});
+		apiMocks.finalizeWorkspaceFromRepo.mockImplementation(
 			() =>
 				new Promise((resolve) => {
-					resolveCreate = resolve;
+					resolveFinalize = resolve;
 				}),
 		);
 
@@ -438,52 +455,57 @@ describe("useWorkspacesSidebarController archive flow", () => {
 			expect(result.current.groups[0]?.rows).toHaveLength(2);
 		});
 
-		act(() => {
+		await act(async () => {
 			void result.current.handleCreateWorkspaceFromRepo("repo-1");
 		});
 
-		const optimisticRow = result.current.groups[0]?.rows[0];
-		expect(optimisticRow?.state).toBe("initializing");
-		expect(optimisticRow?.title).toContain("Creating helmor");
-		expect(onSelectWorkspace).toHaveBeenCalledWith(
-			expect.stringMatching(/^creating-workspace:/),
+		await waitFor(() => {
+			expect(result.current.groups[0]?.rows[0]?.id).toBe(generatedWorkspaceId);
+		});
+
+		const preparedRow = result.current.groups[0]?.rows[0];
+		expect(preparedRow?.state).toBe("initializing");
+		// Title, directory, branch are all final-state immediately — prepare
+		// returned real values so there is no placeholder-to-real swap.
+		expect(preparedRow?.title).toBe("helmor workspace");
+		expect(preparedRow?.directoryName).toBe("vega");
+		expect(preparedRow?.branch).toBe("feature/vega");
+		expect(apiMocks.prepareWorkspaceFromRepo).toHaveBeenCalledWith("repo-1");
+		expect(onSelectWorkspace).toHaveBeenCalledWith(generatedWorkspaceId);
+		expect(apiMocks.finalizeWorkspaceFromRepo).toHaveBeenCalledWith(
+			generatedWorkspaceId,
 		);
 
 		await act(async () => {
-			resolveCreate?.({
-				createdWorkspaceId: "ws-created",
-				selectedWorkspaceId: "ws-created",
-				initialSessionId: "session-created",
-				createdState: "ready",
-				directoryName: "vega",
-				branch: "feature/vega",
+			resolveFinalize?.({
+				workspaceId: generatedWorkspaceId,
+				finalState: "ready",
 			});
 		});
 
+		// After Phase 2, the detail flips to state=ready in place — no new
+		// row, no id swap.
 		await waitFor(() => {
 			expect(
-				apiMocks.loadWorkspaceGroups.mock.calls.length,
-			).toBeGreaterThanOrEqual(2);
+				queryClient.getQueryData(
+					helmorQueryKeys.workspaceDetail(generatedWorkspaceId),
+				),
+			).toMatchObject({
+				id: generatedWorkspaceId,
+				state: "ready",
+			});
 		});
-		expect(onSelectWorkspace).toHaveBeenCalledWith("ws-created");
+		expect(generatedSessionId).toBeTruthy();
 		expect(pushWorkspaceToast).not.toHaveBeenCalled();
 	});
 
-	it("upgrades the optimistic row to the real workspace on success so the sidebar never goes empty", async () => {
+	it("paints the workspace detail + sessions cache from prepare response", async () => {
 		const queryClient = new QueryClient({
 			defaultOptions: { queries: { retry: false } },
 		});
 		const onSelectWorkspace = vi.fn();
-		let resolveCreate:
-			| ((value: {
-					createdWorkspaceId: string;
-					selectedWorkspaceId: string;
-					initialSessionId: string;
-					createdState: string;
-					directoryName: string;
-					branch: string;
-			  }) => void)
-			| null = null;
+		const generatedWorkspaceId = crypto.randomUUID();
+		const generatedSessionId = crypto.randomUUID();
 
 		apiMocks.listRepositories.mockResolvedValue([
 			{
@@ -493,11 +515,28 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				repoInitials: "HE",
 			},
 		]);
-		apiMocks.createWorkspaceFromRepo.mockImplementation(
-			() =>
-				new Promise((resolve) => {
-					resolveCreate = resolve;
-				}),
+		apiMocks.prepareWorkspaceFromRepo.mockResolvedValue({
+			workspaceId: generatedWorkspaceId,
+			initialSessionId: generatedSessionId,
+			repoId: "repo-1",
+			repoName: "helmor",
+			directoryName: "testuser-helmor",
+			branch: "testuser/helmor",
+			defaultBranch: "main",
+			state: "initializing" as const,
+			repoScripts: {
+				setupScript: null,
+				runScript: null,
+				archiveScript: null,
+				setupFromProject: false,
+				runFromProject: false,
+				archiveFromProject: false,
+			},
+		});
+		// Keep Phase 2 suspended so we can assert the Phase 1 painted state
+		// independently.
+		apiMocks.finalizeWorkspaceFromRepo.mockImplementation(
+			() => new Promise(() => {}),
 		);
 
 		const { result } = renderHook(
@@ -517,48 +556,76 @@ describe("useWorkspacesSidebarController archive flow", () => {
 			]);
 		});
 
-		act(() => {
+		await act(async () => {
 			void result.current.handleCreateWorkspaceFromRepo("repo-1");
 		});
 
 		await waitFor(() => {
-			expect(result.current.groups[0]?.rows[0]?.id).toMatch(
-				/^creating-workspace:/,
-			);
+			expect(result.current.groups[0]?.rows[0]?.id).toBe(generatedWorkspaceId);
 		});
 
-		await act(async () => {
-			resolveCreate?.({
-				createdWorkspaceId: "ws-created",
-				selectedWorkspaceId: "ws-created",
-				initialSessionId: "session-created",
-				createdState: "initializing",
-				directoryName: "testuser-helmor",
-				branch: "testuser/helmor",
-			});
-		});
-
-		await waitFor(() => {
-			expect(result.current.groups[0]?.rows[0]?.id).toBe("ws-created");
-		});
-
+		// After Phase 1, the detail + sessions cache is already seeded with
+		// the final directory/branch — no re-render needed later for those.
+		// Branch/remote fields must match what Phase 2's refetch returns so
+		// the inspector's `workspaceTargetBranch` doesn't flip `null →
+		// "origin/main"` and flash the "Remote" BranchDiffSection header.
 		expect(
-			queryClient.getQueryData(helmorQueryKeys.workspaceDetail("ws-created")),
+			queryClient.getQueryData(
+				helmorQueryKeys.workspaceDetail(generatedWorkspaceId),
+			),
 		).toMatchObject({
-			id: "ws-created",
+			id: generatedWorkspaceId,
 			directoryName: "testuser-helmor",
 			branch: "testuser/helmor",
+			state: "initializing",
+			remote: "origin",
+			defaultBranch: "main",
+			intendedTargetBranch: "main",
+			initializationParentBranch: "main",
 		});
 		expect(
-			queryClient.getQueryData(helmorQueryKeys.workspaceSessions("ws-created")),
+			queryClient.getQueryData(
+				helmorQueryKeys.workspaceSessions(generatedWorkspaceId),
+			),
 		).toMatchObject([
 			{
-				id: "session-created",
-				workspaceId: "ws-created",
+				id: generatedSessionId,
+				workspaceId: generatedWorkspaceId,
 				active: true,
 			},
 		]);
-		expect(onSelectWorkspace).toHaveBeenCalledWith("ws-created");
+
+		// Git + PR status caches are seeded with the canonical "fresh
+		// workspace" empty state so the inspector's Actions section never
+		// falls through to EMPTY_*_STATUS (which renders the misleading
+		// "Sync status unavailable" / "Waiting for PR review" labels).
+		expect(
+			queryClient.getQueryData(
+				helmorQueryKeys.workspaceGitActionStatus(generatedWorkspaceId),
+			),
+		).toMatchObject({
+			uncommittedCount: 0,
+			conflictCount: 0,
+			syncStatus: "upToDate",
+			pushStatus: "unpublished",
+		});
+		expect(
+			queryClient.getQueryData(
+				helmorQueryKeys.workspacePr(generatedWorkspaceId),
+			),
+		).toBeNull();
+		expect(
+			queryClient.getQueryData(
+				helmorQueryKeys.workspacePrActionStatus(generatedWorkspaceId),
+			),
+		).toMatchObject({
+			pr: null,
+			remoteState: "noPr",
+			deployments: [],
+			checks: [],
+		});
+
+		expect(onSelectWorkspace).toHaveBeenCalledWith(generatedWorkspaceId);
 	});
 
 	it("does not optimistically reorder sidebar groups when setting manual status", async () => {
@@ -603,27 +670,20 @@ describe("useWorkspacesSidebarController archive flow", () => {
 		).toEqual([]);
 	});
 
-	// Retry: even with the mock + timeout fixes this test exercises the most
-	// timing-sensitive microtask ordering in the suite (mutation resolve →
-	// setQueryData injection → fire-and-forget refetchNavigation vs
-	// reconciliation effect). Allow two local retries so a single CI hiccup
-	// does not fail the whole Rust/Frontend matrix and force a full re-run.
-	it("does not show the optimistic upgrade alongside the cached real workspace on success", {
+	// The pending creation row and the navigation refetch share the same
+	// workspace id. Once the canonical row lands in base groups, reconciliation
+	// drops the pending entry — exactly one row remains.
+	it("does not duplicate the row when the canonical workspace groups refetch", {
 		retry: 2,
 	}, async () => {
 		const queryClient = new QueryClient({
 			defaultOptions: { queries: { retry: false } },
 		});
-		let resolveCreate:
-			| ((value: {
-					createdWorkspaceId: string;
-					selectedWorkspaceId: string;
-					initialSessionId: string;
-					createdState: string;
-					directoryName: string;
-					branch: string;
-			  }) => void)
+		let resolveFinalize:
+			| ((value: { workspaceId: string; finalState: string }) => void)
 			| null = null;
+		const generatedWorkspaceId = crypto.randomUUID();
+		const generatedSessionId = crypto.randomUUID();
 
 		apiMocks.listRepositories.mockResolvedValue([
 			{
@@ -633,10 +693,28 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				repoInitials: "HE",
 			},
 		]);
-		apiMocks.createWorkspaceFromRepo.mockImplementation(
+		apiMocks.prepareWorkspaceFromRepo.mockResolvedValue({
+			workspaceId: generatedWorkspaceId,
+			initialSessionId: generatedSessionId,
+			repoId: "repo-1",
+			repoName: "helmor",
+			directoryName: "testuser-helmor",
+			branch: "testuser/helmor",
+			defaultBranch: "main",
+			state: "initializing" as const,
+			repoScripts: {
+				setupScript: null,
+				runScript: null,
+				archiveScript: null,
+				setupFromProject: false,
+				runFromProject: false,
+				archiveFromProject: false,
+			},
+		});
+		apiMocks.finalizeWorkspaceFromRepo.mockImplementation(
 			() =>
 				new Promise((resolve) => {
-					resolveCreate = resolve;
+					resolveFinalize = resolve;
 				}),
 		);
 
@@ -657,14 +735,12 @@ describe("useWorkspacesSidebarController archive flow", () => {
 			]);
 		});
 
-		act(() => {
+		await act(async () => {
 			void result.current.handleCreateWorkspaceFromRepo("repo-1");
 		});
 
 		await waitFor(() => {
-			expect(result.current.groups[0]?.rows[0]?.id).toMatch(
-				/^creating-workspace:/,
-			);
+			expect(result.current.groups[0]?.rows[0]?.id).toBe(generatedWorkspaceId);
 		});
 
 		const upgradedGroups = [
@@ -673,8 +749,8 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				rows: [
 					{
 						...workspaceGroups[0].rows[0],
-						id: "ws-created",
-						title: "Workspace created",
+						id: generatedWorkspaceId,
+						title: "helmor workspace",
 						state: "initializing" as const,
 						branch: "testuser/helmor",
 					},
@@ -682,11 +758,6 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				],
 			},
 		];
-
-		// Keep `loadWorkspaceGroups` aligned with the injected cache so the
-		// post-success `refetchNavigation()` inside the hook does not race with
-		// reconciliation and replace the cache with a stale ws-1/ws-2 snapshot
-		// that lacks ws-created (which was flaky under slow CI timing).
 		apiMocks.loadWorkspaceGroups.mockResolvedValue(upgradedGroups);
 
 		act(() => {
@@ -694,21 +765,154 @@ describe("useWorkspacesSidebarController archive flow", () => {
 		});
 
 		await act(async () => {
-			resolveCreate?.({
-				createdWorkspaceId: "ws-created",
-				selectedWorkspaceId: "ws-created",
-				initialSessionId: "session-created",
-				createdState: "initializing",
-				directoryName: "testuser-helmor",
-				branch: "testuser/helmor",
+			resolveFinalize?.({
+				workspaceId: generatedWorkspaceId,
+				finalState: "ready",
 			});
 		});
 
 		await waitFor(() => {
 			expect(
-				result.current.groups[0]?.rows.filter((row) => row.id === "ws-created"),
+				result.current.groups[0]?.rows.filter(
+					(row) => row.id === generatedWorkspaceId,
+				),
 			).toHaveLength(1);
 		});
+	});
+
+	// When Phase 2 rejects, Rust has already cleaned up the DB row +
+	// worktree. The frontend must tear down its mirror: drop the pending
+	// row, remove all seeded caches (detail/sessions/messages/scripts),
+	// surface an error toast, and (if the user is still parked on the
+	// failing workspace) switch selection back to the previously-selected
+	// workspace via the `selectedWorkspaceIdRef` path.
+	it("tears down the mirror and restores previous selection when finalize rejects", async () => {
+		const queryClient = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const onSelectWorkspace = vi.fn();
+		const pushWorkspaceToast = vi.fn();
+		const generatedWorkspaceId = crypto.randomUUID();
+		const generatedSessionId = crypto.randomUUID();
+
+		apiMocks.listRepositories.mockResolvedValue([
+			{
+				id: "repo-1",
+				name: "helmor",
+				defaultBranch: "main",
+				repoInitials: "HE",
+			},
+		]);
+		apiMocks.prepareWorkspaceFromRepo.mockResolvedValue({
+			workspaceId: generatedWorkspaceId,
+			initialSessionId: generatedSessionId,
+			repoId: "repo-1",
+			repoName: "helmor",
+			directoryName: "testuser-helmor",
+			branch: "testuser/helmor",
+			defaultBranch: "main",
+			state: "initializing" as const,
+			repoScripts: {
+				setupScript: null,
+				runScript: null,
+				archiveScript: null,
+				setupFromProject: false,
+				runFromProject: false,
+				archiveFromProject: false,
+			},
+		});
+		apiMocks.finalizeWorkspaceFromRepo.mockRejectedValue(
+			new Error("worktree create failed"),
+		);
+
+		let currentSelection: string | null = "ws-1";
+		onSelectWorkspace.mockImplementation((id: string | null) => {
+			currentSelection = id;
+		});
+
+		const { result, rerender } = renderHook(
+			({ selectedWorkspaceId }: { selectedWorkspaceId: string | null }) =>
+				useWorkspacesSidebarController({
+					selectedWorkspaceId,
+					onSelectWorkspace,
+					pushWorkspaceToast,
+				}),
+			{
+				initialProps: { selectedWorkspaceId: currentSelection },
+				wrapper: createWrapper(queryClient),
+			},
+		);
+
+		await waitFor(() => {
+			expect(result.current.groups[0]?.rows.map((row) => row.id)).toEqual([
+				"ws-1",
+				"ws-2",
+			]);
+		});
+
+		await act(async () => {
+			void result.current.handleCreateWorkspaceFromRepo("repo-1");
+		});
+
+		// Phase 1 painted the pending row + selected the new workspace.
+		await waitFor(() => {
+			expect(onSelectWorkspace).toHaveBeenCalledWith(generatedWorkspaceId);
+		});
+		rerender({ selectedWorkspaceId: currentSelection });
+
+		// Wait for the rejection to propagate through `.catch().finally()`.
+		await waitFor(() => {
+			expect(pushWorkspaceToast).toHaveBeenCalled();
+		});
+
+		// Pending entry + every seeded cache key is removed.
+		expect(
+			queryClient.getQueryData(
+				helmorQueryKeys.workspaceDetail(generatedWorkspaceId),
+			),
+		).toBeUndefined();
+		expect(
+			queryClient.getQueryData(
+				helmorQueryKeys.workspaceSessions(generatedWorkspaceId),
+			),
+		).toBeUndefined();
+		expect(
+			queryClient.getQueryData([
+				...helmorQueryKeys.sessionMessages(generatedSessionId),
+				"thread",
+			]),
+		).toBeUndefined();
+		expect(
+			queryClient.getQueryData(
+				helmorQueryKeys.repoScripts("repo-1", generatedWorkspaceId),
+			),
+		).toBeUndefined();
+		expect(
+			queryClient.getQueryData(
+				helmorQueryKeys.workspaceGitActionStatus(generatedWorkspaceId),
+			),
+		).toBeUndefined();
+		expect(
+			queryClient.getQueryData(
+				helmorQueryKeys.workspacePr(generatedWorkspaceId),
+			),
+		).toBeUndefined();
+		expect(
+			queryClient.getQueryData(
+				helmorQueryKeys.workspacePrActionStatus(generatedWorkspaceId),
+			),
+		).toBeUndefined();
+		expect(
+			result.current.groups[0]?.rows.find(
+				(row) => row.id === generatedWorkspaceId,
+			),
+		).toBeUndefined();
+
+		// Selection: the user was parked on the failing workspace, so the
+		// catch branch switches them back to the previous selection.
+		const lastSelectCall =
+			onSelectWorkspace.mock.calls[onSelectWorkspace.mock.calls.length - 1];
+		expect(lastSelectCall?.[0]).toBe("ws-1");
 	});
 
 	it("rolls back the optimistic update when the background start fails immediately", async () => {

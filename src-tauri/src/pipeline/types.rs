@@ -106,16 +106,22 @@ pub enum StreamingStatus {
 /// A single content part inside a message.
 ///
 /// Serialized as internally tagged `{"type": "text", ...}`, `{"type": "tool-call", ...}`, etc.
+///
+/// Every variant carries a stable `id` the frontend uses as the React key.
+/// `ToolCall` reuses its SDK-assigned `tool_call_id` (no separate `id` field);
+/// all others carry their own `id`. The `part_id()` accessor hides the
+/// difference so callers that just need "the key for this part" don't branch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum MessagePart {
     /// Plain text block.
     #[serde(rename = "text")]
-    Text { text: String },
+    Text { id: String, text: String },
 
     /// Extended thinking / reasoning block.
     #[serde(rename = "reasoning")]
     Reasoning {
+        id: String,
         text: String,
         /// Per-part streaming state — only the active thinking block is streaming.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -153,6 +159,7 @@ pub enum MessagePart {
     /// styled banner.
     #[serde(rename = "system-notice", rename_all = "camelCase")]
     SystemNotice {
+        id: String,
         severity: NoticeSeverity,
         label: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -163,13 +170,14 @@ pub enum MessagePart {
     /// Codex (`item.completed` of `todo_list`) collapse into this single
     /// shape so the frontend renders identically across providers.
     #[serde(rename = "todo-list", rename_all = "camelCase")]
-    TodoList { items: Vec<TodoItem> },
+    TodoList { id: String, items: Vec<TodoItem> },
 
     /// Inline image emitted as a content block by the Claude SDK. The
     /// payload is either a base64-encoded blob (with media type) or an
     /// external URL — the frontend renders both with `<img>`.
     #[serde(rename = "image", rename_all = "camelCase")]
     Image {
+        id: String,
         source: ImageSource,
         #[serde(skip_serializing_if = "Option::is_none")]
         media_type: Option<String>,
@@ -179,7 +187,7 @@ pub enum MessagePart {
     /// as a clickable chip — clicking copies the suggestion into the
     /// composer.
     #[serde(rename = "prompt-suggestion", rename_all = "camelCase")]
-    PromptSuggestion { text: String },
+    PromptSuggestion { id: String, text: String },
 
     /// Persisted ExitPlanMode review card. The plan itself needs to live in
     /// the chat thread so users can revisit it later even after the deferred
@@ -198,7 +206,26 @@ pub enum MessagePart {
 
     /// Inline file reference from the composer's @-mention picker.
     #[serde(rename = "file-mention", rename_all = "camelCase")]
-    FileMention { path: String },
+    FileMention { id: String, path: String },
+}
+
+impl MessagePart {
+    /// Stable id used as the React key for this part. Delegates to the
+    /// variant's natural id field (`tool_call_id` for ToolCall,
+    /// `tool_use_id` for PlanReview, `id` for everything else).
+    pub fn part_id(&self) -> &str {
+        match self {
+            Self::Text { id, .. }
+            | Self::Reasoning { id, .. }
+            | Self::SystemNotice { id, .. }
+            | Self::TodoList { id, .. }
+            | Self::Image { id, .. }
+            | Self::PromptSuggestion { id, .. }
+            | Self::FileMention { id, .. } => id,
+            Self::ToolCall { tool_call_id, .. } => tool_call_id,
+            Self::PlanReview { tool_use_id, .. } => tool_use_id,
+        }
+    }
 }
 
 /// Image payload variants. `Base64` carries the raw blob (no `data:` URI
@@ -258,12 +285,18 @@ pub enum CollapseCategory {
 }
 
 /// A collapsed summary replacing consecutive search/read tool calls.
+///
+/// `id` is derived from the first tool's `tool_call_id` (`group:{first_id}`)
+/// so the React key stays stable across renders — the tool IDs don't change
+/// as the group gains members during streaming, so the first-tool-derived
+/// id doesn't either.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CollapsedGroupPart {
     /// Always serialized as `"collapsed-group"`.
     #[serde(rename = "type")]
     pub part_type: String,
+    pub id: String,
     /// Whether this group contains search, read, or both.
     pub category: CollapseCategory,
     /// The original tool-call parts in this group.
@@ -281,8 +314,13 @@ impl CollapsedGroupPart {
         active: bool,
         summary: String,
     ) -> Self {
+        let id = tools
+            .first()
+            .map(|t| format!("group:{}", t.part_id()))
+            .unwrap_or_else(|| "group:empty".to_string());
         Self {
             part_type: "collapsed-group".to_string(),
+            id,
             category,
             tools,
             active,
@@ -301,6 +339,17 @@ impl CollapsedGroupPart {
 pub enum ExtendedMessagePart {
     Basic(MessagePart),
     CollapsedGroup(CollapsedGroupPart),
+}
+
+impl ExtendedMessagePart {
+    /// Stable id for this part. Matches `MessagePart::part_id` for `Basic`
+    /// and the group's own `id` for `CollapsedGroup`.
+    pub fn part_id(&self) -> &str {
+        match self {
+            Self::Basic(part) => part.part_id(),
+            Self::CollapsedGroup(group) => &group.id,
+        }
+    }
 }
 
 /// Completion status of a message.
@@ -355,20 +404,16 @@ pub struct IntermediateMessage {
 ///
 /// Moved here from `agents.rs` so that the pipeline accumulator and the
 /// persistence logic in `agents.rs` share the same type.
+///
+/// The `id` is the DB row key AND the id attached to the matching
+/// `IntermediateMessage` in `collected[]` — they're assigned in lockstep
+/// at turn creation so the frontend sees one stable id from the first
+/// streaming partial through DB commit.
 #[derive(Debug, Clone)]
 pub struct CollectedTurn {
-    /// Pre-assigned ID used as the `session_messages.id` DB row key.
-    /// Generated at turn creation so the same UUID can be propagated
-    /// back to the rendering `collected[]` entry via `sync_persisted_ids`,
-    /// unifying streaming and historical message IDs.
     pub id: String,
     pub role: MessageRole,
     pub content_json: String,
-    /// Index into the accumulator's `collected[]` for the first
-    /// `IntermediateMessage` that this turn maps to. `sync_persisted_ids`
-    /// copies `self.id` into `collected[idx].id` so the frontend cache
-    /// key matches what the historical DB loader produces.
-    pub collected_idx: Option<usize>,
 }
 
 /// Input record for converting historical (DB-persisted) messages through

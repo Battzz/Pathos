@@ -3,8 +3,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	addRepositoryFromLocalPath,
-	createWorkspaceFromRepo,
 	type DerivedStatus,
+	finalizeWorkspaceFromRepo,
 	listenArchiveExecutionFailed,
 	listenArchiveExecutionSucceeded,
 	loadAddRepositoryDefaults,
@@ -13,6 +13,7 @@ import {
 	permanentlyDeleteWorkspace,
 	pinWorkspace,
 	prepareArchiveWorkspace,
+	prepareWorkspaceFromRepo,
 	type RepositoryCreateOption,
 	restoreWorkspace,
 	setWorkspaceManualStatus,
@@ -20,7 +21,6 @@ import {
 	unpinWorkspace,
 	validateRestoreWorkspace,
 	type WorkspaceDetail,
-	type WorkspaceGroup,
 	type WorkspaceRow,
 	type WorkspaceSessionSummary,
 	type WorkspaceState,
@@ -40,7 +40,6 @@ import {
 	clearWorkspaceUnreadFromGroups,
 	clearWorkspaceUnreadFromSummaries,
 	createOptimisticCreatingWorkspaceDetail,
-	createOptimisticCreatingWorkspaceId,
 	describeUnknownError,
 	findInitialWorkspaceId,
 	findReplacementWorkspaceIdAfterRemoval,
@@ -106,12 +105,19 @@ export function useWorkspacesSidebarController({
 			string,
 			{
 				entry: PendingCreationEntry;
-				previousGroups: WorkspaceGroup[] | undefined;
+				// Workspace id selected before the creation started — used
+				// by the Phase 2 failure path to restore selection when the
+				// user is still sitting on the failing workspace.
 				previousSelection: string | null;
 			}
 		>
 	>(() => new Map());
 	const sidebarMutationCountRef = useRef(0);
+	// Live mirror of `selectedWorkspaceId` so async callbacks (Phase 2
+	// finalize catch, archive/restore handlers, etc.) can read the
+	// current selection rather than a stale closure snapshot.
+	const selectedWorkspaceIdRef = useRef(selectedWorkspaceId);
+	selectedWorkspaceIdRef.current = selectedWorkspaceId;
 
 	const flushSidebarLists = useCallback(() => {
 		void queryClient.invalidateQueries({
@@ -853,150 +859,266 @@ export function useWorkspacesSidebarController({
 				return;
 			}
 
-			const optimisticWorkspaceId = createOptimisticCreatingWorkspaceId(repoId);
-			const optimisticSessionId = `${optimisticWorkspaceId}:initial-session`;
-			const optimisticRow = createOptimisticWorkspaceRow(
-				repository,
-				optimisticWorkspaceId,
-			);
-			const optimisticSession = createOptimisticWorkspaceSession(
-				optimisticWorkspaceId,
-				optimisticSessionId,
-				new Date().toISOString(),
-			);
-			const previousGroups = queryClient.getQueryData<WorkspaceGroup[]>(
-				helmorQueryKeys.workspaceGroups,
-			);
-			setPendingCreations((current) => {
-				const next = new Map(current);
-				next.set(optimisticWorkspaceId, {
-					entry: {
-						repoId,
-						row: optimisticRow,
-						stage: "creating",
-						resolvedWorkspaceId: null,
-					},
-					previousGroups,
-					previousSelection: selectedWorkspaceId,
-				});
-				return next;
-			});
-
-			queryClient.setQueryData<WorkspaceDetail | null>(
-				helmorQueryKeys.workspaceDetail(optimisticWorkspaceId),
-				createOptimisticCreatingWorkspaceDetail(
-					optimisticRow,
-					repoId,
-					optimisticSessionId,
-				),
-			);
-			queryClient.setQueryData<WorkspaceSessionSummary[]>(
-				helmorQueryKeys.workspaceSessions(optimisticWorkspaceId),
-				[optimisticSession],
-			);
-
+			const previousSelection = selectedWorkspaceId;
 			setCreatingWorkspaceRepoId(repoId);
-			onSelectWorkspace(optimisticWorkspaceId);
 
+			let prepareResponse: Awaited<ReturnType<typeof prepareWorkspaceFromRepo>>;
 			try {
-				const response = await createWorkspaceFromRepo(repoId);
-				const resolvedOptimisticRow = createResolvedWorkspaceRow(
-					optimisticRow,
-					response,
-				);
-				setPendingCreations((current) => {
-					const pendingCreation = current.get(optimisticWorkspaceId);
-					if (!pendingCreation) {
-						return current;
-					}
-					const next = new Map(current);
-					next.set(optimisticWorkspaceId, {
-						...pendingCreation,
-						entry: {
-							...pendingCreation.entry,
-							row: resolvedOptimisticRow,
-							stage: "confirmed",
-							resolvedWorkspaceId: response.selectedWorkspaceId,
-						},
-					});
-					return next;
-				});
-				queryClient.setQueryData<WorkspaceDetail | null>(
-					helmorQueryKeys.workspaceDetail(response.selectedWorkspaceId),
-					(current) =>
-						current ??
-						createOptimisticResolvedWorkspaceDetail(
-							resolvedOptimisticRow,
-							repoId,
-							response.initialSessionId,
-						),
-				);
-				queryClient.setQueryData<WorkspaceSessionSummary[]>(
-					helmorQueryKeys.workspaceSessions(response.selectedWorkspaceId),
-					(current) =>
-						current ?? [
-							createOptimisticWorkspaceSession(
-								response.selectedWorkspaceId,
-								response.initialSessionId,
-								optimisticSession.createdAt,
-							),
-						],
-				);
-				queryClient.removeQueries({
-					queryKey: helmorQueryKeys.workspaceDetail(optimisticWorkspaceId),
-					exact: true,
-				});
-				queryClient.removeQueries({
-					queryKey: helmorQueryKeys.workspaceSessions(optimisticWorkspaceId),
-					exact: true,
-				});
-				onSelectWorkspace(response.selectedWorkspaceId);
-				prefetchWorkspace(response.selectedWorkspaceId);
-				void refetchNavigation();
+				// Phase 1 — fast backend prep (<20ms). Blocks until we have
+				// the real workspace/session ids, directory name, branch,
+				// and repo scripts. Nothing is painted yet; the sidebar +
+				// panel are still showing the previously selected workspace.
+				prepareResponse = await prepareWorkspaceFromRepo(repoId);
 			} catch (error) {
-				const rollbackHolder = {
-					value: null as {
-						entry: PendingCreationEntry;
-						previousGroups: WorkspaceGroup[] | undefined;
-						previousSelection: string | null;
-					} | null,
-				};
-				setPendingCreations((current) => {
-					const pendingCreation = current.get(optimisticWorkspaceId) ?? null;
-					if (!pendingCreation) {
-						return current;
-					}
-					rollbackHolder.value = pendingCreation;
-					const next = new Map(current);
-					next.delete(optimisticWorkspaceId);
-					return next;
-				});
-				const rollback = rollbackHolder.value;
-				if (rollback?.previousGroups) {
-					queryClient.setQueryData(
-						helmorQueryKeys.workspaceGroups,
-						rollback.previousGroups,
-					);
-				}
-				queryClient.removeQueries({
-					queryKey: helmorQueryKeys.workspaceDetail(optimisticWorkspaceId),
-					exact: true,
-				});
-				queryClient.removeQueries({
-					queryKey: helmorQueryKeys.workspaceSessions(optimisticWorkspaceId),
-					exact: true,
-				});
-				if (selectedWorkspaceId === optimisticWorkspaceId) {
-					onSelectWorkspace(
-						rollback?.previousSelection ?? findInitialWorkspaceId(groups),
-					);
-				}
+				setCreatingWorkspaceRepoId(null);
 				pushWorkspaceToast(
 					describeUnknownError(error, "Unable to create workspace."),
 				);
-			} finally {
-				setCreatingWorkspaceRepoId(null);
+				return;
 			}
+
+			// Phase 1 succeeded. Paint immediately using the real metadata —
+			// no optimistic title, no optimistic scripts, no placeholder.
+			const createdAt = new Date().toISOString();
+			const preparedRow = createPreparedWorkspaceRow(
+				repository,
+				prepareResponse,
+			);
+			const preparedSession = createOptimisticWorkspaceSession(
+				prepareResponse.workspaceId,
+				prepareResponse.initialSessionId,
+				createdAt,
+			);
+			setPendingCreations((current) => {
+				const next = new Map(current);
+				next.set(prepareResponse.workspaceId, {
+					entry: {
+						repoId,
+						row: preparedRow,
+						stage: "creating",
+						resolvedWorkspaceId: prepareResponse.workspaceId,
+					},
+					previousSelection,
+				});
+				return next;
+			});
+			queryClient.setQueryData<WorkspaceDetail | null>(
+				helmorQueryKeys.workspaceDetail(prepareResponse.workspaceId),
+				{
+					...createOptimisticCreatingWorkspaceDetail(
+						preparedRow,
+						repoId,
+						prepareResponse.initialSessionId,
+					),
+					// Populate branch/remote fields from Phase 1's real
+					// values — the helper defaults these to null, but the
+					// inspector computes `workspaceTargetBranch` from them
+					// (`${remote}/${intendedTargetBranch || defaultBranch}`)
+					// and the ChangesSection flips `branchSwitching=true`
+					// whenever `workspaceTargetBranch` changes within the
+					// same workspace. Leaving these null during Phase 1
+					// means the value flips `null → "origin/main"` when the
+					// real detail lands, briefly flashing the "Remote"
+					// BranchDiffSection header. Fresh workspace points at
+					// `defaultBranch` for both initialization parent and
+					// intended target, matching what Phase 2 writes.
+					remote: repository.remote ?? "origin",
+					defaultBranch: prepareResponse.defaultBranch,
+					initializationParentBranch: prepareResponse.defaultBranch,
+					intendedTargetBranch: prepareResponse.defaultBranch,
+				},
+			);
+			queryClient.setQueryData<WorkspaceSessionSummary[]>(
+				helmorQueryKeys.workspaceSessions(prepareResponse.workspaceId),
+				[preparedSession],
+			);
+			// Empty thread array — the panel renders the final "nothing here
+			// yet" state from the first frame instead of falling through to
+			// the cold placeholder.
+			queryClient.setQueryData(
+				[
+					...helmorQueryKeys.sessionMessages(prepareResponse.initialSessionId),
+					"thread",
+				],
+				[],
+			);
+			// Real repo scripts delivered by Phase 1 — the EmptyState shows
+			// the correct "missing script" button count immediately.
+			queryClient.setQueryData(
+				helmorQueryKeys.repoScripts(repoId, prepareResponse.workspaceId),
+				prepareResponse.repoScripts,
+			);
+			// Seed git + PR statuses so the inspector's Actions section
+			// paints its final "fresh workspace" empty rows from the first
+			// frame — otherwise the query is in-flight, `data` is undefined
+			// and the UI falls back to `EMPTY_*_STATUS` which shows the
+			// misleading "Sync status unavailable" / "Waiting for PR review"
+			// placeholders until the short-circuited backend responds a few
+			// ms later. Values mirror the Rust short-circuits in
+			// `get_workspace_git_action_status` and
+			// `lookup_workspace_pr_action_status` — keep them in sync.
+			queryClient.setQueryData(
+				helmorQueryKeys.workspaceGitActionStatus(prepareResponse.workspaceId),
+				{
+					uncommittedCount: 0,
+					conflictCount: 0,
+					syncTargetBranch: prepareResponse.defaultBranch,
+					syncStatus: "upToDate",
+					behindTargetCount: 0,
+					remoteTrackingRef: null,
+					aheadOfRemoteCount: 0,
+					pushStatus: "unpublished",
+				},
+			);
+			queryClient.setQueryData(
+				helmorQueryKeys.workspacePr(prepareResponse.workspaceId),
+				null,
+			);
+			queryClient.setQueryData(
+				helmorQueryKeys.workspacePrActionStatus(prepareResponse.workspaceId),
+				{
+					pr: null,
+					reviewDecision: null,
+					mergeable: null,
+					deployments: [],
+					checks: [],
+					remoteState: "noPr",
+					message: null,
+				},
+			);
+			onSelectWorkspace(prepareResponse.workspaceId);
+
+			// Phase 2 — slow git worktree creation (~200ms-2s). Runs in the
+			// background so the UI is already interactive. State flips from
+			// "initializing" → "ready"/"setup_pending" when it completes;
+			// the only visible change is the composer enabling.
+			finalizeWorkspaceFromRepo(prepareResponse.workspaceId)
+				.then((finalized) => {
+					queryClient.setQueryData<WorkspaceDetail | null>(
+						helmorQueryKeys.workspaceDetail(prepareResponse.workspaceId),
+						(current) =>
+							current ? { ...current, state: finalized.finalState } : current,
+					);
+					setPendingCreations((current) => {
+						const pending = current.get(prepareResponse.workspaceId);
+						if (!pending) {
+							return current;
+						}
+						const next = new Map(current);
+						next.set(prepareResponse.workspaceId, {
+							...pending,
+							entry: {
+								...pending.entry,
+								row: { ...pending.entry.row, state: finalized.finalState },
+								stage: "confirmed",
+							},
+						});
+						return next;
+					});
+					void queryClient.invalidateQueries({
+						queryKey: helmorQueryKeys.workspaceDetail(
+							prepareResponse.workspaceId,
+						),
+					});
+					// Phase 1 probed helmor.json at the source repo root, which
+					// matches the worktree for a fresh clone. If the user had
+					// uncommitted local edits to helmor.json the two can
+					// diverge — invalidate so the canonical worktree-side
+					// probe runs once the dir exists.
+					void queryClient.invalidateQueries({
+						queryKey: helmorQueryKeys.repoScripts(
+							repoId,
+							prepareResponse.workspaceId,
+						),
+					});
+					// Same story for git status — we seeded 0/0/UpToDate
+					// during Phase 1, but once the worktree is on disk the
+					// canonical git query returns the real tree state (still
+					// 0/0 in practice for a fresh clone, but invalidate so
+					// any divergence — e.g. a setup script that edited
+					// files — shows up promptly).
+					void queryClient.invalidateQueries({
+						queryKey: helmorQueryKeys.workspaceGitActionStatus(
+							prepareResponse.workspaceId,
+						),
+					});
+					prefetchWorkspace(prepareResponse.workspaceId);
+					void refetchNavigation();
+				})
+				.catch((error) => {
+					// Rust already cleaned up the DB row + worktree. Tear
+					// down the frontend mirror so the sidebar doesn't show
+					// a ghost "initializing" workspace.
+					setPendingCreations((current) => {
+						if (!current.has(prepareResponse.workspaceId)) {
+							return current;
+						}
+						const next = new Map(current);
+						next.delete(prepareResponse.workspaceId);
+						return next;
+					});
+					queryClient.removeQueries({
+						queryKey: helmorQueryKeys.workspaceDetail(
+							prepareResponse.workspaceId,
+						),
+						exact: true,
+					});
+					queryClient.removeQueries({
+						queryKey: helmorQueryKeys.workspaceSessions(
+							prepareResponse.workspaceId,
+						),
+						exact: true,
+					});
+					queryClient.removeQueries({
+						queryKey: [
+							...helmorQueryKeys.sessionMessages(
+								prepareResponse.initialSessionId,
+							),
+							"thread",
+						],
+						exact: true,
+					});
+					queryClient.removeQueries({
+						queryKey: helmorQueryKeys.repoScripts(
+							repoId,
+							prepareResponse.workspaceId,
+						),
+						exact: true,
+					});
+					queryClient.removeQueries({
+						queryKey: helmorQueryKeys.workspaceGitActionStatus(
+							prepareResponse.workspaceId,
+						),
+						exact: true,
+					});
+					queryClient.removeQueries({
+						queryKey: helmorQueryKeys.workspacePr(prepareResponse.workspaceId),
+						exact: true,
+					});
+					queryClient.removeQueries({
+						queryKey: helmorQueryKeys.workspacePrActionStatus(
+							prepareResponse.workspaceId,
+						),
+						exact: true,
+					});
+					// Read current selection via ref — the closure's
+					// `selectedWorkspaceId` is the value from when the user
+					// clicked create, which is before `onSelectWorkspace`
+					// landed the new id, so comparing against the captured
+					// value would always miss.
+					if (selectedWorkspaceIdRef.current === prepareResponse.workspaceId) {
+						onSelectWorkspace(
+							previousSelection ?? findInitialWorkspaceId(groups),
+						);
+					}
+					pushWorkspaceToast(
+						describeUnknownError(error, "Unable to create workspace."),
+					);
+					void refetchNavigation();
+				})
+				.finally(() => {
+					setCreatingWorkspaceRepoId(null);
+				});
 		},
 		[
 			creatingWorkspaceRepoId,
@@ -1503,32 +1625,40 @@ export function useWorkspacesSidebarController({
 	};
 }
 
-function createOptimisticWorkspaceRow(
+function createPreparedWorkspaceRow(
 	repository: RepositoryCreateOption,
-	workspaceId: string,
+	prepared: {
+		workspaceId: string;
+		initialSessionId: string;
+		directoryName: string;
+		branch: string;
+		state: WorkspaceState;
+	},
 ): WorkspaceRow {
 	return {
-		id: workspaceId,
-		title: `Creating ${repository.name}`,
-		directoryName: workspaceId,
+		id: prepared.workspaceId,
+		// Prepare returns the final directory and branch, so the row is
+		// already in its terminal shape — no placeholder → real swap.
+		title: `${repository.name} workspace`,
+		directoryName: prepared.directoryName,
 		repoName: repository.name,
 		repoIconSrc: repository.repoIconSrc ?? null,
 		repoInitials: repository.repoInitials ?? null,
-		state: "initializing",
+		state: prepared.state,
 		hasUnread: false,
 		workspaceUnread: 0,
 		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 		derivedStatus: "in-progress",
 		manualStatus: null,
-		branch: null,
-		activeSessionId: null,
-		activeSessionTitle: null,
+		branch: prepared.branch,
+		activeSessionId: prepared.initialSessionId,
+		activeSessionTitle: "Untitled",
 		activeSessionAgentType: null,
-		activeSessionStatus: null,
+		activeSessionStatus: "idle",
 		prTitle: null,
 		pinnedAt: null,
-		sessionCount: 0,
+		sessionCount: 1,
 		messageCount: 0,
 		attachmentCount: 0,
 	};
@@ -1563,39 +1693,5 @@ function createOptimisticWorkspaceSession(
 		isCompacting: false,
 		actionKind: null,
 		active: true,
-	};
-}
-
-function createResolvedWorkspaceRow(
-	row: WorkspaceRow,
-	response: {
-		selectedWorkspaceId: string;
-		createdState: WorkspaceState;
-		directoryName: string;
-		branch: string;
-	},
-): WorkspaceRow {
-	return {
-		...row,
-		id: response.selectedWorkspaceId,
-		title: row.repoName ? `${row.repoName} workspace` : row.title,
-		directoryName: response.directoryName,
-		state: response.createdState,
-		branch: response.branch,
-	};
-}
-
-function createOptimisticResolvedWorkspaceDetail(
-	row: WorkspaceRow,
-	repoId: string,
-	initialSessionId: string,
-): WorkspaceDetail {
-	return {
-		...createOptimisticCreatingWorkspaceDetail(row, repoId, initialSessionId),
-		id: row.id,
-		title: row.title,
-		directoryName: row.directoryName ?? row.id,
-		state: row.state ?? "initializing",
-		branch: row.branch ?? null,
 	};
 }

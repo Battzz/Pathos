@@ -29,11 +29,17 @@ pub(super) fn convert_user_message(
             .and_then(|m| m.get("content"))
             .and_then(Value::as_array)
         {
-            for b in blocks {
+            for (idx, b) in blocks.iter().enumerate() {
                 if let Some(obj) = b.as_object() {
                     if obj.get("type").and_then(Value::as_str) == Some("text") {
                         if let Some(text) = obj.get("text").and_then(Value::as_str) {
+                            let id = obj
+                                .get("__part_id")
+                                .and_then(Value::as_str)
+                                .map(str::to_string)
+                                .unwrap_or_else(|| format!("{}:blk:{idx}", msg.id));
                             parts.push(MessagePart::Text {
+                                id,
                                 text: text.to_string(),
                             });
                         }
@@ -45,6 +51,7 @@ pub(super) fn convert_user_message(
 
     if parts.is_empty() {
         parts.push(MessagePart::Text {
+            id: format!("{}:fallback", msg.id),
             text: extract_fallback(msg),
         });
     }
@@ -61,9 +68,17 @@ pub(super) fn convert_user_message(
 
 /// Split `text` on `@<path>` substrings (longer paths win on overlap),
 /// returning interleaved Text and FileMention parts.
-pub(crate) fn split_user_text_with_files(text: &str, files: &[String]) -> Vec<MessagePart> {
+pub(crate) fn split_user_text_with_files(
+    text: &str,
+    files: &[String],
+    msg_id: &str,
+) -> Vec<MessagePart> {
+    let text_id = |idx: usize| format!("{msg_id}:txt:{idx}");
+    let mention_id = |idx: usize| format!("{msg_id}:mention:{idx}");
+
     if files.is_empty() || text.is_empty() {
         return vec![MessagePart::Text {
+            id: text_id(0),
             text: text.to_string(),
         }];
     }
@@ -94,6 +109,7 @@ pub(crate) fn split_user_text_with_files(text: &str, files: &[String]) -> Vec<Me
 
     if matches.is_empty() {
         return vec![MessagePart::Text {
+            id: text_id(0),
             text: text.to_string(),
         }];
     }
@@ -102,22 +118,29 @@ pub(crate) fn split_user_text_with_files(text: &str, files: &[String]) -> Vec<Me
 
     let mut parts: Vec<MessagePart> = Vec::new();
     let mut cursor = 0usize;
-    for (start, end, path) in matches {
+    let mut text_seq = 0usize;
+    for (mention_seq, (start, end, path)) in matches.into_iter().enumerate() {
         if cursor < start {
             let chunk = &text[cursor..start];
             if !chunk.is_empty() {
                 parts.push(MessagePart::Text {
+                    id: text_id(text_seq),
                     text: chunk.to_string(),
                 });
+                text_seq += 1;
             }
         }
-        parts.push(MessagePart::FileMention { path });
+        parts.push(MessagePart::FileMention {
+            id: mention_id(mention_seq),
+            path,
+        });
         cursor = end;
     }
     if cursor < text.len() {
         let tail = &text[cursor..];
         if !tail.is_empty() {
             parts.push(MessagePart::Text {
+                id: text_id(text_seq),
                 text: tail.to_string(),
             });
         }

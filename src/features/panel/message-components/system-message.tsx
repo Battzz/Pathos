@@ -41,11 +41,13 @@ function SystemNotice({ part }: { part: SystemNoticePart }) {
 				? "text-chart-5"
 				: "text-chart-3";
 	return (
-		<span className="inline-flex items-center gap-1">
+		<span className="inline-flex items-center gap-1 whitespace-nowrap">
 			<Icon className={cn("size-3 shrink-0", iconClass)} strokeWidth={1.8} />
 			<span>{part.label}</span>
 			{part.body ? (
-				<span className="ml-1 text-muted-foreground/70">- {part.body}</span>
+				<span className="ml-1 truncate text-muted-foreground/70">
+					- {part.body}
+				</span>
 			) : null}
 		</span>
 	);

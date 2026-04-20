@@ -30,7 +30,7 @@ function makeMessage(
 		role,
 		id,
 		createdAt: "2026-04-08T00:00:00Z",
-		content: [{ type: "text", text }],
+		content: [{ type: "text", id: `${id}:txt:0`, text }],
 	};
 }
 
@@ -173,7 +173,7 @@ describe("shareMessages — structural reference reuse", () => {
 			role: "user",
 			id,
 			createdAt: "2026-04-08T00:00:00Z",
-			content: [{ type: "text", text }],
+			content: [{ type: "text", id: `${id}:txt:0`, text }],
 		};
 	}
 

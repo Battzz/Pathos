@@ -133,7 +133,6 @@ export function parseListSlashCommandsParams(
 ): ListSlashCommandsParams {
 	return {
 		cwd: optionalString(params, "cwd"),
-		model: optionalString(params, "model"),
 	};
 }
 

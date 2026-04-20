@@ -13,21 +13,6 @@ import type {
 } from "./api";
 import { extractError } from "./errors";
 
-export const OPTIMISTIC_CREATING_WORKSPACE_ID_PREFIX = "creating-workspace:";
-
-export function createOptimisticCreatingWorkspaceId(repoId: string): string {
-	return `${OPTIMISTIC_CREATING_WORKSPACE_ID_PREFIX}${repoId}:${crypto.randomUUID()}`;
-}
-
-export function isOptimisticCreatingWorkspaceId(
-	workspaceId: string | null | undefined,
-): boolean {
-	return (
-		typeof workspaceId === "string" &&
-		workspaceId.startsWith(OPTIMISTIC_CREATING_WORKSPACE_ID_PREFIX)
-	);
-}
-
 export function createOptimisticCreatingWorkspaceDetail(
 	row: WorkspaceRow,
 	repoId: string,
@@ -472,13 +457,20 @@ export function findModelOption(
  * Split `text` on `@<path>` substrings (longer paths win on overlap),
  * returning interleaved Text and FileMention parts. Mirrors the Rust
  * `split_user_text_with_files` so optimistic and persisted renders match.
+ *
+ * `msgId` namespaces the per-part ids to match the Rust side's
+ * `{msgId}:txt:N` / `{msgId}:mention:N` scheme so optimistic ids survive
+ * the round-trip through the adapter without remounting.
  */
 export function splitTextWithFiles(
 	text: string,
 	files: readonly string[],
+	msgId: string,
 ): MessagePart[] {
+	const textId = (idx: number): string => `${msgId}:txt:${idx}`;
+	const mentionId = (idx: number): string => `${msgId}:mention:${idx}`;
 	if (files.length === 0 || text.length === 0) {
-		return [{ type: "text", text }];
+		return [{ type: "text", id: textId(0), text }];
 	}
 	const sorted = [...files].sort((a, b) => b.length - a.length);
 	const matches: { start: number; end: number; path: string }[] = [];
@@ -495,19 +487,29 @@ export function splitTextWithFiles(
 			searchStart = end;
 		}
 	}
-	if (matches.length === 0) return [{ type: "text", text }];
+	if (matches.length === 0) return [{ type: "text", id: textId(0), text }];
 	matches.sort((a, b) => a.start - b.start);
 	const parts: MessagePart[] = [];
 	let cursor = 0;
+	let textSeq = 0;
+	let mentionSeq = 0;
 	for (const m of matches) {
 		if (cursor < m.start) {
-			parts.push({ type: "text", text: text.slice(cursor, m.start) });
+			parts.push({
+				type: "text",
+				id: textId(textSeq++),
+				text: text.slice(cursor, m.start),
+			});
 		}
-		parts.push({ type: "file-mention", path: m.path });
+		parts.push({
+			type: "file-mention",
+			id: mentionId(mentionSeq++),
+			path: m.path,
+		});
 		cursor = m.end;
 	}
 	if (cursor < text.length) {
-		parts.push({ type: "text", text: text.slice(cursor) });
+		parts.push({ type: "text", id: textId(textSeq), text: text.slice(cursor) });
 	}
 	return parts;
 }
@@ -530,7 +532,7 @@ export function createLiveThreadMessage({
 		role,
 		id,
 		createdAt,
-		content: splitTextWithFiles(text, files),
+		content: splitTextWithFiles(text, files, id),
 	};
 }
 

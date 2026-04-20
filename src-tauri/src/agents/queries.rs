@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::sync::Mutex;
 
 use anyhow::Result;
@@ -262,8 +261,23 @@ pub async fn generate_session_title(
                     "Skipping auto branch rename: branch already differs from default"
                 );
             } else {
-                let new_branch =
+                let base_branch =
                     crate::helpers::branch_name_for_directory(branch_segment, &branch_settings);
+
+                // Deduplicate: if the target branch already exists in git,
+                // append -2, -3, ... until we find a free name. Prevents
+                // collisions when multiple workspaces generate the same
+                // branch name from similar prompts.
+                let new_branch = if let Some(ref repo_root) = root_path {
+                    let repo = std::path::Path::new(repo_root);
+                    if repo.is_dir() {
+                        deduplicate_branch_name(&base_branch, repo)
+                    } else {
+                        base_branch
+                    }
+                } else {
+                    base_branch
+                };
 
                 if old_branch.as_deref() != Some(new_branch.as_str()) {
                     let fs_rename_attempted = matches!(
@@ -326,13 +340,52 @@ pub async fn generate_session_title(
     })
 }
 
+/// If `base` already exists as a local branch, try `base-2`, `base-3`, …
+/// up to a small limit. Returns the first free name, or `base` unchanged
+/// if the check itself fails (defensive: let `git branch -m` report the
+/// real error).
+fn deduplicate_branch_name(base: &str, repo_root: &std::path::Path) -> String {
+    let repo_root_str = repo_root.display().to_string();
+    let exists = |name: &str| -> bool {
+        crate::git_ops::run_git(
+            [
+                "-C",
+                &repo_root_str,
+                "rev-parse",
+                "--verify",
+                &format!("refs/heads/{name}"),
+            ],
+            None,
+        )
+        .is_ok()
+    };
+    if !exists(base) {
+        return base.to_string();
+    }
+    for n in 2..=100 {
+        let candidate = format!("{base}-{n}");
+        if !exists(&candidate) {
+            return candidate;
+        }
+    }
+    // All 100 slots taken — return base and let git report the error.
+    base.to_string()
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListSlashCommandsRequest {
     pub provider: String,
     pub working_directory: Option<String>,
-    pub model_id: Option<String>,
+    /// Repo id of the workspace — used to serve a repo-level fallback when the
+    /// exact workspace cache is cold (different workspaces on the same repo
+    /// usually share the same skill directories).
+    pub repo_id: Option<String>,
 }
+
+/// Sidecar timeout for `listSlashCommands`. Claude's in-sidecar AbortController
+/// fires at 20s; leave some buffer so the sidecar error surfaces first.
+const LIST_SLASH_COMMANDS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -358,123 +411,152 @@ pub async fn list_slash_commands(
     cache: tauri::State<'_, super::slash_commands::SlashCommandCache>,
     request: ListSlashCommandsRequest,
 ) -> CmdResult<SlashCommandsResponse> {
+    let cwd = request.working_directory.as_deref().unwrap_or("");
+    let repo_id = request.repo_id.as_deref().unwrap_or("");
     tracing::debug!(
         provider = %request.provider,
-        cwd = request.working_directory.as_deref().unwrap_or(""),
-        model = request.model_id.as_deref().unwrap_or(""),
+        cwd,
+        repo_id,
         "list_slash_commands request"
     );
-    let cache_key = super::slash_commands::cache_key(
+
+    let ws_key = super::slash_commands::workspace_key(
         &request.provider,
         request.working_directory.as_deref(),
-        request.model_id.as_deref(),
     );
 
-    // 1. Check cache
-    if let Some((commands, is_complete)) = cache.get(&cache_key) {
-        tracing::debug!(
-            provider = %request.provider,
-            cwd = request.working_directory.as_deref().unwrap_or(""),
-            model = request.model_id.as_deref().unwrap_or(""),
-            count = commands.len(),
-            is_complete,
-            "list_slash_commands cache hit"
-        );
-        // Cache hit — return immediately and revalidate in the background.
-        // The frontend does not cache slash commands; a later request will
-        // pick up whatever this refresh writes into the backend cache.
-        spawn_background_refresh(&app, &cache, &request, cache_key);
+    // 1. Workspace-level exact hit → return instantly + SWR refresh.
+    if let Some((commands, is_complete)) = cache.get_workspace(&ws_key) {
+        spawn_background_refresh(&app, &cache, &request, ws_key);
         return Ok(SlashCommandsResponse {
             commands,
             is_complete,
         });
     }
 
+    // 2. Repo-level fallback → return stale-but-plausible + SWR refresh.
+    //    `is_complete: false` tells the UI the list is still loading.
+    if !repo_id.is_empty() {
+        let rkey = super::slash_commands::repo_key(&request.provider, repo_id);
+        if let Some((commands, _)) = cache.get_repo(&rkey) {
+            tracing::debug!(
+                provider = %request.provider,
+                cwd,
+                repo_id,
+                count = commands.len(),
+                "list_slash_commands serving repo fallback"
+            );
+            spawn_background_refresh(&app, &cache, &request, ws_key);
+            return Ok(SlashCommandsResponse {
+                commands,
+                is_complete: false,
+            });
+        }
+    }
+
+    // 3. Cold miss on both tiers — synchronous sidecar fetch.
     tracing::debug!(
         provider = %request.provider,
-        cwd = request.working_directory.as_deref().unwrap_or(""),
-        model = request.model_id.as_deref().unwrap_or(""),
+        cwd,
+        repo_id,
         "list_slash_commands cache miss; fetching full result synchronously"
     );
     let commands = fetch_from_sidecar(&sidecar, &request)?;
     tracing::debug!(
         provider = %request.provider,
-        cwd = request.working_directory.as_deref().unwrap_or(""),
-        model = request.model_id.as_deref().unwrap_or(""),
+        cwd,
+        repo_id,
         count = commands.len(),
         "list_slash_commands sync fetch succeeded"
     );
-    cache.set(cache_key, commands.clone(), true);
+    cache.set(ws_key, request.repo_id.as_deref(), commands.clone(), true);
     Ok(SlashCommandsResponse {
         commands,
         is_complete: true,
     })
 }
 
+/// Prewarm the slash-command cache for a single workspace (both providers).
+/// Safe to call repeatedly — the cache's per-key refresh lock dedupes.
+pub fn prewarm_slash_command_cache_for_workspace(app: &AppHandle, workspace_id: &str) {
+    let app = app.clone();
+    let workspace_id = workspace_id.to_string();
+    let _ = std::thread::Builder::new()
+        .name("slash-cmd-prewarm-ws".into())
+        .spawn(move || {
+            let record = match crate::models::workspaces::load_workspace_record_by_id(&workspace_id)
+            {
+                Ok(Some(r)) => r,
+                Ok(None) => {
+                    tracing::debug!(workspace_id, "Slash-command prewarm: workspace not found");
+                    return;
+                }
+                Err(e) => {
+                    tracing::warn!(workspace_id, error = %e, "Slash-command prewarm: load failed");
+                    return;
+                }
+            };
+            let Some(root_path) = record
+                .root_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+            else {
+                tracing::debug!(
+                    workspace_id,
+                    "Slash-command prewarm: workspace has no root_path"
+                );
+                return;
+            };
+            dispatch_prewarm_for(&app, root_path, &record.repo_id);
+        });
+}
+
+/// Prewarm on startup: only the last-selected workspace (persisted in
+/// `settings.app.last_workspace_id`). The frontend's workspace-switch handler
+/// also fires `prewarm_slash_commands_for_workspace` on initial selection —
+/// `SlashCommandCache::try_start_refresh` dedupes the two calls.
 pub fn prewarm_slash_command_cache(app: &AppHandle) {
     let app = app.clone();
     let _ = std::thread::Builder::new()
         .name("slash-cmd-prewarm".into())
         .spawn(move || {
-            let cache: tauri::State<'_, super::slash_commands::SlashCommandCache> = app.state();
-            let mut seen_roots = HashSet::new();
-            let mut roots = Vec::new();
-            for workspace in crate::models::workspaces::load_workspace_records().unwrap_or_default()
+            let last_id = match crate::models::settings::load_setting_value("app.last_workspace_id")
             {
-                if let Some(root_path) = workspace.root_path {
-                    let trimmed = root_path.trim();
-                    if !trimmed.is_empty() && seen_roots.insert(trimmed.to_string()) {
-                        roots.push(trimmed.to_string());
-                    }
+                Ok(Some(id)) if !id.trim().is_empty() => id,
+                _ => {
+                    tracing::debug!(
+                        "Slash-command prewarm skipped: no last_workspace_id persisted"
+                    );
+                    return;
                 }
-            }
-
-            tracing::debug!(
-                workspace_count = roots.len(),
-                claude_model = "default",
-                "Slash-command prewarm started"
-            );
-            for root_path in roots {
-                tracing::debug!(cwd = %root_path, "Slash-command prewarm workspace");
-                let claude_key = super::slash_commands::cache_key(
-                    "claude",
-                    Some(root_path.as_str()),
-                    Some("default"),
-                );
-                let claude_request = ListSlashCommandsRequest {
-                    provider: "claude".to_string(),
-                    working_directory: Some(root_path.clone()),
-                    model_id: Some("default".to_string()),
-                };
-                tracing::debug!(
-                    provider = "claude",
-                    cwd = %root_path,
-                    model = "default",
-                    "Slash-command prewarm dispatching background refresh"
-                );
-                spawn_background_refresh(&app, &cache, &claude_request, claude_key);
-
-                let codex_key =
-                    super::slash_commands::cache_key("codex", Some(root_path.as_str()), None);
-                let codex_request = ListSlashCommandsRequest {
-                    provider: "codex".to_string(),
-                    working_directory: Some(root_path.clone()),
-                    model_id: None,
-                };
-                tracing::debug!(
-                    provider = "codex",
-                    cwd = %root_path,
-                    "Slash-command prewarm dispatching background refresh"
-                );
-                spawn_background_refresh(&app, &cache, &codex_request, codex_key);
-            }
-            tracing::debug!("Slash-command prewarm finished");
+            };
+            tracing::debug!(workspace_id = %last_id, "Slash-command prewarm using last workspace");
+            prewarm_slash_command_cache_for_workspace(&app, &last_id);
         });
 }
 
-/// Run the sidecar `listSlashCommands` call synchronously (blocking the
-/// current async task).  Used for the non-claude fast path and by the
-/// background refresh thread.
+fn dispatch_prewarm_for(app: &AppHandle, root_path: &str, repo_id: &str) {
+    let cache: tauri::State<'_, super::slash_commands::SlashCommandCache> = app.state();
+    for provider in ["claude", "codex"] {
+        let request = ListSlashCommandsRequest {
+            provider: provider.to_string(),
+            working_directory: Some(root_path.to_string()),
+            repo_id: Some(repo_id.to_string()),
+        };
+        let ws_key = super::slash_commands::workspace_key(provider, Some(root_path));
+        tracing::debug!(
+            provider,
+            cwd = root_path,
+            repo_id,
+            "Slash-command prewarm dispatching background refresh"
+        );
+        spawn_background_refresh(app, &cache, &request, ws_key);
+    }
+}
+
+/// Blocking sidecar call for `listSlashCommands`. Used by both the
+/// synchronous cold-miss path and the background refresh thread.
 fn fetch_from_sidecar(
     sidecar: &crate::sidecar::ManagedSidecar,
     request: &ListSlashCommandsRequest,
@@ -485,9 +567,6 @@ fn fetch_from_sidecar(
     params.insert("provider".into(), Value::String(request.provider.clone()));
     if let Some(cwd) = request.working_directory.as_ref() {
         params.insert("cwd".into(), Value::String(cwd.clone()));
-    }
-    if let Some(model) = request.model_id.as_ref() {
-        params.insert("model".into(), Value::String(model.clone()));
     }
 
     let sidecar_req = crate::sidecar::SidecarRequest {
@@ -504,10 +583,9 @@ fn fetch_from_sidecar(
 
     let mut commands: Vec<SlashCommandEntry> = Vec::new();
     let mut error: Option<String> = None;
-    let timeout = std::time::Duration::from_secs(10);
 
     loop {
-        match rx.recv_timeout(timeout) {
+        match rx.recv_timeout(LIST_SLASH_COMMANDS_TIMEOUT) {
             Ok(event) => match event.event_type() {
                 "slashCommandsListed" => {
                     if let Some(entries) = event.raw.get("commands").and_then(Value::as_array) {
@@ -554,7 +632,10 @@ fn fetch_from_sidecar(
                 _ => {}
             },
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                error = Some("listSlashCommands timed out after 10s".to_string());
+                error = Some(format!(
+                    "listSlashCommands timed out after {}s",
+                    LIST_SLASH_COMMANDS_TIMEOUT.as_secs()
+                ));
                 break;
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -572,34 +653,32 @@ fn fetch_from_sidecar(
     }
 }
 
-/// Fire-and-forget background thread that fetches the full command list from
-/// the sidecar and updates the cache + emits a Tauri event on success.
+/// Fire-and-forget background thread that refreshes the workspace-level
+/// cache entry. Writes into both workspace and repo tiers on success.
 fn spawn_background_refresh(
     app: &AppHandle,
     cache: &super::slash_commands::SlashCommandCache,
     request: &ListSlashCommandsRequest,
-    cache_key: (String, String, String),
+    ws_key: super::slash_commands::WorkspaceKey,
 ) {
-    if !cache.try_start_refresh(&cache_key) {
+    if !cache.try_start_refresh(&ws_key) {
         tracing::debug!(
             provider = %request.provider,
             cwd = request.working_directory.as_deref().unwrap_or(""),
-            model = request.model_id.as_deref().unwrap_or(""),
             "Background slash command refresh skipped; another refresh is in flight"
         );
-        return; // another refresh already in flight
+        return;
     }
 
     tracing::debug!(
         provider = %request.provider,
         cwd = request.working_directory.as_deref().unwrap_or(""),
-        model = request.model_id.as_deref().unwrap_or(""),
         "Background slash command refresh started"
     );
 
     let app = app.clone();
     let request = request.clone();
-    let refresh_key = cache_key.clone();
+    let refresh_key = ws_key.clone();
 
     std::thread::Builder::new()
         .name("slash-cmd-refresh".into())
@@ -613,11 +692,10 @@ fn spawn_background_refresh(
                     tracing::debug!(
                         provider = %request.provider,
                         cwd = request.working_directory.as_deref().unwrap_or(""),
-                        model = request.model_id.as_deref().unwrap_or(""),
                         count = commands.len(),
                         "Background slash command refresh succeeded"
                     );
-                    cache_state.set(cache_key, commands, true);
+                    cache_state.set(ws_key, request.repo_id.as_deref(), commands, true);
                 }
                 Err(e) => {
                     // Don't clear the cache — stale local data is better than nothing.

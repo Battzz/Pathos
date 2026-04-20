@@ -343,6 +343,23 @@ export type CreateWorkspaceResponse = {
 	branch: string;
 };
 
+export type PrepareWorkspaceResponse = {
+	workspaceId: string;
+	initialSessionId: string;
+	repoId: string;
+	repoName: string;
+	directoryName: string;
+	branch: string;
+	defaultBranch: string;
+	state: WorkspaceState;
+	repoScripts: RepoScripts;
+};
+
+export type FinalizeWorkspaceResponse = {
+	workspaceId: string;
+	finalState: WorkspaceState;
+};
+
 export type MarkWorkspaceReadResponse = undefined;
 
 export type SessionAttachmentRecord = {
@@ -655,20 +672,33 @@ export type SlashCommandsResponse = {
 export async function listSlashCommands(input: {
 	provider: AgentProvider;
 	workingDirectory?: string | null;
-	modelId?: string | null;
+	repoId?: string | null;
 }): Promise<SlashCommandsResponse> {
 	try {
 		return await invoke<SlashCommandsResponse>("list_slash_commands", {
 			request: {
 				provider: input.provider,
 				workingDirectory: input.workingDirectory ?? null,
-				modelId: input.modelId ?? null,
+				repoId: input.repoId ?? null,
 			},
 		});
 	} catch (error) {
 		throw new Error(
 			describeInvokeError(error, "Unable to load slash commands."),
 		);
+	}
+}
+
+/** Fire-and-forget: prewarm the backend slash-command cache for a workspace. */
+export async function prewarmSlashCommandsForWorkspace(
+	workspaceId: string,
+): Promise<void> {
+	try {
+		await invoke<void>("prewarm_slash_commands_for_workspace", {
+			workspaceId,
+		});
+	} catch {
+		// Best-effort; cache will still be populated lazily on first /.
 	}
 }
 
@@ -1357,6 +1387,35 @@ export async function createWorkspaceFromRepo(
 	});
 }
 
+/**
+ * Phase 1 of workspace creation. Fast (<20ms): validates the repo,
+ * allocates a unique directory, computes the branch name, generates the
+ * workspace + session UUIDs, inserts the `initializing` DB row + initial
+ * session, and returns all metadata plus repo-level scripts. The
+ * frontend paints with this response immediately — no placeholders.
+ */
+export async function prepareWorkspaceFromRepo(
+	repoId: string,
+): Promise<PrepareWorkspaceResponse> {
+	return invoke<PrepareWorkspaceResponse>("prepare_workspace_from_repo", {
+		repoId,
+	});
+}
+
+/**
+ * Phase 2 of workspace creation. Slow (~200ms-2s): creates the git
+ * worktree, scaffolds `.context`, probes `helmor.json`, and flips the
+ * workspace row from `initializing` to `ready` / `setup_pending`. On
+ * failure, the workspace row is cleaned up automatically.
+ */
+export async function finalizeWorkspaceFromRepo(
+	workspaceId: string,
+): Promise<FinalizeWorkspaceResponse> {
+	return invoke<FinalizeWorkspaceResponse>("finalize_workspace_from_repo", {
+		workspaceId,
+	});
+}
+
 export async function completeWorkspaceSetup(
 	workspaceId: string,
 ): Promise<void> {
@@ -1429,9 +1488,17 @@ export type StreamingStatus =
 	| "done"
 	| "error";
 
-export type TextPart = { type: "text"; text: string };
+// Every part carries a stable `id` used as its React key. The Rust side
+// mints it at the earliest sighting of the block (accumulator's
+// `content_block_start` for Claude, `item.started` for Codex), serializes
+// it as `__part_id` in the block JSON, and the adapter reads it back onto
+// the typed part. `ToolCallPart` reuses its `toolCallId` (no separate `id`
+// field — `tool-call.tsx` already keys on `toolCallId`); every other
+// variant has its own `id`.
+export type TextPart = { type: "text"; id: string; text: string };
 export type ReasoningPart = {
 	type: "reasoning";
+	id: string;
 	text: string;
 	/** Per-part streaming state — only the active thinking block is streaming. */
 	streaming?: boolean;
@@ -1455,6 +1522,7 @@ export type ToolCallPart = {
 export type NoticeSeverity = "info" | "warning" | "error";
 export type SystemNoticePart = {
 	type: "system-notice";
+	id: string;
 	severity: NoticeSeverity;
 	label: string;
 	body?: string;
@@ -1463,6 +1531,7 @@ export type TodoStatus = "pending" | "in_progress" | "completed";
 export type TodoItem = { text: string; status: TodoStatus };
 export type TodoListPart = {
 	type: "todo-list";
+	id: string;
 	items: TodoItem[];
 };
 export type ImageSource =
@@ -1470,15 +1539,18 @@ export type ImageSource =
 	| { kind: "url"; url: string };
 export type ImagePart = {
 	type: "image";
+	id: string;
 	source: ImageSource;
 	mediaType?: string;
 };
 export type PromptSuggestionPart = {
 	type: "prompt-suggestion";
+	id: string;
 	text: string;
 };
 export type FileMentionPart = {
 	type: "file-mention";
+	id: string;
 	path: string;
 };
 export type PlanReviewAllowedPrompt = {
@@ -1506,11 +1578,21 @@ export type MessagePart =
 
 export type CollapsedGroupPart = {
 	type: "collapsed-group";
+	/** `group:{firstToolId}` — stable across streaming as tools accumulate. */
+	id: string;
 	category: "search" | "read" | "shell" | "mixed";
 	tools: ToolCallPart[];
 	active: boolean;
 	summary: string;
 };
+
+/** Stable React key for any `ExtendedMessagePart`. Hides the fact that
+ *  `ToolCallPart` uses `toolCallId` while other variants use `id`. */
+export function partKey(part: ExtendedMessagePart): string {
+	if (part.type === "tool-call") return part.toolCallId;
+	if (part.type === "plan-review") return part.toolUseId;
+	return part.id;
+}
 
 export type ExtendedMessagePart = MessagePart | CollapsedGroupPart;
 
@@ -1855,6 +1937,19 @@ export type ScriptEvent =
 	| { type: "exited"; code: number | null }
 	| { type: "error"; message: string };
 
+/**
+ * Resolve repo scripts using a fixed priority (enforced in Rust):
+ *   1. Workspace worktree `helmor.json` (when `workspaceId` is given AND
+ *      the worktree exists on disk)
+ *   2. Source repo root `helmor.json` (fallback for any missing workspace
+ *      / worktree — archived, broken, or caller with no workspace context)
+ *   3. DB-level override (Settings UI edit)
+ *
+ * Pass `workspaceId` when you have a specific workspace context (runtime
+ * panel, inspector, script execution, archive hook). Omit for contexts
+ * that only care about the repo's defaults (Settings page editing a repo
+ * that isn't the current workspace's repo).
+ */
 export async function loadRepoScripts(
 	repoId: string,
 	workspaceId?: string | null,
