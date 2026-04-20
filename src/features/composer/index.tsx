@@ -105,7 +105,6 @@ type WorkspaceComposerProps = {
 	slashCommands?: readonly SlashCommandEntry[];
 	slashCommandsLoading?: boolean;
 	slashCommandsError?: boolean;
-	slashCommandsRefreshing?: boolean;
 	onRetrySlashCommands?: () => void;
 	workspaceRootPath?: string | null;
 	pendingElicitation?: PendingElicitation | null;
@@ -166,7 +165,6 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	slashCommands = EMPTY_SLASH_COMMANDS,
 	slashCommandsLoading = false,
 	slashCommandsError = false,
-	slashCommandsRefreshing = false,
 	onRetrySlashCommands,
 	workspaceRootPath = null,
 	pendingElicitation = null,
@@ -404,7 +402,6 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 							commands={slashCommands}
 							isLoading={slashCommandsLoading}
 							isError={slashCommandsError}
-							isRefreshing={slashCommandsRefreshing}
 							onRetry={onRetrySlashCommands}
 							popupAnchorRef={composerRootRef}
 						/>

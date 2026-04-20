@@ -661,8 +661,6 @@ export type SlashCommandEntry = {
 
 export type SlashCommandsResponse = {
 	commands: SlashCommandEntry[];
-	/** `false` while the background sidecar refresh is still in flight. */
-	isComplete: boolean;
 };
 
 /**
