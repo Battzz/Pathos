@@ -99,6 +99,7 @@ export function SlashCommandPlugin({
 	isLoading = false,
 	isError = false,
 	onRetry,
+	onClientAction,
 	popupAnchorRef,
 }: {
 	commands: readonly SlashCommandEntry[];
@@ -108,6 +109,15 @@ export function SlashCommandPlugin({
 	isError?: boolean;
 	/** Click handler for the "retry" row in the error state. */
 	onRetry?: () => void;
+	/**
+	 * Fired when the user selects a `source: "client-action"` entry. The
+	 * plugin closes the menu but leaves the TextNode that held the typed
+	 * `/<query>` slice in place — the caller receives that node and can
+	 * replace it with a custom Lexical node (e.g. an inline pill) inside
+	 * a single editor update. `nodeToReplace` may be null when Lexical
+	 * couldn't resolve the slice (rare; we guard in the callback).
+	 */
+	onClientAction?: (name: string, nodeToReplace: TextNode | null) => void;
 	/**
 	 * Optional portal target for the popup. When provided, the popup is rendered
 	 * inside this element (expected to be `position: relative`) so `bottom-full`
@@ -142,13 +152,21 @@ export function SlashCommandPlugin({
 			nodeToReplace: TextNode | null,
 			closeMenu: () => void,
 		) => {
+			const isClientAction = selected.entry.source === "client-action";
+			if (isClientAction) {
+				// Don't mutate the editor here — the client-action handler
+				// owns the replacement (e.g. swapping the slice for a
+				// decorator pill). Just close the typeahead menu.
+				closeMenu();
+				onClientAction?.(selected.entry.name, nodeToReplace);
+				return;
+			}
 			editor.update(() => {
-				// Lexical's typeahead plugin splits the text node so that
-				// `nodeToReplace` is exactly the `/<query>` slice — replacing
-				// its content here doesn't touch any surrounding text. We
-				// append a trailing space so the user can immediately type
-				// arguments.
 				if (nodeToReplace) {
+					// Lexical's typeahead plugin splits the text node so that
+					// `nodeToReplace` is exactly the `/<query>` slice. For
+					// regular commands we replace the slice with `/<name> ` so
+					// the user can keep typing arguments.
 					const replacement = `/${selected.entry.name} `;
 					nodeToReplace.setTextContent(replacement);
 					nodeToReplace.select(replacement.length, replacement.length);
@@ -156,7 +174,7 @@ export function SlashCommandPlugin({
 				closeMenu();
 			});
 		},
-		[editor],
+		[editor, onClientAction],
 	);
 
 	return (

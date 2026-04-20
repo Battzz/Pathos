@@ -261,6 +261,98 @@ pub fn convert_elicitation_content_to_codex_answers(content: &Value) -> Value {
     Value::Object(answers)
 }
 
+/// Inputs to `build_send_message_params`. Grouped into a struct so the
+/// constructor stays call-site ergonomic and we don't need to track
+/// argument positions.
+pub struct BuildSendMessageParamsInput<'a> {
+    pub sidecar_session_id: &'a str,
+    pub prompt: &'a str,
+    pub cli_model: &'a str,
+    pub cwd: &'a str,
+    pub resume_session_id: Option<&'a str>,
+    pub provider: &'a str,
+    pub effort_level: Option<&'a str>,
+    pub permission_mode: Option<&'a str>,
+    pub fast_mode: bool,
+    pub helmor_session_id: Option<&'a str>,
+}
+
+/// Build the `sendMessage` request params that the sidecar receives. Pure
+/// function modulo `lookup_workspace_linked_directories` which reads from
+/// the configured data dir DB — isolated so tests can snapshot the full
+/// payload against a seeded workspace row.
+///
+/// `additionalDirectories` is omitted when empty so the sidecar payload
+/// stays tight and existing snapshot fixtures for untouched sessions
+/// don't churn.
+pub fn build_send_message_params(input: BuildSendMessageParamsInput<'_>) -> Value {
+    let additional_directories = lookup_workspace_linked_directories(input.helmor_session_id);
+
+    let mut params = serde_json::json!({
+        "sessionId": input.sidecar_session_id,
+        "prompt": input.prompt,
+        "model": input.cli_model,
+        "cwd": input.cwd,
+        "resume": input.resume_session_id,
+        "provider": input.provider,
+        "effortLevel": input.effort_level,
+        "permissionMode": input.permission_mode,
+        "fastMode": input.fast_mode,
+    });
+    if !additional_directories.is_empty() {
+        if let Some(obj) = params.as_object_mut() {
+            obj.insert(
+                "additionalDirectories".to_string(),
+                Value::from(additional_directories),
+            );
+        }
+    }
+    params
+}
+
+/// Load the workspace's `/add-dir` list via the helmor session id. Returns
+/// an empty vec if the session is not yet persisted or the workspace has
+/// no linked directories — both are normal states. DB read failures are
+/// degraded to an empty list (the feature is best-effort per turn) but
+/// logged so a broken DB surfaces in the logs instead of as "my
+/// /add-dir silently stopped working".
+pub fn lookup_workspace_linked_directories(helmor_session_id: Option<&str>) -> Vec<String> {
+    let Some(hsid) = helmor_session_id else {
+        return Vec::new();
+    };
+    let conn = match open_write_connection() {
+        Ok(c) => c,
+        Err(err) => {
+            tracing::warn!(
+                helmor_session_id = %hsid,
+                error = %err,
+                "Failed to open DB for linked-directory lookup; falling back to empty list",
+            );
+            return Vec::new();
+        }
+    };
+    let raw: Option<String> = match conn.query_row(
+        r#"SELECT w.linked_directory_paths
+           FROM sessions s
+           JOIN workspaces w ON w.id = s.workspace_id
+           WHERE s.id = ?1"#,
+        [hsid],
+        |row| row.get(0),
+    ) {
+        Ok(v) => v,
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(err) => {
+            tracing::warn!(
+                helmor_session_id = %hsid,
+                error = %err,
+                "linked_directory_paths query failed; falling back to empty list",
+            );
+            return Vec::new();
+        }
+    };
+    crate::workspaces::parse_linked_directory_paths(raw.as_deref())
+}
+
 fn should_adopt_provider_session_id(
     current_provider_session_id: Option<&str>,
     observed_provider_session_id: &str,
@@ -324,20 +416,44 @@ pub(super) fn stream_via_sidecar(
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
+    let params = build_send_message_params(BuildSendMessageParamsInput {
+        sidecar_session_id: &sidecar_session_id,
+        prompt,
+        cli_model: &model.cli_model,
+        cwd: &working_directory.display().to_string(),
+        resume_session_id: resume_session_id.as_deref(),
+        provider: &model.provider,
+        effort_level: request.effort_level.as_deref(),
+        permission_mode: request.permission_mode.as_deref(),
+        fast_mode: request.fast_mode.unwrap_or(false),
+        helmor_session_id: request.helmor_session_id.as_deref(),
+    });
+
+    // Surface the `/add-dir` decision in logs — we often debug linked-
+    // directory issues by asking "did the path actually make it to the
+    // sidecar?" and this answers that without grepping the sidecar
+    // wire-format later.
+    if let Some(arr) = params
+        .get("additionalDirectories")
+        .and_then(|v| v.as_array())
+    {
+        tracing::info!(
+            count = arr.len(),
+            dirs = ?arr,
+            helmor_session_id = ?request.helmor_session_id,
+            "sendMessage with linked additionalDirectories"
+        );
+    } else {
+        tracing::info!(
+            helmor_session_id = ?request.helmor_session_id,
+            "sendMessage without linked additionalDirectories (none configured)"
+        );
+    }
+
     let sidecar_req = crate::sidecar::SidecarRequest {
         id: request_id.clone(),
         method: "sendMessage".to_string(),
-        params: serde_json::json!({
-            "sessionId": sidecar_session_id,
-            "prompt": prompt,
-            "model": model.cli_model,
-            "cwd": working_directory.display().to_string(),
-            "resume": resume_session_id,
-            "provider": model.provider,
-            "effortLevel": request.effort_level,
-            "permissionMode": request.permission_mode,
-            "fastMode": request.fast_mode.unwrap_or(false),
-        }),
+        params,
     };
 
     let rx = sidecar.subscribe(&request_id);
@@ -1228,5 +1344,110 @@ working_directory: /tmp/helmor
         // No header → title falls back to question, description is empty
         assert_eq!(q0["title"], "Simple question?");
         assert_eq!(q0["description"], "");
+    }
+
+    // ---- lookup_workspace_linked_directories ----------------------------
+
+    mod lookup_linked_directories {
+        use super::*;
+
+        /// Set up an isolated DB + schema for each test and seed a repo row
+        /// that the workspace fixture can reference.
+        fn with_test_db<F: FnOnce(&rusqlite::Connection)>(name: &str, f: F) {
+            let dir = tempfile::tempdir().unwrap();
+            let _guard = crate::data_dir::TEST_ENV_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            std::env::set_var("HELMOR_DATA_DIR", dir.path());
+            crate::data_dir::ensure_directory_structure().unwrap();
+
+            let db_path = crate::data_dir::db_path().unwrap();
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            crate::schema::ensure_schema(&conn).unwrap();
+            conn.execute(
+                "INSERT INTO repos (id, name, default_branch) VALUES ('r-1', ?1, 'main')",
+                [name],
+            )
+            .unwrap();
+            f(&conn);
+            std::env::remove_var("HELMOR_DATA_DIR");
+        }
+
+        fn insert_ws_session(
+            conn: &rusqlite::Connection,
+            ws_id: &str,
+            sess_id: &str,
+            linked: Option<&str>,
+        ) {
+            conn.execute(
+                "INSERT INTO workspaces (id, repository_id, directory_name, state,
+                 derived_status, linked_directory_paths) VALUES (?1, 'r-1', 'ws', 'ready',
+                 'in-progress', ?2)",
+                rusqlite::params![ws_id, linked],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO sessions (id, workspace_id, status) VALUES (?1, ?2, 'idle')",
+                [sess_id, ws_id],
+            )
+            .unwrap();
+        }
+
+        #[test]
+        fn returns_empty_when_session_id_is_missing() {
+            with_test_db("noop", |_conn| {
+                assert!(lookup_workspace_linked_directories(None).is_empty());
+            });
+        }
+
+        #[test]
+        fn returns_empty_when_session_row_not_found() {
+            with_test_db("orphan", |_conn| {
+                assert!(lookup_workspace_linked_directories(Some("unknown-session")).is_empty());
+            });
+        }
+
+        #[test]
+        fn returns_empty_when_linked_column_is_null() {
+            with_test_db("null-col", |conn| {
+                insert_ws_session(conn, "w-1", "s-1", None);
+                assert!(lookup_workspace_linked_directories(Some("s-1")).is_empty());
+            });
+        }
+
+        #[test]
+        fn returns_parsed_list_when_linked_column_populated() {
+            with_test_db("populated", |conn| {
+                insert_ws_session(conn, "w-2", "s-2", Some(r#"["/abs/a","/abs/b"]"#));
+                assert_eq!(
+                    lookup_workspace_linked_directories(Some("s-2")),
+                    vec!["/abs/a".to_string(), "/abs/b".to_string()],
+                );
+            });
+        }
+
+        #[test]
+        fn returns_empty_when_json_is_malformed() {
+            with_test_db("malformed", |conn| {
+                insert_ws_session(conn, "w-3", "s-3", Some("not json"));
+                assert!(lookup_workspace_linked_directories(Some("s-3")).is_empty());
+            });
+        }
+
+        #[test]
+        fn trims_and_dedupes_at_parse_time() {
+            with_test_db("normalize", |conn| {
+                insert_ws_session(
+                    conn,
+                    "w-4",
+                    "s-4",
+                    Some(r#"["  /abs/a  ","/abs/a","","/abs/b"]"#),
+                );
+                assert_eq!(
+                    lookup_workspace_linked_directories(Some("s-4")),
+                    vec!["/abs/a".to_string(), "/abs/b".to_string()],
+                );
+            });
+        }
     }
 }

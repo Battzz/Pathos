@@ -140,6 +140,44 @@ pub async fn set_workspace_manual_status(
     )?)
 }
 
+/// `/add-dir` feature: list the extra directories the user has linked to
+/// this workspace. These are sent as `additionalDirectories` to the agent
+/// SDKs on every turn.
+#[tauri::command]
+pub async fn list_workspace_linked_directories(workspace_id: String) -> CmdResult<Vec<String>> {
+    run_blocking(move || workspaces::get_workspace_linked_directories(&workspace_id)).await
+}
+
+/// Replace the workspace's linked-directory list. Returns the normalized
+/// list (trimmed + deduped) that was actually persisted.
+#[tauri::command]
+pub async fn set_workspace_linked_directories(
+    app: AppHandle,
+    workspace_id: String,
+    directories: Vec<String>,
+) -> CmdResult<Vec<String>> {
+    let ws_lock = db::workspace_mutation_lock(&workspace_id);
+    let _lock = ws_lock.lock().await;
+    let workspace_id_clone = workspace_id.clone();
+    let result = run_blocking(move || {
+        workspaces::set_workspace_linked_directories(&workspace_id_clone, directories)
+    })
+    .await?;
+    git_watcher::notify_workspace_changed(&app);
+    Ok(result)
+}
+
+/// Candidate directories the `/add-dir` picker offers as quick-pick
+/// suggestions: every ready workspace across every repo, minus the
+/// currently-active one.
+#[tauri::command]
+pub async fn list_workspace_candidate_directories(
+    exclude_workspace_id: Option<String>,
+) -> CmdResult<Vec<workspaces::CandidateDirectory>> {
+    run_blocking(move || workspaces::list_candidate_directories(exclude_workspace_id.as_deref()))
+        .await
+}
+
 #[tauri::command]
 pub async fn list_remote_branches(
     workspace_id: Option<String>,

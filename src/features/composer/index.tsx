@@ -34,7 +34,12 @@ import {
 } from "@/components/ui/tooltip";
 import type { PendingDeferredTool } from "@/features/conversation/pending-deferred-tool";
 import type { PendingElicitation } from "@/features/conversation/pending-elicitation";
-import type { AgentModelSection, SlashCommandEntry } from "@/lib/api";
+import { humanizeBranch } from "@/features/navigation/shared";
+import type {
+	AgentModelSection,
+	CandidateDirectory,
+	SlashCommandEntry,
+} from "@/lib/api";
 import type {
 	ComposerCustomTag,
 	ResolvedComposerInsertRequest,
@@ -43,12 +48,19 @@ import { recordComposerRender } from "@/lib/dev-render-debug";
 import { cn } from "@/lib/utils";
 import { clampEffort } from "@/lib/workspace-helpers";
 import { ComposerButton } from "./button";
+import { ContextBar } from "./context-bar";
 import type {
 	DeferredToolResponseHandler,
 	DeferredToolResponseOptions,
 } from "./deferred-tool";
 import { DeferredToolPanel } from "./deferred-tool-panel";
 import { clearPersistedDraft } from "./draft-storage";
+import { $insertAddDirTrigger } from "./editor/add-dir/insert";
+import { AddDirTriggerNode } from "./editor/add-dir/trigger-node";
+import {
+	type AddDirPickerEntry,
+	AddDirTypeaheadPlugin,
+} from "./editor/add-dir/typeahead-plugin";
 import { CustomTagBadgeNode } from "./editor/custom-tag-badge-node";
 import { FileBadgeNode } from "./editor/file-badge-node";
 import { ImageBadgeNode } from "./editor/image-badge-node";
@@ -107,6 +119,13 @@ type WorkspaceComposerProps = {
 	slashCommandsError?: boolean;
 	onRetrySlashCommands?: () => void;
 	workspaceRootPath?: string | null;
+	linkedDirectories?: readonly string[];
+	onRemoveLinkedDirectory?: (path: string) => void;
+	linkedDirectoriesDisabled?: boolean;
+	/** Quick-pick workspace suggestions shown in the /add-dir popup. */
+	addDirCandidates?: readonly CandidateDirectory[];
+	/** Called when the user selects an entry from the /add-dir popup. */
+	onPickAddDir?: (entry: AddDirPickerEntry) => void;
 	pendingElicitation?: PendingElicitation | null;
 	onElicitationResponse?: ElicitationResponseHandler;
 	elicitationResponsePending?: boolean;
@@ -116,6 +135,9 @@ type WorkspaceComposerProps = {
 };
 
 const EMPTY_SLASH_COMMANDS: readonly SlashCommandEntry[] = [];
+const EMPTY_LINKED_DIRECTORIES: readonly string[] = [];
+const EMPTY_CANDIDATE_DIRECTORIES: readonly CandidateDirectory[] = [];
+const noopPickAddDir = (_entry: AddDirPickerEntry) => {};
 const noopDeferredToolResponse = (
 	_deferred: PendingDeferredTool,
 	_behavior: "allow" | "deny",
@@ -167,6 +189,11 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	slashCommandsError = false,
 	onRetrySlashCommands,
 	workspaceRootPath = null,
+	linkedDirectories = EMPTY_LINKED_DIRECTORIES,
+	onRemoveLinkedDirectory,
+	linkedDirectoriesDisabled = false,
+	addDirCandidates = EMPTY_CANDIDATE_DIRECTORIES,
+	onPickAddDir = noopPickAddDir,
 	pendingElicitation = null,
 	onElicitationResponse = noopElicitationResponse,
 	elicitationResponsePending = false,
@@ -249,7 +276,12 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	const initialConfig = useRef({
 		namespace: "WorkspaceComposer",
 		theme: EDITOR_THEME,
-		nodes: [ImageBadgeNode, FileBadgeNode, CustomTagBadgeNode],
+		nodes: [
+			ImageBadgeNode,
+			FileBadgeNode,
+			CustomTagBadgeNode,
+			AddDirTriggerNode,
+		],
 		onError: onEditorError,
 	}).current;
 
@@ -382,6 +414,36 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 				/>
 			) : (
 				<>
+					{onRemoveLinkedDirectory ? (
+						<ContextBar
+							directories={linkedDirectories.map((path) => {
+								const match = addDirCandidates.find(
+									(c) => c.absolutePath === path,
+								);
+								// Display name follows the sidebar's rule
+								// (`row-item.tsx`): if the workspace has a branch,
+								// show the humanized last segment of the branch
+								// (`natllian/refactor-messages` → `Refactor
+								// Messages`). Otherwise fall back to the workspace
+								// title. For Browse-picked arbitrary paths the
+								// match is absent and ContextBar falls back to the
+								// basename of `path`.
+								const name = match?.branch
+									? humanizeBranch(match.branch)
+									: match?.title;
+								return {
+									path,
+									name,
+									branch: match?.branch ?? null,
+									repoIconSrc: match?.repoIconSrc ?? null,
+									repoInitials: match?.repoInitials ?? null,
+									repoName: match?.repoName ?? null,
+								};
+							})}
+							onRemove={onRemoveLinkedDirectory}
+							disabled={linkedDirectoriesDisabled}
+						/>
+					) : null}
 					<LexicalComposer initialConfig={initialConfig}>
 						<div className="relative">
 							<PlainTextPlugin
@@ -409,6 +471,21 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 							isLoading={slashCommandsLoading}
 							isError={slashCommandsError}
 							onRetry={onRetrySlashCommands}
+							onClientAction={(name, nodeToReplace) => {
+								// Built-in /add-dir: swap the typed `/add-dir` text
+								// for a purple pill decorator node. Subsequent typing
+								// is picked up by AddDirTypeaheadPlugin. Any other
+								// client-action name is a no-op here for now.
+								if (name === "add-dir" && editorRef.current) {
+									$insertAddDirTrigger(editorRef.current, nodeToReplace);
+								}
+							}}
+							popupAnchorRef={composerRootRef}
+						/>
+						<AddDirTypeaheadPlugin
+							candidates={addDirCandidates}
+							linkedDirectories={linkedDirectories}
+							onPick={onPickAddDir}
 							popupAnchorRef={composerRootRef}
 						/>
 						<FileMentionPlugin

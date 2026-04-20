@@ -499,6 +499,45 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		});
 	});
 
+	test("merges user-linked directories ahead of git-access metadata", async () => {
+		const workspaceDir = makeTempDir("helmor-claude-linked-");
+		const repoRoot = makeTempDir("helmor-claude-linked-repo-");
+		const gitCommonDir = resolve(repoRoot, ".git");
+		const gitDir = resolve(gitCommonDir, "worktrees", "rigel");
+
+		mkdirSync(gitDir, { recursive: true });
+		writeFileSync(resolve(workspaceDir, ".git"), `gitdir: ${gitDir}\n`);
+		writeFileSync(resolve(gitDir, "commondir"), "../../\n");
+
+		const userDirA = makeTempDir("helmor-claude-user-a-");
+		const userDirB = makeTempDir("helmor-claude-user-b-");
+
+		mockQueryImpl = () => asyncIterableFrom([{ type: "result", result: "ok" }]);
+
+		await manager.sendMessage(
+			"REQ-LINKED",
+			{
+				sessionId: "s-linked",
+				prompt: "ok",
+				model: "opus-1m",
+				cwd: workspaceDir,
+				resume: undefined,
+				permissionMode: "bypassPermissions",
+				effortLevel: undefined,
+				fastMode: undefined,
+				// Include a duplicate to confirm dedupe + preserved order.
+				additionalDirectories: [userDirA, userDirA, userDirB],
+			},
+			emitter,
+		);
+
+		expect(lastQueryArgs).toMatchObject({
+			options: {
+				additionalDirectories: [userDirA, userDirB, gitDir, gitCommonDir],
+			},
+		});
+	});
+
 	test("suppresses deferred tool_use passthrough while keeping the deferred control event", async () => {
 		mockQueryImpl = async function* withDeferredTool() {
 			yield {

@@ -124,6 +124,10 @@ vi.mock("@tauri-apps/api/core", () => ({
 				return { items: [], prefetched: [] };
 			case "list_slash_commands":
 				return [];
+			case "list_workspace_linked_directories":
+				return [];
+			case "list_workspace_candidate_directories":
+				return [];
 			case "lookup_workspace_pr":
 				return null;
 			case "get_workspace_git_action_status":

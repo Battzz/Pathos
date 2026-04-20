@@ -395,7 +395,17 @@ export class ClaudeSessionManager implements SessionManager {
 			fastMode,
 		} = params;
 		const abortController = new AbortController();
-		const additionalDirectories = await resolveGitAccessDirectories(cwd);
+		const additionalDirectories = await mergeAdditionalDirectories(
+			cwd,
+			params.additionalDirectories,
+		);
+		// Surface the final list — helpful when debugging "/add-dir
+		// didn't work" reports. Runs once per turn so volume is low.
+		logger.info(`[${requestId}] claude additionalDirectories resolved`, {
+			user: params.additionalDirectories ?? [],
+			merged: additionalDirectories,
+			cwd: cwd ?? "(none)",
+		});
 
 		const { text, imagePaths } = parseImageRefs(prompt);
 		// Always use streaming-input mode so `steer()` can push additional
@@ -1112,4 +1122,31 @@ function extractExitPlanContent(
 		}
 	}
 	return null;
+}
+
+/**
+ * Combine the user-configured `/add-dir` paths with the git worktree
+ * gitdir/commondir that `resolveGitAccessDirectories` discovers from the
+ * cwd. Deduped, preserving the user's ordering first so their choices
+ * appear ahead of the infrastructure paths in any SDK-produced output.
+ */
+async function mergeAdditionalDirectories(
+	cwd: string | undefined,
+	userDirectories: readonly string[] | undefined,
+): Promise<string[]> {
+	const seen = new Set<string>();
+	const merged: string[] = [];
+	for (const raw of userDirectories ?? []) {
+		const trimmed = raw.trim();
+		if (!trimmed || seen.has(trimmed)) continue;
+		seen.add(trimmed);
+		merged.push(trimmed);
+	}
+	const gitDirs = await resolveGitAccessDirectories(cwd);
+	for (const dir of gitDirs) {
+		if (seen.has(dir)) continue;
+		seen.add(dir);
+		merged.push(dir);
+	}
+	return merged;
 }

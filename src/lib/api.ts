@@ -656,7 +656,13 @@ export type SlashCommandEntry = {
 	name: string;
 	description: string;
 	argumentHint?: string | null;
-	source: "builtin" | "skill";
+	/**
+	 * - `builtin` / `skill`: command is forwarded to the agent SDK as text.
+	 * - `client-action`: selecting the entry runs a host-app handler instead
+	 *   of inserting `/<name>` into the prompt (e.g. `/add-dir` opens the
+	 *   link-directories dialog).
+	 */
+	source: "builtin" | "skill" | "client-action";
 };
 
 export type SlashCommandsResponse = {
@@ -743,6 +749,81 @@ export async function updateIntendedTargetBranch(
 			targetBranch,
 		},
 	);
+}
+
+// --- Linked directories (/add-dir) ---
+
+/**
+ * Read the workspace's `/add-dir` list. Empty array when the user hasn't
+ * linked anything yet.
+ */
+export async function listWorkspaceLinkedDirectories(
+	workspaceId: string,
+): Promise<string[]> {
+	try {
+		return await invoke<string[]>("list_workspace_linked_directories", {
+			workspaceId,
+		});
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to load linked directories."),
+		);
+	}
+}
+
+/**
+ * Persist the workspace's linked directories. The backend trims + dedupes
+ * and returns the canonical list that was actually written — callers
+ * should prefer the returned list over their local state.
+ */
+export async function setWorkspaceLinkedDirectories(
+	workspaceId: string,
+	directories: string[],
+): Promise<string[]> {
+	try {
+		return await invoke<string[]>("set_workspace_linked_directories", {
+			workspaceId,
+			directories,
+		});
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to save linked directories."),
+		);
+	}
+}
+
+/** Candidate entry shown in the `/add-dir` popup's quick-pick list. */
+export type CandidateDirectory = {
+	workspaceId: string;
+	/** Human-readable workspace title, matches the sidebar row's label. */
+	title: string;
+	repoName: string;
+	/** URL to the repo's icon (same source the sidebar avatar uses). */
+	repoIconSrc: string | null;
+	/** 2-char repo initials fallback when no icon is available. */
+	repoInitials: string;
+	branch: string | null;
+	absolutePath: string;
+};
+
+/**
+ * Every ready workspace (all repos, minus the currently-active one) as
+ * suggestions for `/add-dir`. Empty array is valid — the picker still
+ * offers Browse... as an escape hatch.
+ */
+export async function listWorkspaceCandidateDirectories(input: {
+	excludeWorkspaceId?: string | null;
+}): Promise<CandidateDirectory[]> {
+	try {
+		return await invoke<CandidateDirectory[]>(
+			"list_workspace_candidate_directories",
+			{ excludeWorkspaceId: input.excludeWorkspaceId ?? null },
+		);
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to load workspace suggestions."),
+		);
+	}
 }
 
 // -- Git watcher events --

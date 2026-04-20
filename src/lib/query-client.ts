@@ -8,8 +8,10 @@ import {
 	detectInstalledEditors,
 	listRepositories,
 	listSlashCommands,
+	listWorkspaceCandidateDirectories,
 	listWorkspaceChangesWithContent,
 	listWorkspaceFiles,
+	listWorkspaceLinkedDirectories,
 	loadAgentModelSections,
 	loadArchivedWorkspaces,
 	loadAutoCloseActionKinds,
@@ -62,6 +64,10 @@ export const helmorQueryKeys = {
 	detectedEditors: ["detectedEditors"] as const,
 	slashCommands: (provider: AgentProvider, workingDirectory: string | null) =>
 		["slashCommands", provider, workingDirectory ?? ""] as const,
+	workspaceLinkedDirectories: (workspaceId: string) =>
+		["workspaceLinkedDirectories", workspaceId] as const,
+	workspaceCandidateDirectories: (excludeWorkspaceId: string | null) =>
+		["workspaceCandidateDirectories", excludeWorkspaceId ?? ""] as const,
 };
 
 export function createHelmorQueryClient() {
@@ -161,6 +167,30 @@ export function workspaceSessionsQueryOptions(workspaceId: string) {
 	return queryOptions({
 		queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
 		queryFn: () => loadWorkspaceSessions(workspaceId),
+		staleTime: 0,
+	});
+}
+
+/** `/add-dir` linked directories, workspace-scoped. */
+export function workspaceLinkedDirectoriesQueryOptions(workspaceId: string) {
+	return queryOptions({
+		queryKey: helmorQueryKeys.workspaceLinkedDirectories(workspaceId),
+		queryFn: () => listWorkspaceLinkedDirectories(workspaceId),
+		staleTime: 0,
+	});
+}
+
+/**
+ * Candidate directories shown as quick-pick suggestions in the /add-dir
+ * popup. Staled quickly so newly-created workspaces show up on the next
+ * popup open without a manual refresh.
+ */
+export function workspaceCandidateDirectoriesQueryOptions(
+	excludeWorkspaceId: string | null,
+) {
+	return queryOptions({
+		queryKey: helmorQueryKeys.workspaceCandidateDirectories(excludeWorkspaceId),
+		queryFn: () => listWorkspaceCandidateDirectories({ excludeWorkspaceId }),
 		staleTime: 0,
 	});
 }

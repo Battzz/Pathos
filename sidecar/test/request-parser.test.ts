@@ -191,7 +191,37 @@ describe("parseSendMessageParams", () => {
 			permissionMode: "plan",
 			effortLevel: "high",
 			fastMode: undefined,
+			additionalDirectories: undefined,
 		});
+	});
+
+	test("parses additionalDirectories, trimming and dropping empties", () => {
+		const result = parseSendMessageParams({
+			sessionId: "s1",
+			prompt: "hello",
+			additionalDirectories: ["  /abs/a  ", "", "/abs/b"],
+		});
+		expect(result.additionalDirectories).toEqual(["/abs/a", "/abs/b"]);
+	});
+
+	test("rejects non-array additionalDirectories", () => {
+		expect(() =>
+			parseSendMessageParams({
+				sessionId: "s1",
+				prompt: "hello",
+				additionalDirectories: "/not/an/array",
+			}),
+		).toThrow("must be an array");
+	});
+
+	test("rejects non-string entries in additionalDirectories", () => {
+		expect(() =>
+			parseSendMessageParams({
+				sessionId: "s1",
+				prompt: "hello",
+				additionalDirectories: ["/abs/a", 42],
+			}),
+		).toThrow("must contain strings");
 	});
 
 	test("leaves optional fields undefined when absent", () => {

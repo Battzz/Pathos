@@ -147,4 +147,149 @@ describe("CodexAppServerManager", () => {
 			expect.objectContaining({ serviceTier: "fast" }),
 		);
 	});
+
+	test("plan mode with additionalDirectories sets sandboxPolicy writableRoots including cwd", async () => {
+		const manager = new CodexAppServerManager();
+
+		await manager.sendMessage(
+			"REQ-plan-writable",
+			{
+				sessionId: "session-plan",
+				prompt: "hi",
+				model: "gpt-5.4",
+				cwd: "/tmp/workspace",
+				resume: undefined,
+				permissionMode: "plan",
+				effortLevel: "medium",
+				fastMode: false,
+				// Include cwd explicitly to verify dedupe, and a duplicate
+				// `/tmp/a` to verify we keep the first occurrence only.
+				additionalDirectories: ["/tmp/workspace", "/tmp/a", "/tmp/a", "/tmp/b"],
+			},
+			emitter,
+		);
+
+		const turnStart = serverState.requests.find(
+			(request) => request.method === "turn/start",
+		);
+
+		expect(turnStart?.params).toEqual(
+			expect.objectContaining({
+				sandboxPolicy: {
+					type: "workspaceWrite",
+					writableRoots: ["/tmp/workspace", "/tmp/a", "/tmp/b"],
+					networkAccess: false,
+				},
+			}),
+		);
+	});
+
+	test("plan mode without additionalDirectories does not set sandboxPolicy (thread-level default wins)", async () => {
+		const manager = new CodexAppServerManager();
+
+		await manager.sendMessage(
+			"REQ-plan-noextras",
+			{
+				sessionId: "session-plan-noextras",
+				prompt: "hi",
+				model: "gpt-5.4",
+				cwd: "/tmp/workspace",
+				resume: undefined,
+				permissionMode: "plan",
+				effortLevel: "medium",
+				fastMode: false,
+			},
+			emitter,
+		);
+
+		const turnStart = serverState.requests.find(
+			(request) => request.method === "turn/start",
+		);
+
+		expect(turnStart?.params).not.toHaveProperty("sandboxPolicy");
+	});
+
+	test("non-plan modes with additionalDirectories don't set sandboxPolicy", async () => {
+		const manager = new CodexAppServerManager();
+
+		await manager.sendMessage(
+			"REQ-bypass-noop",
+			{
+				sessionId: "session-bypass",
+				prompt: "hi",
+				model: "gpt-5.4",
+				cwd: "/tmp",
+				resume: undefined,
+				permissionMode: "bypassPermissions",
+				effortLevel: "medium",
+				fastMode: false,
+				additionalDirectories: ["/tmp/a"],
+			},
+			emitter,
+		);
+
+		const turnStart = serverState.requests.find(
+			(request) => request.method === "turn/start",
+		);
+
+		expect(turnStart?.params).not.toHaveProperty("sandboxPolicy");
+	});
+
+	test("prepends a linked-directories preamble to the turn input", async () => {
+		const manager = new CodexAppServerManager();
+
+		await manager.sendMessage(
+			"REQ-preamble",
+			{
+				sessionId: "session-preamble",
+				prompt: "summarize what's in these projects",
+				model: "gpt-5.4",
+				cwd: "/tmp/workspace",
+				resume: undefined,
+				permissionMode: "bypassPermissions",
+				effortLevel: "medium",
+				fastMode: false,
+				additionalDirectories: ["/abs/alpha", "/abs/bravo"],
+			},
+			emitter,
+		);
+
+		const turnStart = serverState.requests.find(
+			(request) => request.method === "turn/start",
+		);
+		const input = (turnStart?.params as { input?: Array<{ text?: string }> })
+			?.input;
+		const firstText = input?.[0]?.text ?? "";
+		// Preamble references the linked paths, and the original user prompt
+		// is still in there (after the preamble).
+		expect(firstText).toContain("/abs/alpha");
+		expect(firstText).toContain("/abs/bravo");
+		expect(firstText).toContain("summarize what's in these projects");
+	});
+
+	test("does not touch the user prompt when no directories are linked", async () => {
+		const manager = new CodexAppServerManager();
+
+		await manager.sendMessage(
+			"REQ-no-preamble",
+			{
+				sessionId: "session-no-preamble",
+				prompt: "hello",
+				model: "gpt-5.4",
+				cwd: "/tmp/workspace",
+				resume: undefined,
+				permissionMode: "bypassPermissions",
+				effortLevel: "medium",
+				fastMode: false,
+			},
+			emitter,
+		);
+
+		const turnStart = serverState.requests.find(
+			(request) => request.method === "turn/start",
+		);
+		const input = (turnStart?.params as { input?: Array<{ text?: string }> })
+			?.input;
+		expect(input?.[0]?.text).toBe("hello");
+	});
 });

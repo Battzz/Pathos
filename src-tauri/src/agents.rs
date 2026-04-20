@@ -23,8 +23,8 @@ pub use self::queries::{
 };
 pub use self::slash_commands::SlashCommandCache;
 pub use self::streaming::{
-    abort_all_active_streams_blocking, bridge_elicitation_request_event,
-    convert_elicitation_content_to_codex_answers, ActiveStreams,
+    abort_all_active_streams_blocking, bridge_elicitation_request_event, build_send_message_params,
+    convert_elicitation_content_to_codex_answers, ActiveStreams, BuildSendMessageParamsInput,
 };
 
 use self::persistence::{

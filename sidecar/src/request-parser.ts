@@ -125,7 +125,31 @@ export function parseSendMessageParams(
 		permissionMode: optionalString(params, "permissionMode"),
 		effortLevel: optionalString(params, "effortLevel"),
 		fastMode: optionalBoolean(params, "fastMode"),
+		additionalDirectories: parseOptionalStringArray(
+			params,
+			"additionalDirectories",
+		),
 	};
+}
+
+function parseOptionalStringArray(
+	params: Record<string, unknown>,
+	key: string,
+): readonly string[] | undefined {
+	const value = params[key];
+	if (value === undefined || value === null) return undefined;
+	if (!Array.isArray(value)) {
+		throw new Error(`params.${key} must be an array of strings`);
+	}
+	const out: string[] = [];
+	for (const item of value) {
+		if (typeof item !== "string") {
+			throw new Error(`params.${key}[] must contain strings only`);
+		}
+		const trimmed = item.trim();
+		if (trimmed) out.push(trimmed);
+	}
+	return out;
 }
 
 export function parseListSlashCommandsParams(

@@ -6,6 +6,8 @@ import { DEFAULT_SETTINGS, SettingsContext } from "@/lib/settings";
 
 const apiMockState = vi.hoisted(() => ({
 	listSlashCommands: vi.fn(),
+	listWorkspaceLinkedDirectories: vi.fn(),
+	setWorkspaceLinkedDirectories: vi.fn(),
 }));
 
 vi.mock("@/lib/api", async () => {
@@ -13,13 +15,27 @@ vi.mock("@/lib/api", async () => {
 	return {
 		...actual,
 		listSlashCommands: apiMockState.listSlashCommands,
+		listWorkspaceLinkedDirectories: apiMockState.listWorkspaceLinkedDirectories,
+		setWorkspaceLinkedDirectories: apiMockState.setWorkspaceLinkedDirectories,
 	};
 });
+
+type PickHandler = (entry: unknown) => void;
+type RemoveHandler = (path: string) => void;
 
 const composerMockState = vi.hoisted(() => ({
 	renders: [] as string[],
 	mounts: 0,
 	unmounts: 0,
+	lastSlashCommands: [] as Array<{
+		name: string;
+		description: string;
+		source: string;
+	}>,
+	lastLinkedDirectories: [] as readonly string[],
+	lastOnRemoveLinkedDirectory: null as RemoveHandler | null,
+	lastAddDirCandidates: [] as readonly unknown[],
+	lastOnPickAddDir: null as PickHandler | null,
 }));
 
 vi.mock("./index", async () => {
@@ -32,8 +48,25 @@ vi.mock("./index", async () => {
 			fastMode?: boolean;
 			disabled?: boolean;
 			submitDisabled?: boolean;
+			slashCommands?: readonly {
+				name: string;
+				description: string;
+				source: string;
+			}[];
+			linkedDirectories?: readonly string[];
+			onRemoveLinkedDirectory?: RemoveHandler;
+			addDirCandidates?: readonly unknown[];
+			onPickAddDir?: PickHandler;
 		}) => {
 			composerMockState.renders.push(props.contextKey);
+			composerMockState.lastSlashCommands = [...(props.slashCommands ?? [])];
+			composerMockState.lastLinkedDirectories = props.linkedDirectories ?? [];
+			composerMockState.lastOnRemoveLinkedDirectory =
+				props.onRemoveLinkedDirectory ?? null;
+			composerMockState.lastAddDirCandidates = [
+				...(props.addDirCandidates ?? []),
+			];
+			composerMockState.lastOnPickAddDir = props.onPickAddDir ?? null;
 			React.useEffect(() => {
 				composerMockState.mounts += 1;
 				return () => {
@@ -175,6 +208,9 @@ describe("WorkspaceComposerContainer", () => {
 		composerMockState.mounts = 0;
 		composerMockState.unmounts = 0;
 		apiMockState.listSlashCommands.mockReset();
+		apiMockState.listWorkspaceLinkedDirectories.mockReset();
+		apiMockState.listWorkspaceLinkedDirectories.mockResolvedValue([]);
+		apiMockState.setWorkspaceLinkedDirectories.mockReset();
 		apiMockState.listSlashCommands.mockResolvedValue({
 			commands: [],
 		});
@@ -509,5 +545,101 @@ describe("WorkspaceComposerContainer", () => {
 		const composer = screen.getByTestId("workspace-composer-mock");
 		expect(composer).toHaveAttribute("data-disabled", "false");
 		expect(composer).toHaveAttribute("data-submit-disabled", "false");
+	});
+
+	describe("/add-dir integration", () => {
+		function renderWithLinkedDirs(linked: string[]) {
+			// Returning the list from the API mock — not setQueryData —
+			// so the background refetch (`staleTime: 0`) doesn't overwrite
+			// the seeded value with the default setup.ts mock.
+			apiMockState.listWorkspaceLinkedDirectories.mockResolvedValue(linked);
+			const queryClient = createHelmorQueryClient();
+			queryClient.setQueryData(
+				helmorQueryKeys.agentModelSections,
+				MODEL_SECTIONS,
+			);
+			queryClient.setQueryData(
+				helmorQueryKeys.workspaceDetail("workspace-1"),
+				WORKSPACE_DETAIL,
+			);
+			queryClient.setQueryData(
+				helmorQueryKeys.workspaceSessions("workspace-1"),
+				WORKSPACE_SESSIONS,
+			);
+			return render(
+				<QueryClientProvider client={queryClient}>
+					<WorkspaceComposerContainer
+						displayedWorkspaceId="workspace-1"
+						displayedSessionId="session-1"
+						disabled={false}
+						sending={false}
+						sendError={null}
+						restoreDraft={null}
+						restoreImages={[]}
+						restoreFiles={[]}
+						restoreNonce={0}
+						modelSelections={{}}
+						effortLevels={{}}
+						permissionModes={{}}
+						fastModes={{}}
+						onSelectModel={vi.fn()}
+						onSelectEffort={vi.fn()}
+						onChangePermissionMode={vi.fn()}
+						onChangeFastMode={vi.fn()}
+						onSubmit={vi.fn()}
+					/>
+				</QueryClientProvider>,
+			);
+		}
+
+		it("always prepends /add-dir as the first slash command with client-action source", async () => {
+			// Have the agent return some regular commands — /add-dir must land
+			// ahead of them.
+			apiMockState.listSlashCommands.mockResolvedValue({
+				commands: [
+					{
+						name: "compact",
+						description: "Compact the context",
+						source: "builtin",
+					},
+					{
+						name: "clear",
+						description: "Clear history",
+						source: "builtin",
+					},
+				],
+				isComplete: true,
+			});
+
+			renderWithLinkedDirs([]);
+
+			// Wait until the agent commands merge in behind /add-dir.
+			await waitFor(() => {
+				expect(composerMockState.lastSlashCommands.map((c) => c.name)).toEqual([
+					"add-dir",
+					"compact",
+					"clear",
+				]);
+			});
+			expect(composerMockState.lastSlashCommands[0]).toEqual({
+				name: "add-dir",
+				description: "Link extra directories to this workspace",
+				source: "client-action",
+			});
+		});
+
+		it("exposes the workspace's linked directories to the composer so the ContextBar + pill-driven popup stay in sync", async () => {
+			renderWithLinkedDirs(["/home/me/alpha", "/home/me/beta"]);
+			await waitFor(() => {
+				expect(composerMockState.lastLinkedDirectories).toEqual([
+					"/home/me/alpha",
+					"/home/me/beta",
+				]);
+			});
+			// The composer always receives an onPickAddDir callback — the
+			// AddDirTypeaheadPlugin dispatches through it when the user
+			// picks a candidate from the inline popup.
+			expect(composerMockState.lastOnPickAddDir).not.toBeNull();
+		});
 	});
 });

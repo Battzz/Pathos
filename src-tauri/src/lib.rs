@@ -9,7 +9,7 @@ pub mod logging;
 pub mod mcp;
 pub mod models;
 pub mod pipeline;
-mod schema;
+pub mod schema;
 pub mod service;
 mod shell_env;
 pub mod sidecar;
@@ -213,6 +213,9 @@ pub fn run() {
             commands::editor_commands::read_editor_file,
             commands::editor_commands::read_file_at_ref,
             commands::workspace_commands::set_workspace_manual_status,
+            commands::workspace_commands::list_workspace_linked_directories,
+            commands::workspace_commands::set_workspace_linked_directories,
+            commands::workspace_commands::list_workspace_candidate_directories,
             commands::workspace_commands::trigger_workspace_fetch,
             commands::editors::detect_installed_editors,
             commands::editors::open_workspace_in_editor,
