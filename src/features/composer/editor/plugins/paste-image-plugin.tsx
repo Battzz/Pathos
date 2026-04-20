@@ -20,9 +20,9 @@ import {
 	PASTE_COMMAND,
 } from "lexical";
 import { useEffect } from "react";
-import { isImagePath } from "@/components/image-preview";
 import { savePastedImage } from "@/lib/api";
 import { buildComposerPreviewInsertItem } from "@/lib/composer-insert";
+import { isImagePath } from "@/lib/image-path";
 import { $createCustomTagBadgeNode } from "../custom-tag-badge-node";
 import { $createImageBadgeNode } from "../image-badge-node";
 

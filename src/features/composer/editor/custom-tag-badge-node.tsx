@@ -11,11 +11,11 @@ import {
 } from "lexical";
 import { Tag } from "lucide-react";
 import type { ReactNode } from "react";
+import { InlineBadge } from "@/components/inline-badge";
 import type {
 	ComposerCustomTag,
 	ComposerPreviewPayload,
 } from "@/lib/composer-insert";
-import { ComposerPreviewBadge } from "./composer-preview-badge";
 
 type SerializedCustomTagBadgeNode = Spread<
 	ComposerCustomTag,
@@ -32,10 +32,10 @@ function ComposerCustomTagBadge({
 	const [editor] = useLexicalComposerContext();
 
 	return (
-		<ComposerPreviewBadge
+		<InlineBadge
 			icon={
 				<Tag
-					className="size-3 shrink-0 text-muted-foreground"
+					className="size-3.5 shrink-0 text-muted-foreground"
 					strokeWidth={1.8}
 				/>
 			}

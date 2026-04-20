@@ -953,15 +953,15 @@ describe("WorkspaceComposer", () => {
 		expect(
 			screen.getByText("Which checks should run before merge?"),
 		).toBeInTheDocument();
-		await user.click(screen.getByRole("button", { name: "UI" }));
+		await user.click(screen.getByRole("tab", { name: "UI" }));
 		await user.type(
 			screen.getByLabelText("Optional note for Claude"),
-			"Prefer the dedicated approval surface.{enter}Keep it compact.",
+			"Prefer the dedicated approval surface.",
 		);
 		expect(screen.getByLabelText("Optional note for Claude")).toHaveValue(
-			"Prefer the dedicated approval surface.\nKeep it compact.",
+			"Prefer the dedicated approval surface.",
 		);
-		await user.click(screen.getByRole("button", { name: "Checks" }));
+		await user.click(screen.getByRole("tab", { name: "Checks" }));
 		expect(screen.getByText("Choose one or more options.")).toBeInTheDocument();
 		await user.click(screen.getByRole("button", { name: /Vitest/i }));
 		await user.click(screen.getByRole("button", { name: /Typecheck/i }));
@@ -979,7 +979,7 @@ describe("WorkspaceComposer", () => {
 					annotations: {
 						"Which UI path should we take?": {
 							preview: "<div>New approval panel</div>",
-							notes: "Prefer the dedicated approval surface.\nKeep it compact.",
+							notes: "Prefer the dedicated approval surface.",
 						},
 					},
 				}),
@@ -1063,9 +1063,7 @@ describe("WorkspaceComposer", () => {
 			</QueryClientProvider>,
 		);
 
-		expect(
-			screen.getByPlaceholderText("Project name · Required"),
-		).toBeInTheDocument();
+		expect(screen.getByPlaceholderText("Project name")).toBeInTheDocument();
 		expect(
 			screen.queryByText("This field is required."),
 		).not.toBeInTheDocument();
@@ -1077,7 +1075,7 @@ describe("WorkspaceComposer", () => {
 		).not.toBeInTheDocument();
 
 		await user.type(
-			screen.getByPlaceholderText("Project name · Required"),
+			screen.getByPlaceholderText("Project name"),
 			"Helmor Elicitation",
 		);
 		expect(

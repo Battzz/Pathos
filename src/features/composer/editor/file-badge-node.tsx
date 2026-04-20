@@ -17,9 +17,12 @@ import {
 	type Spread,
 } from "lexical";
 import { FileText } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useMemo } from "react";
+import {
+	createFilePreviewLoader,
+	InlineBadge,
+} from "@/components/inline-badge";
 import { basename } from "@/lib/path-util";
-import { ComposerPreviewBadge } from "./composer-preview-badge";
 
 type SerializedFileBadgeNode = Spread<
 	{ filePath: string },
@@ -35,17 +38,22 @@ function ComposerFileBadge({
 }) {
 	const [editor] = useLexicalComposerContext();
 	const fileName = basename(filePath);
+	const previewLoader = useMemo(
+		() => createFilePreviewLoader(filePath),
+		[filePath],
+	);
 
 	return (
-		<ComposerPreviewBadge
+		<InlineBadge
 			icon={
 				<FileText
-					className="size-3 shrink-0 text-muted-foreground"
+					className="size-3.5 shrink-0 text-muted-foreground"
 					strokeWidth={1.8}
 				/>
 			}
 			label={fileName}
 			removeLabel="Remove file"
+			previewLoader={previewLoader}
 			onRemove={() => {
 				editor.update(() => {
 					const node = $getNodeByKey(nodeKey);

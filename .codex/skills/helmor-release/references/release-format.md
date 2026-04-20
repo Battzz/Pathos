@@ -49,23 +49,23 @@ Bad:
 
 ## Body Structure
 
-Every changeset body has two mandatory parts:
+Pick the smallest shape that fits the change.
 
-1. A prose **summary line** with no leading `- `.
-2. One or more **bullet sub-items** (each starting with `- `) underneath.
+**Shape A — single sentence.** Default for most patch-level fixes and small polish PRs. One self-contained sentence is the entire body.
 
-Both parts are required, even for a single-change fix. The summary gives the CHANGELOG reader context at a glance; the bullets carry the concrete outcomes. Do not submit changesets that are a single prose sentence with no bullets, and never start the body with `- `.
+**Shape B — summary line + bullets.** Use only when there are ≥2 distinct user-visible changes worth enumerating. A prose summary line (no leading `- `) followed by `- ` sub-items.
 
-`@changesets/changelog-github` inlines the first line of the body onto the same line as `Thanks @user! -` when rendering `CHANGELOG.md` / GitHub Release. Starting with `- ` produces `! - - Fix X` with the first item glued to the attribution line, which is why the summary-first rule is enforced.
+Decision rule: if the summary would just restate the only bullet underneath, collapse to Shape A. If a single sentence forces "and"/";" cramming, expand to Shape B.
 
-Single change — summary line describes the area, one bullet captures the outcome:
+Hard rule for both shapes: **never start the body with `- `.** `@changesets/changelog-github` inlines the first line of the body onto the same line as `Thanks @user! -` when rendering `CHANGELOG.md` / GitHub Release; a leading `- ` produces `! - - Fix X` with the first item glued to the attribution line.
+
+Shape A — single sentence:
 
 ```md
-Fix a composer IME regression:
-- The caret no longer jumps to the start of the paragraph after an IME buffer is stripped.
+Fix a composer IME regression so the caret no longer jumps to the start of the paragraph after an IME buffer is stripped.
 ```
 
-Multiple changes — summary line ends with `:`, bullets follow:
+Shape B — summary line ends with `:`, bullets follow:
 
 ```md
 Harden Chinese / Japanese / Korean IME handling in the composer:

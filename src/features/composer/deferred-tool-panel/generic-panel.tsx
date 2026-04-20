@@ -1,13 +1,37 @@
 import { Check, MessageSquareMore, Settings2, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { ActionRowButton } from "@/components/action-row";
-import { Textarea } from "@/components/ui/textarea";
+import { useEffect, useMemo, useState } from "react";
+import { CodeBlock } from "@/components/ai/code-block";
+import { Button } from "@/components/ui/button";
 import {
-	autosizeTextarea,
-	DeferredToolCard,
-	type DeferredToolPanelProps,
-	INLINE_TEXTAREA_CLASS,
-} from "./shared";
+	InteractionFooter,
+	InteractionHeader,
+	InteractionOptionalInput,
+} from "../interaction";
+import { DeferredToolCard, type DeferredToolPanelProps } from "./shared";
+
+/**
+ * If the tool looks shell-shaped (Bash tool with a `command` string),
+ * render the command with bash highlighting. Everything else falls back
+ * to a JSON view of `toolInput` with JSON highlighting.
+ */
+function getCodePreview(deferred: DeferredToolPanelProps["deferred"]): {
+	code: string;
+	language: string;
+} {
+	const lowerName = deferred.toolName.toLowerCase();
+	const command = deferred.toolInput?.command;
+	if (
+		typeof command === "string" &&
+		command.length > 0 &&
+		(lowerName === "bash" || lowerName === "shell" || lowerName === "exec")
+	) {
+		return { code: command, language: "bash" };
+	}
+	return {
+		code: JSON.stringify(deferred.toolInput, null, 2),
+		language: "json",
+	};
+}
 
 export function GenericDeferredToolPanel({
 	deferred,
@@ -15,63 +39,44 @@ export function GenericDeferredToolPanel({
 	onResponse,
 }: DeferredToolPanelProps) {
 	const [reason, setReason] = useState("");
-	const reasonRef = useRef<HTMLTextAreaElement | null>(null);
 
 	useEffect(() => {
 		setReason("");
 	}, [deferred.toolUseId]);
 
-	useEffect(() => {
-		autosizeTextarea(reasonRef.current);
-	}, [reason]);
+	const preview = useMemo(() => getCodePreview(deferred), [deferred]);
 
 	return (
 		<DeferredToolCard>
-			{/* Header */}
-			<div className="flex items-start gap-3 px-1 pb-2">
-				<div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground">
-					<Settings2 className="size-3.5" strokeWidth={1.8} />
-				</div>
-				<div className="min-w-0 flex-1">
-					<p className="text-[13px] font-medium leading-5 text-foreground">
-						{deferred.toolName}
-					</p>
-					<p className="mt-1 text-[11px] text-muted-foreground">
-						This tool needs your approval before it can run.
-					</p>
-				</div>
+			<InteractionHeader
+				icon={Settings2}
+				title={deferred.toolName}
+				description="This tool needs your approval before it can run."
+				truncateTitle
+			/>
+
+			{/* Tool input — syntax-highlighted via shiki */}
+			<div className="mx-1 max-h-56 overflow-y-auto rounded-xl bg-muted/20">
+				<CodeBlock
+					code={preview.code}
+					language={preview.language}
+					variant="plain"
+					wrapLines
+				/>
 			</div>
 
-			{/* Tool input */}
-			<div className="mx-1 rounded-xl bg-muted/20 px-3 py-2.5">
-				<pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words text-[12px] leading-5 text-foreground">
-					{JSON.stringify(deferred.toolInput, null, 2)}
-				</pre>
-			</div>
+			<InteractionOptionalInput
+				icon={MessageSquareMore}
+				placeholder="Optional reason"
+				value={reason}
+				onChange={setReason}
+				disabled={disabled}
+			/>
 
-			{/* Reason area */}
-			<div className="px-1 pt-2">
-				<div className="flex items-start gap-2 px-2 py-1.5">
-					<MessageSquareMore
-						className="mt-1 size-3.5 shrink-0 text-muted-foreground/70"
-						strokeWidth={1.8}
-					/>
-					<Textarea
-						ref={reasonRef}
-						rows={1}
-						aria-label="Optional reason"
-						disabled={disabled}
-						placeholder="Optional reason"
-						value={reason}
-						onChange={(event) => setReason(event.target.value)}
-						className={INLINE_TEXTAREA_CLASS}
-					/>
-				</div>
-			</div>
-
-			{/* Footer */}
-			<div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/30 px-1 pt-2">
-				<ActionRowButton
+			<InteractionFooter>
+				<Button
+					variant="outline"
+					size="sm"
 					disabled={disabled}
 					onClick={() =>
 						onResponse(deferred, "deny", {
@@ -81,9 +86,10 @@ export function GenericDeferredToolPanel({
 				>
 					<X className="size-3.5" strokeWidth={2} />
 					<span>Deny</span>
-				</ActionRowButton>
-				<ActionRowButton
-					active
+				</Button>
+				<Button
+					variant="default"
+					size="sm"
 					disabled={disabled}
 					onClick={() =>
 						onResponse(deferred, "allow", {
@@ -94,8 +100,8 @@ export function GenericDeferredToolPanel({
 				>
 					<Check className="size-3.5" strokeWidth={2} />
 					<span>Allow</span>
-				</ActionRowButton>
-			</div>
+				</Button>
+			</InteractionFooter>
 		</DeferredToolCard>
 	);
 }

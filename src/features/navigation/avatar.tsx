@@ -1,5 +1,10 @@
 import { memo, useEffect, useState } from "react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+	Avatar,
+	AvatarBadge,
+	AvatarFallback,
+	AvatarImage,
+} from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
 function initialsFromLabel(label?: string | null) {
@@ -37,6 +42,8 @@ export const WorkspaceAvatar = memo(function WorkspaceAvatar({
 	title,
 	className,
 	fallbackClassName,
+	badgeClassName,
+	badgeAriaLabel,
 }: {
 	repoIconSrc?: string | null;
 	repoInitials?: string | null;
@@ -44,6 +51,8 @@ export const WorkspaceAvatar = memo(function WorkspaceAvatar({
 	title: string;
 	className?: string;
 	fallbackClassName?: string;
+	badgeClassName?: string | null;
+	badgeAriaLabel?: string;
 }) {
 	const fallback = (
 		repoInitials?.trim() || initialsFromLabel(repoName || title)
@@ -89,6 +98,15 @@ export const WorkspaceAvatar = memo(function WorkspaceAvatar({
 				>
 					{fallback}
 				</AvatarFallback>
+			) : null}
+			{badgeClassName ? (
+				<AvatarBadge
+					aria-label={badgeAriaLabel}
+					className={cn(
+						"bottom-auto -top-0.5 size-1.5 border-0 ring-2 ring-sidebar",
+						badgeClassName,
+					)}
+				/>
 			) : null}
 		</Avatar>
 	);

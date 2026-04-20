@@ -62,7 +62,7 @@ function buildTitleSeed(prompt: string): string {
 	return `${normalized.slice(0, 33).trimEnd()}...`;
 }
 
-type PendingPermission = {
+export type PendingPermission = {
 	permissionId: string;
 	toolName: string;
 	toolInput: Record<string, unknown>;

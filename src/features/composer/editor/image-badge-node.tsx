@@ -19,8 +19,8 @@ import {
 } from "lexical";
 import { ImageIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { InlineBadge } from "@/components/inline-badge";
 import { basename } from "@/lib/path-util";
-import { ComposerPreviewBadge } from "./composer-preview-badge";
 
 // ---------------------------------------------------------------------------
 // Serialization type
@@ -46,9 +46,12 @@ function ComposerImageBadge({
 	const fileName = basename(imagePath);
 
 	return (
-		<ComposerPreviewBadge
+		<InlineBadge
 			icon={
-				<ImageIcon className="size-3 shrink-0 text-chart-3" strokeWidth={1.8} />
+				<ImageIcon
+					className="size-3.5 shrink-0 text-chart-3"
+					strokeWidth={1.8}
+				/>
 			}
 			label={fileName}
 			removeLabel="Remove image"
