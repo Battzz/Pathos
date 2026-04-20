@@ -278,6 +278,125 @@ h1.hero .and {
 	background: var(--muted);
 }
 
+/* ---------- Download dropdown ---------- */
+/* Positioning anchor for .dl-panel. The menu itself is only as tall as the
+ * trigger; the panel floats 8px below via position:absolute. */
+.dl-menu {
+	position: relative;
+}
+.dl-trigger .caret {
+	margin-left: 2px;
+	margin-right: -4px;
+	opacity: 0.75;
+	transition: transform var(--motion-fast);
+}
+.dl-menu[data-open="true"] .dl-trigger .caret {
+	transform: rotate(180deg);
+}
+.dl-panel {
+	position: absolute;
+	top: calc(100% + 8px);
+	left: 0;
+	width: 280px;
+	background: var(--popover);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	box-shadow:
+		0 24px 48px -16px oklch(0 0 0 / 40%),
+		0 6px 16px -6px oklch(0 0 0 / 25%);
+	padding: 4px;
+	/* Closed: transparent, slightly lifted + shrunk, non-interactive.
+	 * CSS drives the transition; React just flips data-open. */
+	opacity: 0;
+	transform: translateY(-4px) scale(0.98);
+	pointer-events: none;
+	transition:
+		opacity 160ms var(--ease-out),
+		transform 160ms var(--ease-out);
+	z-index: 50;
+}
+.dl-menu[data-open="true"] .dl-panel {
+	opacity: 1;
+	transform: translateY(0) scale(1);
+	pointer-events: auto;
+}
+.dl-item {
+	display: grid;
+	grid-template-columns: auto 1fr auto;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 10px;
+	border-radius: 7px;
+	cursor: pointer;
+	transition: background var(--motion-fast);
+}
+.dl-item:hover {
+	background: var(--muted);
+}
+.dl-item + .dl-item {
+	margin-top: 2px;
+}
+.dl-chip {
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	padding: 3px 6px;
+	border: 1px solid var(--border);
+	border-radius: 5px;
+	color: var(--muted-foreground);
+	background: var(--muted);
+	min-width: 28px;
+	text-align: center;
+}
+.dl-text {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	min-width: 0;
+}
+.dl-title {
+	font-size: 12.5px;
+	font-weight: 500;
+	color: var(--foreground);
+	line-height: 1.2;
+}
+.dl-sub {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--muted-foreground);
+	line-height: 1.2;
+}
+.dl-size {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--muted-foreground);
+	white-space: nowrap;
+}
+.dl-foot {
+	margin-top: 4px;
+	padding: 8px 10px 6px;
+	border-top: 1px solid var(--border);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--muted-foreground);
+}
+.dl-foot .ok {
+	color: var(--status-progress);
+}
+/* biome-ignore lint/style/noDescendingSpecificity: targets a different ancestor than .rail .links a */
+.dl-foot a {
+	color: var(--muted-foreground);
+	transition: color var(--motion-fast);
+}
+/* biome-ignore lint/style/noDescendingSpecificity: targets a different ancestor than .rail .links a:hover */
+.dl-foot a:hover {
+	color: var(--foreground);
+}
+
 /* Meta line */
 .meta {
 	display: flex;
