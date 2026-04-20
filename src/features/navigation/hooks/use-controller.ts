@@ -793,54 +793,16 @@ export function useWorkspacesSidebarController({
 
 	const handleSetManualStatus = useCallback(
 		async (workspaceId: string, status: DerivedStatus | null) => {
-			const targetGroupId = workspaceGroupIdFromStatus(status, status);
-
-			queryClient.setQueryData(helmorQueryKeys.workspaceGroups, (current) => {
-				if (!Array.isArray(current)) {
-					return current;
-				}
-				const groupsCopy = current as typeof groups;
-
-				let movedRow: (typeof groups)[number]["rows"][number] | null = null;
-				const withoutRow = groupsCopy.map((group) => {
-					const index = group.rows.findIndex((row) => row.id === workspaceId);
-					if (index === -1) {
-						return group;
-					}
-					movedRow = { ...group.rows[index], manualStatus: status };
-					return {
-						...group,
-						rows: [
-							...group.rows.slice(0, index),
-							...group.rows.slice(index + 1),
-						],
-					};
-				});
-
-				if (!movedRow) {
-					return current;
-				}
-
-				return withoutRow.map((group) =>
-					group.id === targetGroupId
-						? { ...group, rows: [movedRow, ...group.rows] }
-						: group,
-				);
-			});
-
 			try {
 				await setWorkspaceManualStatus(workspaceId, status);
-				await invalidateWorkspaceSummary(workspaceId);
+				flushSidebarLists();
 			} catch (error) {
-				void queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceGroups,
-				});
 				pushWorkspaceToast(
 					describeUnknownError(error, "Unable to set status."),
 				);
 			}
 		},
-		[invalidateWorkspaceSummary, pushWorkspaceToast, queryClient],
+		[flushSidebarLists, pushWorkspaceToast],
 	);
 
 	const handleCreateWorkspaceFromRepo = useCallback(
