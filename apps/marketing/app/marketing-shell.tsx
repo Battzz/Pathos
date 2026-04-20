@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RepoData } from "@/lib/github";
+import { DownloadDropdown } from "./download-dropdown";
 
 type Theme = "light" | "dark";
 
@@ -277,10 +278,7 @@ export function MarketingShell({ data }: { data: RepoData }) {
 						</p>
 
 						<div className="cta">
-							<a className="btn primary" href={data.latestReleaseUrl}>
-								<DownloadIcon />
-								Download for macOS
-							</a>
+							<DownloadDropdown data={data} />
 							<a className="btn outline" href={data.repoUrl}>
 								<GithubIcon />
 								View on GitHub
@@ -364,26 +362,6 @@ function MoonIcon() {
 			aria-hidden="true"
 		>
 			<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-		</svg>
-	);
-}
-
-function DownloadIcon() {
-	return (
-		<svg
-			width="13"
-			height="13"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			aria-hidden="true"
-		>
-			<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-			<polyline points="7 10 12 15 17 10" />
-			<line x1="12" y1="15" x2="12" y2="3" />
 		</svg>
 	);
 }

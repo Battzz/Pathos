@@ -41,7 +41,7 @@ import {
 } from "./shared";
 
 const rowVariants = cva(
-	"group relative flex h-7.5 select-none items-center gap-2 rounded-md px-2.5 text-[13px] cursor-pointer",
+	"group/row relative flex h-7.5 select-none items-center gap-2 rounded-md px-2.5 text-[13px] cursor-pointer",
 	{
 		variants: {
 			active: {
@@ -113,6 +113,19 @@ export const WorkspaceRowItem = memo(
 		const hasActionHandler = isRestoreAction
 			? Boolean(onRestoreWorkspace)
 			: Boolean(onArchiveWorkspace);
+		// Width of the hover action cluster drives the text fade mask. Single icon
+		// uses the CSS default (transparent 1.2rem, solid 2rem). Two icons span
+		// ~3.25rem from the row's right edge (pr-2.5 + size-5 + gap-0.5 + size-5),
+		// so push the fade to end just past that so text hugs the leftmost icon
+		// instead of leaving a visible gap.
+		const hasTwoActions =
+			hasActionHandler && isRestoreAction && Boolean(onDeleteWorkspace);
+		const rowFadeStyle = hasTwoActions
+			? ({
+					"--row-fade-transparent": "2.6rem",
+					"--row-fade-solid": "3.4rem",
+				} as React.CSSProperties)
+			: undefined;
 		const actionIcon = isBusy ? (
 			<LoaderCircle className="size-3.5 animate-spin" strokeWidth={2.1} />
 		) : isRestoreAction ? (
@@ -150,6 +163,8 @@ export const WorkspaceRowItem = memo(
 				aria-label={displayTitle}
 				data-workspace-row-id={row.id}
 				data-has-unread={row.hasUnread ? "true" : "false"}
+				data-busy={isBusy ? "true" : undefined}
+				style={rowFadeStyle}
 				onMouseEnter={() => {
 					onPrefetch?.(row.id);
 				}}
@@ -171,7 +186,7 @@ export const WorkspaceRowItem = memo(
 					!selected && row.state === "archived" && "opacity-50",
 				)}
 			>
-				<div className="flex min-w-0 flex-1 items-center gap-2">
+				<div className="row-content-fade flex min-w-0 flex-1 items-center gap-2">
 					<WorkspaceAvatar
 						repoIconSrc={row.repoIconSrc}
 						repoInitials={row.repoInitials ?? row.avatar ?? null}
@@ -210,8 +225,9 @@ export const WorkspaceRowItem = memo(
 				{hasActionHandler ? (
 					<span
 						className={cn(
-							"shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
-							isBusy && "opacity-100",
+							"pointer-events-none absolute inset-y-0 right-0 flex items-center gap-0.5 pr-2.5",
+							"opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100 group-focus-within/row:pointer-events-auto group-focus-within/row:opacity-100",
+							isBusy && "pointer-events-auto opacity-100",
 						)}
 					>
 						<Tooltip>
