@@ -17,7 +17,15 @@ Rules:
    - HELMOR_WORKSPACE_PATH: the current workspace's worktree path, and the directory where the script runs.
    - HELMOR_WORKSPACE_NAME: the current workspace name.
    - HELMOR_DEFAULT_BRANCH: the repository default branch.
-4. If helmor.json does not exist but conductor.json exists, first copy conductor.json to helmor.json, then continue working only on helmor.json.
+4. Migration from conductor.json:
+   - If helmor.json does not exist but conductor.json exists, copy conductor.json to helmor.json.
+   - Rename every CONDUCTOR_* environment variable reference in helmor.json to its Helmor equivalent. Cover both $VAR and \${VAR} forms. Do this whether helmor.json was just copied or an earlier incomplete migration left stale references:
+     - CONDUCTOR_WORKSPACE_NAME → HELMOR_WORKSPACE_NAME
+     - CONDUCTOR_WORKSPACE_PATH → HELMOR_WORKSPACE_PATH
+     - CONDUCTOR_ROOT_PATH → HELMOR_ROOT_PATH
+     - CONDUCTOR_DEFAULT_BRANCH → HELMOR_DEFAULT_BRANCH
+     - CONDUCTOR_PORT → HELMOR_PORT
+   - After this step, only work on helmor.json.
 5. If the migrated helmor.json already contains scripts.setup, stop and tell me the migration is complete.
 6. Keep setup minimal and idempotent.
 7. Do not hardcode absolute local paths.
@@ -63,7 +71,15 @@ Rules:
    - HELMOR_WORKSPACE_PATH: the current workspace's worktree path, and the directory where the script runs.
    - HELMOR_WORKSPACE_NAME: the current workspace name.
    - HELMOR_DEFAULT_BRANCH: the repository default branch.
-4. If helmor.json does not exist but conductor.json exists, first copy conductor.json to helmor.json, then continue working only on helmor.json.
+4. Migration from conductor.json:
+   - If helmor.json does not exist but conductor.json exists, copy conductor.json to helmor.json.
+   - Rename every CONDUCTOR_* environment variable reference in helmor.json to its Helmor equivalent. Cover both $VAR and \${VAR} forms. Do this whether helmor.json was just copied or an earlier incomplete migration left stale references:
+     - CONDUCTOR_WORKSPACE_NAME → HELMOR_WORKSPACE_NAME
+     - CONDUCTOR_WORKSPACE_PATH → HELMOR_WORKSPACE_PATH
+     - CONDUCTOR_ROOT_PATH → HELMOR_ROOT_PATH
+     - CONDUCTOR_DEFAULT_BRANCH → HELMOR_DEFAULT_BRANCH
+     - CONDUCTOR_PORT → HELMOR_PORT
+   - After this step, only work on helmor.json.
 5. If the migrated helmor.json already contains scripts.run, stop and tell me the migration is complete.
 6. Do not overfit this run script to the current task, a single test file, or a one-off command.
 7. Do not quietly choose a heavy, destructive, or highly opinionated command when multiple reasonable defaults exist.
@@ -107,7 +123,15 @@ Rules:
    - HELMOR_WORKSPACE_PATH: the current workspace's worktree path, and the directory where the script runs.
    - HELMOR_WORKSPACE_NAME: the current workspace name.
    - HELMOR_DEFAULT_BRANCH: the repository default branch.
-4. If helmor.json does not exist but conductor.json exists, first copy conductor.json to helmor.json, then continue working only on helmor.json.
+4. Migration from conductor.json:
+   - If helmor.json does not exist but conductor.json exists, copy conductor.json to helmor.json.
+   - Rename every CONDUCTOR_* environment variable reference in helmor.json to its Helmor equivalent. Cover both $VAR and \${VAR} forms. Do this whether helmor.json was just copied or an earlier incomplete migration left stale references:
+     - CONDUCTOR_WORKSPACE_NAME → HELMOR_WORKSPACE_NAME
+     - CONDUCTOR_WORKSPACE_PATH → HELMOR_WORKSPACE_PATH
+     - CONDUCTOR_ROOT_PATH → HELMOR_ROOT_PATH
+     - CONDUCTOR_DEFAULT_BRANCH → HELMOR_DEFAULT_BRANCH
+     - CONDUCTOR_PORT → HELMOR_PORT
+   - After this step, only work on helmor.json.
 5. If the migrated helmor.json already contains scripts.archive, stop and tell me the migration is complete.
 6. Default to conservative behavior.
 7. Ask at most 3 rounds of questions, and only when they materially change the script design.
