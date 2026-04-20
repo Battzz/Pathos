@@ -152,12 +152,19 @@ function newAssistantMessage(id: string): IncrementalAssistantMessage {
 	};
 }
 
+let __perfFixtureSeq = 0;
+
 function asTextPart(text: string): TextPart {
-	return { type: "text", text };
+	return { type: "text", id: `perf-fixture:txt:${__perfFixtureSeq++}`, text };
 }
 
 function asReasoningPart(text: string): ReasoningPart {
-	return { type: "reasoning", text, streaming: true };
+	return {
+		type: "reasoning",
+		id: `perf-fixture:rsn:${__perfFixtureSeq++}`,
+		text,
+		streaming: true,
+	};
 }
 
 function asToolCallPart(

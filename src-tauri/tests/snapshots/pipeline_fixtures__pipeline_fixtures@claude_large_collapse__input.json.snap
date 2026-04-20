@@ -8,6 +8,7 @@ input_file: tests/fixtures/pipeline/claude_large_collapse/input.json
   createdAt: "2026-01-01T00:00:00.000Z"
   content:
     - type: reasoning
+      id: "uuid_3:blk:0"
       text: ""
     - type: tool-call
       toolCallId: toolu_1
@@ -19,6 +20,7 @@ input_file: tests/fixtures/pipeline/claude_large_collapse/input.json
       result: "EPERM: operation not permitted, mkdir '$CLAUDE_HOME/session-env/uuid_1'"
       isError: true
     - type: collapsed-group
+      id: "group:toolu_2"
       category: mixed
       tools:
         - type: tool-call

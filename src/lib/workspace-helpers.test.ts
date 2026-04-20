@@ -194,37 +194,46 @@ describe("getWorkspaceBranchTone", () => {
 
 describe("splitTextWithFiles", () => {
 	it("returns plain text when no files", () => {
-		expect(splitTextWithFiles("hello world", [])).toEqual([
-			{ type: "text", text: "hello world" },
+		expect(splitTextWithFiles("hello world", [], "m1")).toEqual([
+			{ type: "text", id: "m1:txt:0", text: "hello world" },
 		]);
 	});
 
 	it("splits on @path mentions", () => {
-		const result = splitTextWithFiles("look at @src/main.rs please", [
-			"src/main.rs",
-		]);
+		const result = splitTextWithFiles(
+			"look at @src/main.rs please",
+			["src/main.rs"],
+			"m1",
+		);
 		expect(result).toEqual([
-			{ type: "text", text: "look at " },
-			{ type: "file-mention", path: "src/main.rs" },
-			{ type: "text", text: " please" },
+			{ type: "text", id: "m1:txt:0", text: "look at " },
+			{ type: "file-mention", id: "m1:mention:0", path: "src/main.rs" },
+			{ type: "text", id: "m1:txt:1", text: " please" },
 		]);
 	});
 
 	it("handles multiple file mentions", () => {
-		const result = splitTextWithFiles("@a.ts and @b.ts", ["a.ts", "b.ts"]);
+		const result = splitTextWithFiles(
+			"@a.ts and @b.ts",
+			["a.ts", "b.ts"],
+			"m1",
+		);
 		expect(result).toEqual([
-			{ type: "file-mention", path: "a.ts" },
-			{ type: "text", text: " and " },
-			{ type: "file-mention", path: "b.ts" },
+			{ type: "file-mention", id: "m1:mention:0", path: "a.ts" },
+			{ type: "text", id: "m1:txt:0", text: " and " },
+			{ type: "file-mention", id: "m1:mention:1", path: "b.ts" },
 		]);
 	});
 
 	it("longer paths win on overlap", () => {
-		const result = splitTextWithFiles("@src/lib/api.ts", [
-			"src/lib/api.ts",
-			"api.ts",
+		const result = splitTextWithFiles(
+			"@src/lib/api.ts",
+			["src/lib/api.ts", "api.ts"],
+			"m1",
+		);
+		expect(result).toEqual([
+			{ type: "file-mention", id: "m1:mention:0", path: "src/lib/api.ts" },
 		]);
-		expect(result).toEqual([{ type: "file-mention", path: "src/lib/api.ts" }]);
 	});
 });
 

@@ -90,9 +90,12 @@ pub struct StreamAccumulator {
     fallback_thinking: String,
     /// Stable timestamp for the current streaming partial.
     partial_created_at: Option<String>,
-    /// Stable UI message ID for the current in-progress assistant turn.
-    active_partial_id: Option<String>,
-    partial_count: u32,
+    /// DB UUID for the currently in-flight assistant turn. Minted on first
+    /// need (first streaming partial OR first `handle_assistant` of a new
+    /// turn), reused as `IntermediateMessage.id` for every partial / full
+    /// snapshot of that turn AND as `CollectedTurn.id` when the turn flushes.
+    /// Consumed via `take()` by `flush_assistant` / `materialize_partial`.
+    active_turn_id: Option<String>,
     line_count: u64,
 
     // ── Persistence state (replaces Rust ClaudeOutputAccumulator) ────
@@ -106,6 +109,12 @@ pub struct StreamAccumulator {
     usage: AgentUsage,
     /// Raw result JSON line.
     result_json: Option<String>,
+    /// Pre-assigned id for the result (Claude `result` / Codex
+    /// `turn.completed`) row. `handle_result` / codex's `handle_turn_completed`
+    /// mint this up-front and pass it as the `collected[]` id so the DB
+    /// insert done by `persist_result_and_finalize` can reuse the same
+    /// UUID — no post-hoc id sync needed.
+    result_id: Option<String>,
     /// Concatenated assistant text (for persistence finalization).
     assistant_text: String,
     /// Concatenated thinking text (Claude only).
@@ -120,15 +129,11 @@ pub struct StreamAccumulator {
     cur_asst_blocks: Vec<Value>,
     /// Template of the current assistant message (for rebuilding).
     cur_asst_template: Option<Value>,
-
-    // ── ID-unification tracking ────────────────────────────────────
-    /// Index into `collected[]` for the first entry of the current
-    /// pending assistant turn (set on the first `handle_assistant` of a
-    /// new SDK message ID, consumed by `flush_assistant`).
-    pending_turn_collected_idx: Option<usize>,
-    /// Index into `collected[]` for the result message (Claude `result`
-    /// or Codex `turn.completed`), used by `sync_result_id`.
-    result_collected_idx: Option<usize>,
+    /// Running count of content blocks accumulated across all `assistant`
+    /// events of the current turn. Used to assign globally-unique
+    /// `__part_id` indices when the SDK delivers finalized blocks in
+    /// separate per-block `assistant` events (delta-style).
+    cur_asst_block_count: usize,
 
     // ── Codex state ──────────────────────────────────────────────────
     /// Per-item delta accumulation for Codex App Server streaming.
@@ -218,14 +223,14 @@ impl StreamAccumulator {
             fallback_text: String::new(),
             fallback_thinking: String::new(),
             partial_created_at: None,
-            active_partial_id: None,
-            partial_count: 0,
+            active_turn_id: None,
             line_count: 0,
             turns: Vec::new(),
             session_id: None,
             resolved_model: fallback_model.to_string(),
             usage: AgentUsage::default(),
             result_json: None,
+            result_id: None,
             assistant_text: String::new(),
             thinking_text: String::new(),
             saw_text_delta: false,
@@ -233,8 +238,7 @@ impl StreamAccumulator {
             cur_asst_id: None,
             cur_asst_blocks: Vec::new(),
             cur_asst_template: None,
-            pending_turn_collected_idx: None,
-            result_collected_idx: None,
+            cur_asst_block_count: 0,
             codex_items: codex::new_item_states(),
             codex_partial_idx: None,
             codex_turn_started_at: None,
@@ -443,13 +447,16 @@ impl StreamAccumulator {
     /// Build only the trailing partial message (if any streaming content exists).
     /// Returns `None` if there is no active streaming content.
     /// This is the only allocation needed per render cycle.
+    ///
+    /// `_context_key` is retained for API compatibility; stable DB UUIDs
+    /// no longer need a disambiguating context prefix.
     pub fn build_partial(
         &mut self,
-        context_key: &str,
+        _context_key: &str,
         session_id: &str,
     ) -> Option<IntermediateMessage> {
         if !self.blocks.is_empty() {
-            let (partial_id, created_at) = self.get_or_create_partial_identity(context_key);
+            let (partial_id, created_at) = self.get_or_create_turn_identity();
             Some(streaming::build_partial_from_blocks(
                 self, session_id, partial_id, created_at,
             ))
@@ -457,7 +464,7 @@ impl StreamAccumulator {
             let text = self.fallback_text.trim();
             let thinking = self.fallback_thinking.trim();
             if !text.is_empty() || !thinking.is_empty() {
-                let (partial_id, created_at) = self.get_or_create_partial_identity(context_key);
+                let (partial_id, created_at) = self.get_or_create_turn_identity();
                 Some(streaming::build_partial_fallback(
                     self, session_id, partial_id, created_at,
                 ))
@@ -532,27 +539,11 @@ impl StreamAccumulator {
         self.result_json.as_deref()
     }
 
-    /// Propagate pre-assigned turn UUIDs back into the corresponding
-    /// `collected[]` entries so the IDs the frontend sees during streaming
-    /// match the IDs stored in the DB. Call after persisting turns.
-    pub fn sync_persisted_ids(&mut self) {
-        for turn in &self.turns {
-            if let Some(idx) = turn.collected_idx {
-                if idx < self.collected.len() {
-                    self.collected[idx].id = turn.id.clone();
-                }
-            }
-        }
-    }
-
-    /// Propagate the result message's DB row ID into the corresponding
-    /// `collected[]` entry. Call after `persist_result_and_finalize`.
-    pub fn sync_result_id(&mut self, result_id: &str) {
-        if let Some(idx) = self.result_collected_idx {
-            if idx < self.collected.len() {
-                self.collected[idx].id = result_id.to_string();
-            }
-        }
+    /// The id the accumulator used for the current result row — returned
+    /// so `persist_result_and_finalize` can reuse it as the DB row id,
+    /// keeping the live-rendered id and the persisted id identical.
+    pub fn take_result_id(&mut self) -> Option<String> {
+        self.result_id.take()
     }
 
     /// Reclassify any in-flight tool_use as `error` so the adapter's
@@ -649,12 +640,12 @@ impl StreamAccumulator {
     /// message so terminal notices can land after it in the rendered thread.
     /// Used by abort handling, where no final provider `assistant` event will
     /// arrive to consume the partial naturally.
-    pub(super) fn materialize_partial(&mut self, context_key: &str, _session_id: &str) {
+    pub(super) fn materialize_partial(&mut self, _context_key: &str, _session_id: &str) {
         if !self.has_active_partial() {
             return;
         }
 
-        let (partial_id, created_at) = self.get_or_create_partial_identity(context_key);
+        let (partial_id, created_at) = self.get_or_create_turn_identity();
         let partial = if !self.blocks.is_empty() {
             streaming::build_materialized_partial_from_blocks(self, partial_id, created_at)
         } else {
@@ -662,16 +653,18 @@ impl StreamAccumulator {
         };
 
         if let Some(message) = partial {
-            let collected_idx = self.collected.len();
             self.turns.push(CollectedTurn {
-                id: uuid::Uuid::new_v4().to_string(),
+                id: message.id.clone(),
                 role: MessageRole::Assistant,
                 content_json: message.raw_json.clone(),
-                collected_idx: Some(collected_idx),
             });
             self.collected.push(message);
         }
 
+        // Turn UUID has been consumed into turns/collected — drop it here
+        // so the next turn starts fresh. `finalize_blocks` no longer owns
+        // the turn UUID lifecycle.
+        self.active_turn_id = None;
         self.finalize_blocks();
     }
 
@@ -712,9 +705,9 @@ impl StreamAccumulator {
         });
 
         self.line_count += 1;
-        let collected_idx = self.collected.len();
+        let notice_id = uuid::Uuid::new_v4().to_string();
         self.collected.push(IntermediateMessage {
-            id: format!("abort:{}", self.line_count),
+            id: notice_id.clone(),
             role: MessageRole::Error,
             raw_json: NOTICE_JSON.to_string(),
             parsed: Some(parsed),
@@ -722,10 +715,9 @@ impl StreamAccumulator {
             is_streaming: false,
         });
         self.turns.push(CollectedTurn {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: notice_id,
             role: MessageRole::Error,
             content_json: NOTICE_JSON.to_string(),
-            collected_idx: Some(collected_idx),
         });
     }
 
@@ -753,6 +745,8 @@ impl StreamAccumulator {
             .and_then(Value::as_str);
 
         // If we're already batching a different msg_id, flush it first.
+        // `flush_assistant` consumes `active_turn_id` for the OLD turn so
+        // the next mint below produces a fresh UUID for the NEW turn.
         let same_msg_id = self
             .cur_asst_id
             .as_deref()
@@ -761,35 +755,44 @@ impl StreamAccumulator {
             self.flush_assistant();
         }
 
-        // Track the collected[] index of the first entry in this
-        // assistant group so flush_assistant can link the turn to it.
-        if self.pending_turn_collected_idx.is_none() {
-            self.pending_turn_collected_idx = Some(self.collected.len());
-        }
+        // Ensure a turn UUID exists for this batch. If streaming partials
+        // already minted one for this turn it's still in `active_turn_id`
+        // and we reuse it; otherwise we mint here so `collect_message` and
+        // a later `flush_assistant` share a single identifier.
+        let turn_id = self.get_or_create_turn_identity().0;
 
         self.cur_asst_id = msg_id.map(str::to_string);
         self.cur_asst_template = Some(value.clone());
+
+        // The Claude SDK sends each finalized content block as its own
+        // `assistant` event with the SAME msg_id — i.e., delta-style,
+        // not cumulative snapshot. Stamp every block with a globally-
+        // unique `__part_id` derived from the turn UUID + a running
+        // counter so the adapter never falls back to positional synthesis
+        // (which would collide across events that each start at idx 0).
+        let mut stamped_value = value.clone();
         if let Some(blocks) = value
             .get("message")
             .and_then(|m| m.get("content"))
             .and_then(Value::as_array)
         {
-            // The Claude SDK sends each finalized content block as its own
-            // `assistant` event with the SAME msg_id — i.e., delta-style,
-            // not cumulative snapshot. Append, don't replace, so prior
-            // blocks (e.g. a thinking block immediately before a tool_use)
-            // survive into the persisted turn.
-            //
-            // The original code used `cur_asst_blocks = blocks.clone()`
-            // assuming each event carried a complete turn snapshot. That
-            // assumption was wrong, and silently dropped every thinking
-            // block followed by another block of the same turn — DB
-            // inspection from 2026-04 onwards showed zero thinking
-            // blocks in any persisted assistant row.
-            if same_msg_id {
-                self.cur_asst_blocks.extend_from_slice(blocks);
-            } else {
-                self.cur_asst_blocks = blocks.clone();
+            if !same_msg_id {
+                self.cur_asst_blocks.clear();
+                self.cur_asst_block_count = 0;
+            }
+            let mut stamped_blocks = blocks.clone();
+            for (i, block) in stamped_blocks.iter_mut().enumerate() {
+                if let Some(obj) = block.as_object_mut() {
+                    let part_id = format!("{turn_id}:blk:{}", self.cur_asst_block_count + i);
+                    obj.insert("__part_id".to_string(), Value::String(part_id));
+                }
+            }
+            self.cur_asst_block_count += stamped_blocks.len();
+            self.cur_asst_blocks.extend(stamped_blocks.iter().cloned());
+
+            // Also patch the value that goes into collected[] for rendering.
+            if let Some(msg) = stamped_value.get_mut("message") {
+                msg["content"] = Value::Array(stamped_blocks);
             }
         }
 
@@ -797,13 +800,14 @@ impl StreamAccumulator {
         // Finalize streaming blocks and push the full message to collected.
         // Matches TS behavior: always push, never replace.
         // The adapter's merge_adjacent_assistants handles merging.
-        let partial_id = self.active_partial_id.clone();
         self.finalize_blocks();
+        let stamped_raw =
+            serde_json::to_string(&stamped_value).unwrap_or_else(|_| raw_line.to_string());
         self.collect_message(
-            raw_line,
-            value,
+            &stamped_raw,
+            &stamped_value,
             MessageRole::Assistant,
-            partial_id.as_deref(),
+            Some(&turn_id),
         );
 
         // Turn-level failure category → error envelope.
@@ -821,16 +825,17 @@ impl StreamAccumulator {
     fn handle_user(&mut self, raw_line: &str, value: &Value) {
         // Persistence: flush any pending assistant turn
         self.flush_assistant();
-        let collected_idx = self.collected.len();
+        // Pre-mint the UUID so `collected[].id` and `CollectedTurn.id` are
+        // the same string — no more post-hoc `sync_persisted_ids`.
+        let turn_id = uuid::Uuid::new_v4().to_string();
         self.turns.push(CollectedTurn {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: turn_id.clone(),
             role: MessageRole::User,
             content_json: raw_line.to_string(),
-            collected_idx: Some(collected_idx),
         });
 
         // Rendering
-        self.collect_message(raw_line, value, MessageRole::User, None);
+        self.collect_message(raw_line, value, MessageRole::User, Some(&turn_id));
     }
 
     fn handle_result(&mut self, value: &Value, raw_line: &str) {
@@ -846,9 +851,10 @@ impl StreamAccumulator {
         }
         self.result_json = Some(raw_line.to_string());
 
-        // Rendering — track index so sync_result_id can back-fill the DB UUID.
-        self.result_collected_idx = Some(self.collected.len());
-        self.collect_message(raw_line, value, MessageRole::Assistant, None);
+        // Rendering — pre-mint the id so DB and live-render agree.
+        let id = uuid::Uuid::new_v4().to_string();
+        self.result_id = Some(id.clone());
+        self.collect_message(raw_line, value, MessageRole::Assistant, Some(&id));
     }
 
     fn handle_error(&mut self, raw_line: &str, value: &Value) {
@@ -918,29 +924,44 @@ impl StreamAccumulator {
         self.fallback_text.clear();
         self.fallback_thinking.clear();
         self.partial_created_at = None;
-        self.active_partial_id = None;
+        // NOTE: `active_turn_id` is NOT cleared here — a single assistant
+        // turn can span multiple content-block cycles (each emitting its
+        // own `finalize_blocks` + `assistant` event batch), and the turn
+        // UUID must stay stable across all of them. It's consumed only by
+        // `flush_assistant` / `materialize_partial` at true turn boundaries.
     }
 
     fn flush_assistant(&mut self) {
         if self.cur_asst_blocks.is_empty() {
             self.cur_asst_id = None;
-            self.pending_turn_collected_idx = None;
+            self.active_turn_id = None;
+            self.cur_asst_block_count = 0;
             return;
         }
+
+        // Consume the turn UUID that every `collect_message` for this turn
+        // already used — so the persisted row and the live-rendered row
+        // end up with byte-identical ids. Fall back to a fresh UUID only
+        // for the vanishingly rare case of a flush with no prior partial
+        // / assistant event (defensive: shouldn't happen in practice).
+        let turn_id = self
+            .active_turn_id
+            .take()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
         if let Some(mut template) = self.cur_asst_template.take() {
             if let Some(message) = template.get_mut("message") {
                 message["content"] = Value::Array(std::mem::take(&mut self.cur_asst_blocks));
             }
             self.turns.push(CollectedTurn {
-                id: uuid::Uuid::new_v4().to_string(),
+                id: turn_id,
                 role: MessageRole::Assistant,
                 content_json: template.to_string(),
-                collected_idx: self.pending_turn_collected_idx.take(),
             });
         }
 
         self.cur_asst_id = None;
+        self.cur_asst_block_count = 0;
     }
 
     pub(super) fn collect_message(
@@ -952,7 +973,7 @@ impl StreamAccumulator {
     ) {
         let id = override_id
             .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("stream:{}:{}", self.line_count, role));
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let created_at = self.get_partial_created_at();
 
         self.collected.push(IntermediateMessage {
@@ -995,15 +1016,19 @@ impl StreamAccumulator {
         self.partial_created_at.clone().unwrap()
     }
 
-    fn get_or_create_partial_identity(&mut self, context_key: &str) -> (String, String) {
+    /// Mint the turn-wide UUID if none is set yet, and return it alongside
+    /// the turn's stable timestamp. The same pair feeds every streaming
+    /// partial, every `collect_message` for the turn, and ultimately
+    /// `CollectedTurn.id` — so the frontend sees one id from the first
+    /// partial emit through DB commit, without any intermediate swap.
+    ///
+    /// `pub(super)` so the `streaming` submodule can stamp fresh block
+    /// ids derived from the turn UUID at `content_block_start` time.
+    pub(super) fn get_or_create_turn_identity(&mut self) -> (String, String) {
         let created_at = self.get_partial_created_at();
-        if self.active_partial_id.is_none() {
-            self.partial_count += 1;
-            self.active_partial_id = Some(format!(
-                "{context_key}:stream-partial:{}",
-                self.partial_count
-            ));
+        if self.active_turn_id.is_none() {
+            self.active_turn_id = Some(uuid::Uuid::new_v4().to_string());
         }
-        (self.active_partial_id.clone().unwrap(), created_at)
+        (self.active_turn_id.clone().unwrap(), created_at)
     }
 }

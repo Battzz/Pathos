@@ -13,12 +13,19 @@ use crate::pipeline::types::{IntermediateMessage, MessageRole};
 
 /// Per-content-block streaming state. Indexed by `index` from the
 /// `content_block_start` event so deltas land in the right slot.
+///
+/// Every variant carries a stable `id` minted at `content_block_start`
+/// time — serialized into the partial block JSON as `__part_id` so it
+/// survives round-trips through the DB and lands on the matching
+/// `MessagePart` id field in the adapter.
 #[derive(Debug, Clone)]
 pub(super) enum StreamingBlock {
     Text {
+        id: String,
         text: String,
     },
     Thinking {
+        id: String,
         text: String,
         /// Set to true when content_block_stop arrives.
         done: bool,
@@ -76,11 +83,19 @@ fn handle_block_start(acc: &mut StreamAccumulator, event: &Value) {
         .and_then(Value::as_str)
         .unwrap_or("");
 
+    // Stable `__part_id` derived from the turn UUID and the SDK's
+    // content_block index. The SDK guarantees `index` is stable per
+    // block per message, so the resulting id survives all deltas and
+    // matches what the frontend keys on.
+    let turn_id = acc.get_or_create_turn_identity().0;
+    let part_id = format!("{turn_id}:blk:{index}");
+
     match block_type {
         "text" => {
             acc.blocks.insert(
                 index,
                 StreamingBlock::Text {
+                    id: part_id,
                     text: String::new(),
                 },
             );
@@ -89,6 +104,7 @@ fn handle_block_start(acc: &mut StreamAccumulator, event: &Value) {
             acc.blocks.insert(
                 index,
                 StreamingBlock::Thinking {
+                    id: part_id,
                     text: String::new(),
                     done: false,
                 },
@@ -131,7 +147,7 @@ fn handle_block_delta(acc: &mut StreamAccumulator, event: &Value) {
     let delta_type = delta.get("type").and_then(Value::as_str);
 
     match (block, delta_type) {
-        (StreamingBlock::Text { text }, Some("text_delta")) => {
+        (StreamingBlock::Text { text, .. }, Some("text_delta")) => {
             if let Some(dt) = delta.get("text").and_then(Value::as_str) {
                 text.push_str(dt);
                 // Also accumulate for persistence
@@ -244,16 +260,18 @@ pub(super) fn handle_tool_progress(acc: &mut StreamAccumulator, value: &Value) {
 
 fn append_to_last_text_block(acc: &mut StreamAccumulator, text: &str) {
     for block in acc.blocks.values_mut().rev() {
-        if let StreamingBlock::Text { text: t } = block {
+        if let StreamingBlock::Text { text: t, .. } = block {
             t.push_str(text);
             return;
         }
     }
     // No text block exists — create one
     let idx = acc.blocks.len();
+    let turn_id = acc.get_or_create_turn_identity().0;
     acc.blocks.insert(
         idx,
         StreamingBlock::Text {
+            id: format!("{turn_id}:blk:{idx}"),
             text: text.to_string(),
         },
     );
@@ -267,9 +285,11 @@ fn append_to_last_thinking_block(acc: &mut StreamAccumulator, text: &str) {
         }
     }
     let idx = acc.blocks.len();
+    let turn_id = acc.get_or_create_turn_identity().0;
     acc.blocks.insert(
         idx,
         StreamingBlock::Thinking {
+            id: format!("{turn_id}:blk:{idx}"),
             text: text.to_string(),
             done: false,
         },
@@ -285,20 +305,25 @@ pub(super) fn build_partial_from_blocks(
     let mut content_blocks = Vec::new();
     for block in acc.blocks.values() {
         match block {
-            StreamingBlock::Text { text } => {
+            StreamingBlock::Text { id, text } => {
                 let display = if text.is_empty() {
                     "..."
                 } else {
                     text.as_str()
                 };
-                content_blocks.push(serde_json::json!({"type": "text", "text": display}));
+                content_blocks.push(serde_json::json!({
+                    "type": "text",
+                    "text": display,
+                    "__part_id": id,
+                }));
             }
-            StreamingBlock::Thinking { text, done } => {
+            StreamingBlock::Thinking { id, text, done } => {
                 if !text.is_empty() {
                     content_blocks.push(serde_json::json!({
                         "type": "thinking",
                         "thinking": text,
                         "__is_streaming": !done,
+                        "__part_id": id,
                     }));
                 }
             }
@@ -312,6 +337,8 @@ pub(super) fn build_partial_from_blocks(
                 let input = parsed_input
                     .clone()
                     .unwrap_or_else(|| serde_json::json!({}));
+                // ToolCall's part id is its `tool_use_id` — no separate
+                // `__part_id` needed, adapter reads `tool_call_id` directly.
                 content_blocks.push(serde_json::json!({
                     "type": "tool_use",
                     "id": tool_use_id,
@@ -356,16 +383,21 @@ pub(super) fn build_materialized_partial_from_blocks(
     let mut content_blocks = Vec::new();
     for block in acc.blocks.values() {
         match block {
-            StreamingBlock::Text { text } => {
+            StreamingBlock::Text { id, text } => {
                 if !text.is_empty() {
-                    content_blocks.push(serde_json::json!({"type": "text", "text": text}));
+                    content_blocks.push(serde_json::json!({
+                        "type": "text",
+                        "text": text,
+                        "__part_id": id,
+                    }));
                 }
             }
-            StreamingBlock::Thinking { text, .. } => {
+            StreamingBlock::Thinking { id, text, .. } => {
                 if !text.is_empty() {
                     content_blocks.push(serde_json::json!({
                         "type": "thinking",
                         "thinking": text,
+                        "__part_id": id,
                     }));
                 }
             }
@@ -424,6 +456,13 @@ pub(super) fn build_partial_fallback(
     let thinking = acc.fallback_thinking.trim();
     let display_text = if text.is_empty() { "..." } else { text };
 
+    let thinking_part_id = format!("{partial_id}:blk:0");
+    let text_part_id = if thinking.is_empty() {
+        format!("{partial_id}:blk:0")
+    } else {
+        format!("{partial_id}:blk:1")
+    };
+
     let parsed = if !thinking.is_empty() {
         serde_json::json!({
             "type": "assistant",
@@ -431,8 +470,8 @@ pub(super) fn build_partial_fallback(
                 "type": "message",
                 "role": "assistant",
                 "content": [
-                    {"type": "thinking", "thinking": thinking},
-                    {"type": "text", "text": display_text},
+                    {"type": "thinking", "thinking": thinking, "__part_id": thinking_part_id},
+                    {"type": "text", "text": display_text, "__part_id": text_part_id},
                 ],
             },
             "__streaming": true,
@@ -444,7 +483,7 @@ pub(super) fn build_partial_fallback(
                 "type": "message",
                 "role": "assistant",
                 "content": [
-                    {"type": "text", "text": display_text},
+                    {"type": "text", "text": display_text, "__part_id": text_part_id},
                 ],
             },
             "__streaming": true,
@@ -474,16 +513,20 @@ pub(super) fn build_materialized_partial_fallback(
     }
 
     let mut content = Vec::new();
+    let mut idx = 0;
     if !thinking.is_empty() {
         content.push(serde_json::json!({
             "type": "thinking",
             "thinking": thinking,
+            "__part_id": format!("{partial_id}:blk:{idx}"),
         }));
+        idx += 1;
     }
     if !text.is_empty() {
         content.push(serde_json::json!({
             "type": "text",
             "text": text,
+            "__part_id": format!("{partial_id}:blk:{idx}"),
         }));
     }
 

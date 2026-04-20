@@ -85,7 +85,7 @@ fn claude_document_block_renders_as_text() {
     let result = convert(&messages);
     assert_eq!(result.len(), 1);
     match &result[0].content[0] {
-        ExtendedMessagePart::Basic(MessagePart::Text { text }) => {
+        ExtendedMessagePart::Basic(MessagePart::Text { text, .. }) => {
             assert_eq!(text, "doc body");
         }
         _ => panic!("expected text part"),
@@ -115,7 +115,9 @@ fn claude_image_block_renders_as_image_part() {
     let result = convert(&messages);
     assert_eq!(result.len(), 1);
     match &result[0].content[0] {
-        ExtendedMessagePart::Basic(MessagePart::Image { source, media_type }) => {
+        ExtendedMessagePart::Basic(MessagePart::Image {
+            source, media_type, ..
+        }) => {
             assert_eq!(media_type.as_deref(), Some("image/png"));
             match source {
                 crate::pipeline::types::ImageSource::Base64 { data } => {
@@ -141,7 +143,7 @@ fn codex_turn_failed_renders_as_system_error() {
     let result = convert(&messages);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].role, MessageRole::System);
-    if let ExtendedMessagePart::Basic(MessagePart::Text { text }) = &result[0].content[0] {
+    if let ExtendedMessagePart::Basic(MessagePart::Text { text, .. }) = &result[0].content[0] {
         assert!(text.contains("rate exceeded"));
     } else {
         panic!("expected text part");
@@ -161,7 +163,7 @@ fn codex_error_event_renders_with_message() {
     let result = convert(&messages);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].role, MessageRole::System);
-    if let ExtendedMessagePart::Basic(MessagePart::Text { text }) = &result[0].content[0] {
+    if let ExtendedMessagePart::Basic(MessagePart::Text { text, .. }) = &result[0].content[0] {
         assert!(text.contains("stream closed unexpectedly"));
     } else {
         panic!("expected text part");
@@ -230,7 +232,7 @@ fn parse_assistant_with_thinking_and_text() {
     ));
     assert!(matches!(
         &result[0].content[1],
-        ExtendedMessagePart::Basic(MessagePart::Text { text }) if text == "here is my answer"
+        ExtendedMessagePart::Basic(MessagePart::Text { text, .. }) if text == "here is my answer"
     ));
 }
 
@@ -483,7 +485,7 @@ fn interleaved_subagent_children_attach_to_correct_parent() {
         parts
             .iter()
             .filter_map(|p| match p {
-                ExtendedMessagePart::Basic(MessagePart::Text { text }) => Some(text.clone()),
+                ExtendedMessagePart::Basic(MessagePart::Text { text, .. }) => Some(text.clone()),
                 _ => None,
             })
             .collect()
@@ -661,7 +663,7 @@ fn user_text_event_after_assistant_renders_as_user_message() {
     let result = convert(&messages);
     assert_eq!(result.len(), 2);
     assert_eq!(result[1].role, MessageRole::User);
-    if let ExtendedMessagePart::Basic(MessagePart::Text { text }) = &result[1].content[0] {
+    if let ExtendedMessagePart::Basic(MessagePart::Text { text, .. }) = &result[1].content[0] {
         assert_eq!(text, "do the thing");
     } else {
         panic!("expected user text part");
@@ -708,7 +710,7 @@ fn prompt_suggestion_renders_as_system_part() {
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].role, MessageRole::System);
     match &result[0].content[0] {
-        ExtendedMessagePart::Basic(MessagePart::PromptSuggestion { text }) => {
+        ExtendedMessagePart::Basic(MessagePart::PromptSuggestion { text, .. }) => {
             assert_eq!(text, "Try running the tests");
         }
         other => panic!("expected PromptSuggestion, got {other:?}"),
@@ -819,7 +821,7 @@ fn claude_todowrite_collapses_to_todolist_via_convert() {
     let result = convert(&messages);
     assert_eq!(result.len(), 1);
     match &result[0].content[0] {
-        ExtendedMessagePart::Basic(MessagePart::TodoList { items }) => {
+        ExtendedMessagePart::Basic(MessagePart::TodoList { items, .. }) => {
             assert_eq!(items.len(), 3);
             assert_eq!(items[0].text, "Step A");
             assert_eq!(items[0].status, TodoStatus::Completed);
@@ -848,7 +850,7 @@ fn claude_todowrite_streaming_falls_back_to_toolcall() {
             }]
         }
     });
-    let parts = parse_assistant_parts(Some(&parsed));
+    let parts = parse_assistant_parts(Some(&parsed), "test-msg");
     assert_eq!(parts.len(), 1);
     match &parts[0] {
         MessagePart::ToolCall { tool_name, .. } => assert_eq!(tool_name, "TodoWrite"),
@@ -877,10 +879,10 @@ fn parse_assistant_parts_collapses_todowrite() {
             }]
         }
     });
-    let parts = parse_assistant_parts(Some(&parsed));
+    let parts = parse_assistant_parts(Some(&parsed), "test-msg");
     assert_eq!(parts.len(), 1);
     match &parts[0] {
-        MessagePart::TodoList { items } => {
+        MessagePart::TodoList { items, .. } => {
             assert_eq!(items.len(), 1);
             assert_eq!(items[0].text, "X");
             assert_eq!(items[0].status, TodoStatus::Pending);
@@ -914,6 +916,7 @@ fn subagent_task_started_renders_as_notice_with_child_id() {
             severity,
             label,
             body,
+            ..
         }) => {
             assert_eq!(*severity, NoticeSeverity::Info);
             assert_eq!(label, "Subagent started");

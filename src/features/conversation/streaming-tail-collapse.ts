@@ -255,12 +255,25 @@ function buildCollapsedGroup(
 					? "shell"
 					: "read";
 
+	// Mirror Rust `collapse.rs`: only active when streaming AND the last
+	// tool has no result yet. The caller's `active` flag means "the
+	// overall message is still streaming", but the spinner should stop
+	// once every tool in the group has finished.
+	const lastToolDone =
+		tools.length > 0 && tools[tools.length - 1]!.result != null;
+	const groupActive = active && !lastToolDone;
+
+	// Derive a stable id from the first tool's id — mirrors the Rust
+	// `CollapsedGroupPart::new` so backend- and frontend-collapsed groups
+	// agree on the React key.
+	const firstId = tools[0]?.toolCallId ?? "empty";
 	return {
 		type: "collapsed-group",
+		id: `group:${firstId}`,
 		category,
 		tools,
-		active,
-		summary: buildGroupSummary(tools, active),
+		active: groupActive,
+		summary: buildGroupSummary(tools, groupActive),
 	};
 }
 

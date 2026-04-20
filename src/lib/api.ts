@@ -1429,9 +1429,17 @@ export type StreamingStatus =
 	| "done"
 	| "error";
 
-export type TextPart = { type: "text"; text: string };
+// Every part carries a stable `id` used as its React key. The Rust side
+// mints it at the earliest sighting of the block (accumulator's
+// `content_block_start` for Claude, `item.started` for Codex), serializes
+// it as `__part_id` in the block JSON, and the adapter reads it back onto
+// the typed part. `ToolCallPart` reuses its `toolCallId` (no separate `id`
+// field — `tool-call.tsx` already keys on `toolCallId`); every other
+// variant has its own `id`.
+export type TextPart = { type: "text"; id: string; text: string };
 export type ReasoningPart = {
 	type: "reasoning";
+	id: string;
 	text: string;
 	/** Per-part streaming state — only the active thinking block is streaming. */
 	streaming?: boolean;
@@ -1455,6 +1463,7 @@ export type ToolCallPart = {
 export type NoticeSeverity = "info" | "warning" | "error";
 export type SystemNoticePart = {
 	type: "system-notice";
+	id: string;
 	severity: NoticeSeverity;
 	label: string;
 	body?: string;
@@ -1463,6 +1472,7 @@ export type TodoStatus = "pending" | "in_progress" | "completed";
 export type TodoItem = { text: string; status: TodoStatus };
 export type TodoListPart = {
 	type: "todo-list";
+	id: string;
 	items: TodoItem[];
 };
 export type ImageSource =
@@ -1470,15 +1480,18 @@ export type ImageSource =
 	| { kind: "url"; url: string };
 export type ImagePart = {
 	type: "image";
+	id: string;
 	source: ImageSource;
 	mediaType?: string;
 };
 export type PromptSuggestionPart = {
 	type: "prompt-suggestion";
+	id: string;
 	text: string;
 };
 export type FileMentionPart = {
 	type: "file-mention";
+	id: string;
 	path: string;
 };
 export type PlanReviewAllowedPrompt = {
@@ -1506,11 +1519,21 @@ export type MessagePart =
 
 export type CollapsedGroupPart = {
 	type: "collapsed-group";
+	/** `group:{firstToolId}` — stable across streaming as tools accumulate. */
+	id: string;
 	category: "search" | "read" | "shell" | "mixed";
 	tools: ToolCallPart[];
 	active: boolean;
 	summary: string;
 };
+
+/** Stable React key for any `ExtendedMessagePart`. Hides the fact that
+ *  `ToolCallPart` uses `toolCallId` while other variants use `id`. */
+export function partKey(part: ExtendedMessagePart): string {
+	if (part.type === "tool-call") return part.toolCallId;
+	if (part.type === "plan-review") return part.toolUseId;
+	return part.id;
+}
 
 export type ExtendedMessagePart = MessagePart | CollapsedGroupPart;
 
