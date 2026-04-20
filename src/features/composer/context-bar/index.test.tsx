@@ -90,7 +90,7 @@ describe("ContextBar", () => {
 		expect(tooltip).toHaveTextContent("/Users/me/longpath");
 	});
 
-	test("clicking the × button on a chip triggers onRemove after the collapse animation", () => {
+	test("clicking the × button on a chip fires onRemove immediately", () => {
 		const onRemove = vi.fn();
 		render(
 			<ContextBar
@@ -99,9 +99,7 @@ describe("ContextBar", () => {
 			/>,
 		);
 		fireEvent.click(screen.getByLabelText("Remove a"));
-		// Animation drains first (~280ms) then onRemove fires.
-		expect(onRemove).not.toHaveBeenCalled();
-		vi.advanceTimersByTime(300);
+		// No collapse animation — removal is synchronous.
 		expect(onRemove).toHaveBeenCalledWith("/a");
 	});
 
@@ -119,7 +117,6 @@ describe("ContextBar", () => {
 		const chipA = screen.getByText("a").closest("[data-chip]") as HTMLElement;
 		chipA.focus();
 		fireEvent.keyDown(chipA, { key: "Backspace" });
-		vi.advanceTimersByTime(300);
 		expect(onRemove).toHaveBeenCalledWith("/a");
 	});
 

@@ -20,11 +20,9 @@ import {
 	type ReactNode,
 	useCallback,
 	useEffect,
-	useMemo,
 	useRef,
 	useState,
 } from "react";
-import { Button } from "@/components/ui/button";
 import { WorkspaceAvatar } from "@/features/navigation/avatar";
 import { cn } from "@/lib/utils";
 
@@ -78,9 +76,6 @@ export function ContextBar({
 	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const barRef = useRef<HTMLDivElement | null>(null);
 	const [hasOverflow, setHasOverflow] = useState(false);
-	// Track which chips are animating out so their DOM lingers until the
-	// transition ends. Keyed by path.
-	const [removing, setRemoving] = useState<Set<string>>(() => new Set());
 	const [tooltip, setTooltip] = useState<{
 		path: string;
 		left: number;
@@ -103,35 +98,18 @@ export function ContextBar({
 		return () => ro.disconnect();
 	}, [updateOverflow, directories.length]);
 
+	// Removal is instant — no collapse animation. The chip disappears
+	// the moment the user clicks × (or presses ⌫/Del on a focused chip).
 	const handleRemove = useCallback(
 		(path: string) => {
-			// Start the collapse animation; clear the entry from the DOM
-			// after the transition ends.
-			setRemoving((prev) => {
-				const next = new Set(prev);
-				next.add(path);
-				return next;
-			});
-			// 280ms matches the CSS transition duration.
-			const timer = window.setTimeout(() => {
-				setRemoving((prev) => {
-					if (!prev.has(path)) return prev;
-					const next = new Set(prev);
-					next.delete(path);
-					return next;
-				});
-				onRemove(path);
-			}, 280);
-			return () => window.clearTimeout(timer);
+			onRemove(path);
 		},
 		[onRemove],
 	);
 
 	const getChipList = () =>
 		Array.from<HTMLElement>(
-			barRef.current?.querySelectorAll<HTMLElement>(
-				"[data-chip]:not([data-removing='true'])",
-			) ?? [],
+			barRef.current?.querySelectorAll<HTMLElement>("[data-chip]") ?? [],
 		);
 
 	const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -229,69 +207,18 @@ export function ContextBar({
 	};
 	useEffect(() => () => clearHoverTimer(), []);
 
-	const visible = useMemo(
-		() => directories.map((d) => ({ ...d, removing: removing.has(d.path) })),
-		[directories, removing],
-	);
-
-	// Visual state machine:
-	//   mounted → is the bar in the DOM at all
-	//   isOpen  → are we showing the expanded styles
-	// Decoupling these two lets us run a transition in BOTH directions:
-	//   Enter (hidden → visible): force-render once with `isOpen=false`
-	//     so the browser paints the collapsed state, then flip
-	//     `isOpen=true` two frames later — a single `requestAnimationFrame`
-	//     can batch with React's commit and skip the transition entirely
-	//     on a fresh remount, which reads as a flash/snap.
-	//   Exit  (visible → hidden): set `isOpen=false` immediately, let the
-	//     260ms transition play, then unmount.
-	// On the VERY first render we intentionally skip the enter animation
-	// — a workspace that boots with linked dirs already set shouldn't
-	// animate them in on every app launch.
-	const shouldShow = directories.length > 0 || removing.size > 0;
-	const [mounted, setMounted] = useState(shouldShow);
-	const [isOpen, setIsOpen] = useState(shouldShow);
-	const initialMountRef = useRef(true);
-	useEffect(() => {
-		if (initialMountRef.current) {
-			initialMountRef.current = false;
-			return;
-		}
-		if (shouldShow) {
-			setMounted(true);
-			setIsOpen(false); // always start from the collapsed style
-			let raf2 = 0;
-			const raf1 = window.requestAnimationFrame(() => {
-				raf2 = window.requestAnimationFrame(() => setIsOpen(true));
-			});
-			return () => {
-				window.cancelAnimationFrame(raf1);
-				if (raf2) window.cancelAnimationFrame(raf2);
-			};
-		}
-		setIsOpen(false);
-		const t = window.setTimeout(() => setMounted(false), 280);
-		return () => window.clearTimeout(t);
-	}, [shouldShow]);
-
-	if (!mounted && !shouldShow) return null;
+	// No entrance/exit animation on the bar or individual chips — every
+	// change is instant per product direction. The bar renders whenever
+	// there's at least one linked directory and unmounts the frame it
+	// drops to zero.
+	if (directories.length === 0) return null;
 
 	return (
 		<div
 			data-slot="context-bar"
-			data-show={shouldShow ? "true" : "false"}
-			data-open={isOpen ? "true" : "false"}
-			className={cn(
-				// `max-height` is smoother than the `grid-template-rows:1fr↔0fr`
-				// trick — some browsers hitch mid-transition when the row is
-				// at an intermediate fractional size. 80px is a generous
-				// ceiling for the single-line chip row.
-				"relative -mx-4 overflow-hidden transition-[max-height,opacity,margin-bottom] duration-[260ms] ease-[cubic-bezier(0.4,0,0.2,1)]",
-				isOpen ? "mb-2 max-h-[80px] opacity-100" : "mb-0 max-h-0 opacity-0",
-				className,
-			)}
+			className={cn("relative -mx-4 mb-2", className)}
 		>
-			<div className="min-h-0 overflow-hidden">
+			<div>
 				<div
 					data-slot="context-bar-inner"
 					// Asymmetric vertical padding on purpose: the composer shell
@@ -329,7 +256,7 @@ export function ContextBar({
 							onBlurCapture={onBlurCapture}
 							onScroll={updateOverflow}
 						>
-							{visible.map((d, idx) => (
+							{directories.map((d, idx) => (
 								<Chip
 									key={d.path}
 									directory={d}
@@ -369,7 +296,7 @@ function Chip({
 	disabled,
 	onRemove,
 }: {
-	directory: ContextBarDirectory & { removing: boolean };
+	directory: ContextBarDirectory;
 	showSeparator: boolean;
 	disabled: boolean;
 	onRemove: () => void;
@@ -381,18 +308,14 @@ function Chip({
 				<span
 					aria-hidden
 					data-separator
-					className={cn(
-						// Subtle vertical bar instead of a chevron — less noisy
-						// and takes ~2px of horizontal space.
-						"block h-3 w-px shrink-0 bg-border/60 transition-[max-width,margin,opacity] duration-200",
-						directory.removing && "max-w-0 overflow-hidden opacity-0",
-					)}
+					// Subtle vertical bar instead of a chevron — less noisy
+					// and takes ~2px of horizontal space.
+					className="block h-3 w-px shrink-0 bg-border/60"
 				/>
 			) : null}
 			<span
 				data-chip
 				data-path={directory.path}
-				data-removing={directory.removing ? "true" : "false"}
 				role="group"
 				// Chips are focusable so keyboard users can remove them with
 				// ⌫/Del. Not a button (Enter is a no-op) and not a listitem
@@ -400,14 +323,12 @@ function Chip({
 				// biome-ignore lint/a11y/noNoninteractiveTabindex: focusable chip by design — Tab/⌫/Del nav is the only way to remove via keyboard.
 				tabIndex={0}
 				aria-label={displayName}
-				className={cn(
-					"group/chip inline-flex max-w-[200px] shrink-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12px] leading-tight",
-					"transition-[max-width,padding,margin,opacity,transform,background-color] duration-[260ms] ease-[cubic-bezier(0.4,0,0.2,1)]",
-					"outline-none focus-visible:bg-accent/60 focus-visible:shadow-[0_0_0_2px_color-mix(in_srgb,var(--workspace-pr-merged-accent)_35%,transparent)]",
-					"hover:bg-accent/60",
-					directory.removing &&
-						"max-w-0 -translate-x-1.5 scale-90 overflow-hidden p-0 opacity-0",
-				)}
+				// No explicit max-width on the chip — the name span caps at
+				// 160px via its own max-w + truncate, and the chip then
+				// naturally sizes to avatar + name + gap + close button.
+				// `bg-color` is the only transitioning property now (for the
+				// hover highlight); everything else is instant.
+				className="group/chip inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12px] leading-tight outline-none transition-colors hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:shadow-[0_0_0_2px_color-mix(in_srgb,var(--workspace-pr-merged-accent)_35%,transparent)]"
 			>
 				{directory.repoIconSrc || directory.repoInitials ? (
 					<WorkspaceAvatar
@@ -427,21 +348,37 @@ function Chip({
 				<span className="max-w-[160px] shrink-0 truncate font-medium text-muted-foreground">
 					{displayName}
 				</span>
-				<Button
+				{/* Plain `<button>` rather than shadcn `Button` because the
+				    Button component's `variant="ghost"` applies its own
+				    `hover:bg-accent` on top of the chip's hover background,
+				    producing a visible darker patch at the close-button
+				    location. We just want the X to be part of the chip's
+				    uniform hover surface. */}
+				{/* No `transition-opacity`, no `hover:text-foreground`, no
+				    `ml-0.5`. Each of those contributed to a visible jitter:
+				    the opacity fade went through several sub-pixel anti-
+				    aliased frames, the extra margin stacked with the flex
+				    `gap` for asymmetric spacing, and the color switch on
+				    direct X-hover re-rasterized the SVG at a slightly
+				    different subpixel grid. Everything is now instant and
+				    position-stable — the X just appears / disappears. */}
+				<button
 					type="button"
-					size="icon"
-					variant="ghost"
 					aria-label={`Remove ${displayName}`}
 					tabIndex={-1}
 					disabled={disabled}
-					className="size-3.5 shrink-0 rounded opacity-0 transition-opacity group-hover/chip:opacity-100 group-focus-visible/chip:opacity-100 data-[force-visible='true']:opacity-100"
+					className={cn(
+						"inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground",
+						"opacity-0 group-hover/chip:opacity-100 group-focus-visible/chip:opacity-100",
+						"disabled:pointer-events-none disabled:opacity-30",
+					)}
 					onClick={(event) => {
 						event.stopPropagation();
 						onRemove();
 					}}
 				>
-					<X className="size-2.5" />
-				</Button>
+					<X className="size-2.5" strokeWidth={2} />
+				</button>
 			</span>
 		</>
 	);
