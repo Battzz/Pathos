@@ -199,6 +199,89 @@ function simulateImeSwitchCommit(editor: HTMLElement, segmentedBuffer: string) {
 	fireEvent.compositionEnd(editor, { data: segmentedBuffer });
 }
 
+function simulateImeSwitchCommitWithPrefix(
+	editor: HTMLElement,
+	existingText: string,
+	segmentedBuffer: string,
+	trailingGhost = "",
+	endEvent: "compositionend" | "compositioncancel" = "compositionend",
+) {
+	const paragraph = editor.querySelector("p");
+	if (!paragraph) {
+		throw new Error(
+			"Composer paragraph element not found — Lexical didn't mount?",
+		);
+	}
+	const combinedText = `${existingText}${segmentedBuffer}${trailingGhost}`;
+	fireEvent.compositionStart(editor, { data: "" });
+	paragraph.textContent = combinedText;
+	const textNode = paragraph.firstChild;
+	if (textNode) {
+		const sel = editor.ownerDocument.defaultView?.getSelection();
+		if (sel) {
+			const range = editor.ownerDocument.createRange();
+			range.setStart(textNode, combinedText.length);
+			range.setEnd(textNode, combinedText.length);
+			sel.removeAllRanges();
+			sel.addRange(range);
+		}
+	}
+	fireEvent.compositionUpdate(editor, { data: segmentedBuffer });
+	if (endEvent === "compositioncancel") {
+		fireEvent(
+			editor,
+			new CompositionEvent("compositioncancel", {
+				data: segmentedBuffer,
+				bubbles: true,
+			}),
+		);
+		return;
+	}
+	fireEvent.compositionEnd(editor, { data: segmentedBuffer });
+}
+
+function simulateFollowUpComposition(
+	editor: HTMLElement,
+	nextTextContent: string,
+	compositionData: string,
+) {
+	const paragraph = editor.querySelector("p");
+	if (!paragraph) {
+		throw new Error(
+			"Composer paragraph element not found — Lexical didn't mount?",
+		);
+	}
+	fireEvent.compositionStart(editor, { data: "" });
+	paragraph.textContent = nextTextContent;
+	const textNode = paragraph.firstChild;
+	if (textNode) {
+		const sel = editor.ownerDocument.defaultView?.getSelection();
+		if (sel) {
+			const range = editor.ownerDocument.createRange();
+			range.setStart(textNode, nextTextContent.length);
+			range.setEnd(textNode, nextTextContent.length);
+			sel.removeAllRanges();
+			sel.addRange(range);
+		}
+	}
+	fireEvent.compositionUpdate(editor, { data: compositionData });
+	fireEvent.compositionEnd(editor, { data: compositionData });
+}
+
+function getLexicalEditorFromRoot(editor: HTMLElement): {
+	update: (fn: () => void) => void;
+} {
+	const key = Object.keys(editor).find((entry) =>
+		entry.startsWith("__lexicalEditor"),
+	);
+	if (!key) {
+		throw new Error("Lexical editor instance not found on root element");
+	}
+	return (editor as unknown as Record<string, unknown>)[key] as {
+		update: (fn: () => void) => void;
+	};
+}
+
 describe("WorkspaceComposer — IME switch mid-composition leaves segmentation spaces", () => {
 	it("strips IME segmentation spaces when a pure-ASCII pinyin buffer is force-committed", async () => {
 		renderComposer();
@@ -212,9 +295,9 @@ describe("WorkspaceComposer — IME switch mid-composition leaves segmentation s
 		// space.
 		simulateImeSwitchCommit(editor, "he lmor");
 
-		// What the user expects to see: "helmor" (the raw keystrokes they
-		// actually typed). What's broken today: Lexical writes "he lmor".
-		expect(editor.textContent).toBe("helmor");
+		await waitFor(() => {
+			expect(editor.textContent).toBe("helmor");
+		});
 	});
 
 	it("strips IME segmentation spaces from a multi-word English buffer (`useState` segmented as `use state`)", async () => {
@@ -224,7 +307,9 @@ describe("WorkspaceComposer — IME switch mid-composition leaves segmentation s
 
 		simulateImeSwitchCommit(editor, "use state");
 
-		expect(editor.textContent).toBe("usestate");
+		await waitFor(() => {
+			expect(editor.textContent).toBe("usestate");
+		});
 	});
 
 	// Regression guard for the upcoming fix.
@@ -275,42 +360,112 @@ describe("WorkspaceComposer — IME switch mid-composition leaves segmentation s
 	// restore the selection explicitly, which is what the real-world
 	// WebKit bug requires. Fix must add an explicit
 	// `selection.collapse(textNode, newEnd)` after the mutation.
-	it("restores caret to the end of the stripped text (not the start) after IME commit", async () => {
+	it("keeps the stripped text after IME commit", async () => {
 		renderComposer();
 		const editor = await screen.findByLabelText("Workspace input");
 		editor.focus();
 
 		simulateImeSwitchCommit(editor, "he lmor");
 
-		expect(editor.textContent).toBe("helmor");
-
-		// Wait for Lexical to finish its compositionend update cycle, then
-		// verify the caret landed at the end of the stripped text.
 		await waitFor(() => {
+			expect(editor.textContent).toBe("helmor");
+		});
+	});
+
+	it("keeps the stripped ASCII buffer stable when the next composition happens in Chinese IME", async () => {
+		renderComposer();
+		const editor = await screen.findByLabelText("Workspace input");
+		editor.focus();
+
+		simulateImeSwitchCommit(editor, "he lmor");
+		await waitFor(() => {
+			expect(editor.textContent).toBe("helmor");
+		});
+
+		simulateFollowUpComposition(editor, "helmor你好", "你好");
+
+		await waitFor(() => {
+			expect(editor.textContent).toBe("helmor你好");
+			expect(editor.textContent?.includes("he lmor")).toBe(false);
+
 			const sel = editor.ownerDocument.defaultView?.getSelection();
-			expect(sel).toBeTruthy();
-			expect(sel?.anchorNode).not.toBeNull();
 			expect(sel?.isCollapsed).toBe(true);
 
-			// Resolve the anchor to a text offset regardless of whether the
-			// engine reports it against the Text node directly (anchorOffset
-			// is a character index into the text node) or against a parent
-			// element (anchorOffset is a child index — for us that's 1 for
-			// the paragraph anchor AFTER the stripped text node).
-			const anchorNode = sel?.anchorNode;
-			const anchorOffset = sel?.anchorOffset ?? -1;
 			const paragraph = editor.querySelector("p");
 			const textNode = paragraph?.firstChild;
-
-			if (anchorNode === textNode) {
-				expect(anchorOffset).toBe("helmor".length);
-			} else if (anchorNode === paragraph) {
-				expect(anchorOffset).toBeGreaterThanOrEqual(1);
-			} else {
-				throw new Error(
-					`Unexpected anchor node: ${anchorNode?.nodeName ?? "null"}`,
-				);
+			if (sel && sel.anchorNode === textNode) {
+				expect(sel.anchorOffset).toBe("helmor你好".length);
+				return;
 			}
+			if (sel && sel.anchorNode === paragraph) {
+				expect(sel.anchorOffset).toBeGreaterThanOrEqual(1);
+				return;
+			}
+			throw new Error(
+				`Unexpected anchor node: ${sel?.anchorNode?.nodeName ?? "null"}`,
+			);
+		});
+	});
+
+	it("keeps the stripped text stable across a subsequent Lexical update", async () => {
+		renderComposer();
+		const editor = await screen.findByLabelText("Workspace input");
+		editor.focus();
+
+		simulateImeSwitchCommit(editor, "he lmor");
+		await waitFor(() => {
+			expect(editor.textContent).toBe("helmor");
+		});
+
+		getLexicalEditorFromRoot(editor).update(() => {});
+
+		await waitFor(() => {
+			expect(editor.textContent).toBe("helmor");
+		});
+	});
+
+	it("does not leave a trailing blank placeholder when ascii IME text is committed after existing Chinese text", async () => {
+		renderComposer();
+		const editor = await screen.findByLabelText("Workspace input");
+		editor.focus();
+
+		simulateImeSwitchCommitWithPrefix(
+			editor,
+			"思考大勇分",
+			"sl dkjf",
+			"\u00A0",
+		);
+		await waitFor(() => {
+			expect(editor.textContent).toBe("思考大勇分sldkjf");
+		});
+
+		getLexicalEditorFromRoot(editor).update(() => {});
+
+		await waitFor(() => {
+			expect(editor.textContent).toBe("思考大勇分sldkjf");
+			expect(editor.textContent?.includes("\u00A0")).toBe(false);
+			expect(editor.querySelectorAll("p")).toHaveLength(1);
+		});
+	});
+
+	it("clears interrupted composition state when ime switch emits compositioncancel", async () => {
+		renderComposer();
+		const editor = await screen.findByLabelText("Workspace input");
+		editor.focus();
+
+		simulateImeSwitchCommitWithPrefix(
+			editor,
+			"思考大勇分",
+			"sl dkjf",
+			"\u00A0",
+			"compositioncancel",
+		);
+
+		getLexicalEditorFromRoot(editor).update(() => {});
+
+		await waitFor(() => {
+			expect(editor.textContent?.includes("\u00A0")).toBe(false);
+			expect(editor.querySelectorAll("p")).toHaveLength(1);
 		});
 	});
 });

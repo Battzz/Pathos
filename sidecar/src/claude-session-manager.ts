@@ -698,6 +698,7 @@ export class ClaudeSessionManager implements SessionManager {
 	async generateTitle(
 		requestId: string,
 		userMessage: string,
+		branchRenamePrompt: string | null,
 		emitter: SidecarEmitter,
 		timeoutMs = TITLE_GENERATION_TIMEOUT_MS,
 	): Promise<void> {
@@ -705,7 +706,7 @@ export class ClaudeSessionManager implements SessionManager {
 		const timeout = setTimeout(() => abortController.abort(), timeoutMs);
 
 		const q = query({
-			prompt: buildTitlePrompt(userMessage),
+			prompt: buildTitlePrompt(userMessage, branchRenamePrompt),
 			options: {
 				abortController,
 				pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,

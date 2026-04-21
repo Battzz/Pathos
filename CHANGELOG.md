@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0
+
+### Minor Changes
+
+- [#159](https://github.com/dohooo/helmor/pull/159) [`fd8f6cb`](https://github.com/dohooo/helmor/commit/fd8f6cb696bcccd31f8397353370227a1236a802) Thanks [@natllian](https://github.com/natllian)! - Add repo-level AI prompt preferences with markdown preview so each repository can customize create-PR, fix-errors, conflict-resolution, branch-naming, and first-chat instructions.
+
+### Patch Changes
+
+- [#157](https://github.com/dohooo/helmor/pull/157) [`e46889e`](https://github.com/dohooo/helmor/commit/e46889e8f4849c79cee666311dcdbbd8a1e30319) Thanks [@natllian](https://github.com/natllian)! - Keep the inspector's Setup/Run hover-zoom expanded until the pointer actually leaves the zoomed panel, and stop triggering blur pulses when no zoom animation is happening.
+
+- [#160](https://github.com/dohooo/helmor/pull/160) [`adc9c1a`](https://github.com/dohooo/helmor/commit/adc9c1a99dd02a8d057e2a207d1170fc4973049c) Thanks [@natllian](https://github.com/natllian)! - Fix an intermittent flicker where the Chinese IME candidate popup briefly went blank for a frame before closing when switching from a Chinese IME to English mid-composition.
+
 ## 0.2.1
 
 ### Patch Changes

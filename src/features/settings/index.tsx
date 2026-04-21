@@ -483,6 +483,44 @@ export const SettingsDialog = memo(function SettingsDialog({
 										</div>
 									</div>
 
+									{/* Follow-up behavior */}
+									<div className="flex items-center justify-between rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
+										<div className="mr-8">
+											<div className="text-[13px] font-medium leading-snug text-foreground">
+												Follow-up behavior
+											</div>
+											<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
+												Queue follow-ups while the agent runs, or steer the
+												current run.
+											</div>
+										</div>
+										<ToggleGroup
+											type="single"
+											value={settings.followUpBehavior}
+											onValueChange={(value) => {
+												if (value === "queue" || value === "steer") {
+													updateSettings({ followUpBehavior: value });
+												}
+											}}
+											className="gap-1 bg-muted/40"
+										>
+											<ToggleGroupItem
+												value="queue"
+												aria-label="Queue"
+												className="h-7 rounded-md px-2.5 text-[12px] font-medium text-muted-foreground data-[state=on]:bg-accent data-[state=on]:text-foreground"
+											>
+												Queue
+											</ToggleGroupItem>
+											<ToggleGroupItem
+												value="steer"
+												aria-label="Steer"
+												className="h-7 rounded-md px-2.5 text-[12px] font-medium text-muted-foreground data-[state=on]:bg-accent data-[state=on]:text-foreground"
+											>
+												Steer
+											</ToggleGroupItem>
+										</ToggleGroup>
+									</div>
+
 									<AppUpdatesPanel />
 								</div>
 							)}

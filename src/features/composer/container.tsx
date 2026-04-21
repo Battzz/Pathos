@@ -35,6 +35,7 @@ import {
 	workspaceSessionsQueryOptions,
 } from "@/lib/query-client";
 import { useSettings } from "@/lib/settings";
+import type { QueuedSubmit } from "@/lib/use-submit-queue";
 import { cn } from "@/lib/utils";
 import {
 	clampEffortToModel,
@@ -47,11 +48,13 @@ import type { DeferredToolResponseHandler } from "./deferred-tool";
 import type { AddDirPickerEntry } from "./editor/add-dir/typeahead-plugin";
 import type { ElicitationResponseHandler } from "./elicitation";
 import { WorkspaceComposer } from "./index";
+import { SubmitQueueList } from "./submit-queue-list";
 
 const EMPTY_MODEL_SECTIONS: AgentModelSection[] = [];
 const EMPTY_SLASH_COMMANDS: SlashCommandEntry[] = [];
 const EMPTY_LINKED_DIRECTORIES: readonly string[] = [];
 const EMPTY_CANDIDATE_DIRECTORIES: readonly CandidateDirectory[] = [];
+const EMPTY_QUEUE_ITEMS: readonly QueuedSubmit[] = [];
 
 /**
  * Host-app built-in slash commands. Prepended to the agent-supplied list
@@ -105,6 +108,8 @@ type WorkspaceComposerContainerProps = {
 		effortLevel: string;
 		permissionMode: string;
 		fastMode: boolean;
+		/** Force queue (bypass `followUpBehavior`) if a turn is streaming. */
+		forceQueue?: boolean;
 	}) => void;
 	/** Prompt queued by an external caller to auto-submit once the displayed
 	 * session matches `sessionId`. */
@@ -113,12 +118,18 @@ type WorkspaceComposerContainerProps = {
 		prompt: string;
 		modelId?: string | null;
 		permissionMode?: string | null;
+		/** Force queue (bypass `followUpBehavior`) if a turn is streaming. */
+		forceQueue?: boolean;
 	} | null;
 	/** Called after the pending prompt has been dispatched, so the caller can
 	 * clear the queue. */
 	onPendingPromptConsumed?: () => void;
 	pendingInsertRequests?: ResolvedComposerInsertRequest[];
 	onPendingInsertRequestsConsumed?: (ids: string[]) => void;
+	/** Follow-up queue rendered above composer when `followUpBehavior === 'queue'`. */
+	queueItems?: readonly QueuedSubmit[];
+	onSteerQueued?: (itemId: string) => void;
+	onRemoveQueued?: (itemId: string) => void;
 };
 
 const noopDeferredToolResponse: DeferredToolResponseHandler = () => {};
@@ -158,6 +169,9 @@ export const WorkspaceComposerContainer = memo(
 		onPendingPromptConsumed,
 		pendingInsertRequests = [],
 		onPendingInsertRequestsConsumed,
+		queueItems = EMPTY_QUEUE_ITEMS,
+		onSteerQueued,
+		onRemoveQueued,
 	}: WorkspaceComposerContainerProps) {
 		const queryClient = useQueryClient();
 		const { settings } = useSettings();
@@ -573,6 +587,7 @@ export const WorkspaceComposerContainer = memo(
 				pendingPromptForSession.prompt,
 				pendingPromptForSession.modelId ?? "",
 				pendingPromptForSession.permissionMode ?? "",
+				pendingPromptForSession.forceQueue ? "q" : "",
 			].join("|");
 			if (dispatchedPromptKeyRef.current === dispatchKey) {
 				return;
@@ -589,6 +604,7 @@ export const WorkspaceComposerContainer = memo(
 				effortLevel,
 				permissionMode: effectivePermissionMode,
 				fastMode: supportsFastMode ? fastMode : false,
+				forceQueue: pendingPromptForSession.forceQueue,
 			});
 			onPendingPromptConsumed?.();
 		}, [
@@ -705,6 +721,13 @@ export const WorkspaceComposerContainer = memo(
 						}
 					/>
 				) : null}
+
+				<SubmitQueueList
+					items={queueItems}
+					onSteer={(id) => onSteerQueued?.(id)}
+					onRemove={(id) => onRemoveQueued?.(id)}
+					disabled={composerUnavailable}
+				/>
 
 				<div className="relative z-10">
 					<WorkspaceComposer

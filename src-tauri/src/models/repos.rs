@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
@@ -397,6 +397,16 @@ pub struct RepoScripts {
     pub archive_from_project: bool,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoPreferences {
+    pub create_pr: Option<String>,
+    pub fix_errors: Option<String>,
+    pub resolve_conflicts: Option<String>,
+    pub branch_rename: Option<String>,
+    pub general: Option<String>,
+}
+
 /// Resolve repo scripts using a fixed priority:
 ///
 ///   1. The workspace's worktree `helmor.json` — highest priority, only
@@ -540,6 +550,76 @@ pub fn update_repo_scripts(
     }
 
     Ok(())
+}
+
+pub fn load_repo_preferences(repo_id: &str) -> Result<RepoPreferences> {
+    let connection = db::open_connection(false)?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT
+              custom_prompt_create_pr,
+              custom_prompt_fix_errors,
+              custom_prompt_resolve_merge_conflicts,
+              custom_prompt_rename_branch,
+              custom_prompt_general
+            FROM repos
+            WHERE id = ?1
+            "#,
+        )
+        .with_context(|| format!("Failed to prepare preferences lookup for {repo_id}"))?;
+
+    statement
+        .query_row([repo_id], |row| {
+            Ok(RepoPreferences {
+                create_pr: row.get(0)?,
+                fix_errors: row.get(1)?,
+                resolve_conflicts: row.get(2)?,
+                branch_rename: row.get(3)?,
+                general: row.get(4)?,
+            })
+        })
+        .with_context(|| format!("Repository not found: {repo_id}"))
+}
+
+pub fn update_repo_preferences(repo_id: &str, preferences: &RepoPreferences) -> Result<()> {
+    let connection = db::open_connection(true)?;
+    let updated = connection
+        .execute(
+            r#"
+            UPDATE repos
+            SET
+              custom_prompt_create_pr = ?1,
+              custom_prompt_fix_errors = ?2,
+              custom_prompt_resolve_merge_conflicts = ?3,
+              custom_prompt_rename_branch = ?4,
+              custom_prompt_general = ?5,
+              updated_at = datetime('now')
+            WHERE id = ?6
+            "#,
+            rusqlite::params![
+                normalize_repo_preference(preferences.create_pr.as_deref()),
+                normalize_repo_preference(preferences.fix_errors.as_deref()),
+                normalize_repo_preference(preferences.resolve_conflicts.as_deref()),
+                normalize_repo_preference(preferences.branch_rename.as_deref()),
+                normalize_repo_preference(preferences.general.as_deref()),
+                repo_id
+            ],
+        )
+        .with_context(|| format!("Failed to update preferences for {repo_id}"))?;
+
+    if updated != 1 {
+        bail!("Repository not found: {repo_id}");
+    }
+
+    Ok(())
+}
+
+fn normalize_repo_preference(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 pub(crate) fn delete_repository(repo_id: &str) -> Result<()> {

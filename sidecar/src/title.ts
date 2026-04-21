@@ -7,11 +7,21 @@
 export const TITLE_GENERATION_TIMEOUT_MS = 30_000;
 export const TITLE_GENERATION_FALLBACK_TIMEOUT_MS = 30_000;
 
-export function buildTitlePrompt(userMessage: string): string {
+export function buildTitlePrompt(
+	userMessage: string,
+	branchRenamePrompt?: string | null,
+): string {
 	return [
 		"Based on the following user message, generate TWO things:",
 		"1. A concise session title (use the same language as the user message, max 8 words)",
 		"2. A git branch name segment (English only, lowercase, hyphens for spaces, max 4 words, no prefix)",
+		...(branchRenamePrompt?.trim()
+			? [
+					"",
+					"Additional branch naming instructions:",
+					branchRenamePrompt.trim(),
+				]
+			: []),
 		"",
 		"Output EXACTLY in this format (two lines, nothing else):",
 		"title: <the title>",

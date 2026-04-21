@@ -442,6 +442,7 @@ export class CodexAppServerManager implements SessionManager {
 	async generateTitle(
 		requestId: string,
 		userMessage: string,
+		branchRenamePrompt: string | null,
 		emitter: SidecarEmitter,
 		timeoutMs = TITLE_GENERATION_TIMEOUT_MS,
 	): Promise<void> {
@@ -497,7 +498,7 @@ export class CodexAppServerManager implements SessionManager {
 				input: [
 					{
 						type: "text",
-						text: buildTitlePrompt(userMessage),
+						text: buildTitlePrompt(userMessage, branchRenamePrompt),
 						text_elements: [],
 					},
 				],

@@ -2048,6 +2048,14 @@ export type RepoScripts = {
 	archiveFromProject: boolean;
 };
 
+export type RepoPreferences = {
+	createPr?: string | null;
+	fixErrors?: string | null;
+	resolveConflicts?: string | null;
+	branchRename?: string | null;
+	general?: string | null;
+};
+
 export type ScriptEvent =
 	| { type: "started"; pid: number; command: string }
 	| { type: "stdout"; data: string }
@@ -2089,6 +2097,24 @@ export async function updateRepoScripts(
 		setupScript,
 		runScript,
 		archiveScript,
+	});
+}
+
+export async function loadRepoPreferences(
+	repoId: string,
+): Promise<RepoPreferences> {
+	return invoke<RepoPreferences>("load_repo_preferences", {
+		repoId,
+	});
+}
+
+export async function updateRepoPreferences(
+	repoId: string,
+	preferences: RepoPreferences,
+): Promise<void> {
+	await invoke("update_repo_preferences", {
+		repoId,
+		preferences,
 	});
 }
 

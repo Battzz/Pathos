@@ -29,6 +29,8 @@ pub struct GenerateSessionTitleResponse {
 /// another 30 s, so keep a small buffer here for request handoff and delivery.
 const TITLE_GEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(65);
 
+type WorkspaceInfo = (String, String, Option<String>, String, Option<String>);
+
 fn can_replace_session_title(current_title: &str, title_seed: Option<&str>) -> bool {
     current_title == "Untitled"
         || title_seed
@@ -62,24 +64,29 @@ pub async fn generate_session_title(
         "generate_session_title title gating resolved"
     );
 
-    let workspace_info: Option<(String, Option<String>, String, Option<String>)> =
-        if action_kind.is_none() {
-            let sql = format!(
-                r#"SELECT w.id, r.root_path, w.directory_name, w.branch
+    let workspace_info: Option<WorkspaceInfo> = if action_kind.is_none() {
+        let sql = format!(
+            r#"SELECT w.id, r.id, r.root_path, w.directory_name, w.branch
                    FROM workspaces w
                    JOIN repos r ON r.id = w.repository_id
                    JOIN sessions s ON s.workspace_id = w.id
                    WHERE s.id = ?1 AND w.state {}"#,
-                workspace_state::OPERATIONAL_FILTER,
-            );
-            connection
-                .query_row(&sql, [&request.session_id], |row| {
-                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-                })
-                .ok()
-        } else {
-            None
-        };
+            workspace_state::OPERATIONAL_FILTER,
+        );
+        connection
+            .query_row(&sql, [&request.session_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .ok()
+    } else {
+        None
+    };
 
     let branch_settings = crate::settings::load_branch_prefix_settings().unwrap_or(
         crate::settings::BranchPrefixSettings {
@@ -91,7 +98,7 @@ pub async fn generate_session_title(
     let should_generate_branch =
         workspace_info
             .as_ref()
-            .is_some_and(|(_, _, directory_name, branch)| {
+            .is_some_and(|(_, _, _, directory_name, branch)| {
                 branch.as_deref().is_some_and(|current_branch| {
                     crate::helpers::is_default_branch_name(
                         current_branch,
@@ -100,6 +107,12 @@ pub async fn generate_session_title(
                     )
                 })
             });
+
+    let branch_rename_prompt = workspace_info
+        .as_ref()
+        .and_then(|(_, repo_id, _, _, _)| crate::repos::load_repo_preferences(repo_id).ok())
+        .and_then(|preferences| preferences.branch_rename)
+        .filter(|value| !value.trim().is_empty());
 
     if !should_generate_title && !should_generate_branch {
         tracing::debug!(
@@ -119,6 +132,7 @@ pub async fn generate_session_title(
         method: "generateTitle".to_string(),
         params: serde_json::json!({
             "userMessage": request.user_message,
+            "branchRenamePrompt": branch_rename_prompt,
         }),
     };
 
@@ -232,7 +246,7 @@ pub async fn generate_session_title(
 
     let mut branch_renamed = false;
     if should_generate_branch {
-        if let (Some(branch_segment), Some((workspace_id, root_path, directory_name, _))) =
+        if let (Some(branch_segment), Some((workspace_id, _, root_path, directory_name, _))) =
             (generated_branch.as_deref(), workspace_info)
         {
             // Acquire per-workspace lock so concurrent title-gens serialise

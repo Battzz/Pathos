@@ -17,6 +17,8 @@ import type { ResolvedComposerInsertRequest } from "@/lib/composer-insert";
 import { insertRequestMatchesComposer } from "@/lib/composer-insert";
 import { hasUnresolvedPlanReview } from "@/lib/plan-review";
 import { sessionThreadMessagesQueryOptions } from "@/lib/query-client";
+import { useSettings } from "@/lib/settings";
+import { EMPTY_QUEUE, useSubmitQueue } from "@/lib/use-submit-queue";
 import { getComposerContextKey } from "@/lib/workspace-helpers";
 import { useConversationStreaming } from "./hooks/use-streaming";
 import {
@@ -29,6 +31,7 @@ type WorkspaceConversationContainerProps = {
 	displayedWorkspaceId: string | null;
 	selectedSessionId: string | null;
 	displayedSessionId: string | null;
+	repoId?: string | null;
 	sessionSelectionHistory?: string[];
 	onSelectSession: (sessionId: string | null) => void;
 	onResolveDisplayedSession: (sessionId: string | null) => void;
@@ -53,6 +56,9 @@ type WorkspaceConversationContainerProps = {
 		prompt: string;
 		modelId?: string | null;
 		permissionMode?: string | null;
+		/** When true, submit must queue if a turn is already streaming,
+		 *  regardless of the user's `followUpBehavior` setting. */
+		forceQueue?: boolean;
 	} | null;
 	/** Called after the pending prompt has been handed off to the composer's
 	 * submit flow, so the caller can clear the queue. */
@@ -73,6 +79,7 @@ export const WorkspaceConversationContainer = memo(
 		displayedWorkspaceId,
 		selectedSessionId,
 		displayedSessionId,
+		repoId = null,
 		sessionSelectionHistory = [],
 		onSelectSession,
 		onResolveDisplayedSession,
@@ -112,6 +119,13 @@ export const WorkspaceConversationContainer = memo(
 		const selectionPending =
 			selectedWorkspaceId !== displayedWorkspaceId ||
 			selectedSessionId !== displayedSessionId;
+
+		// App-level follow-up queue. Survives session / workspace
+		// switches because this container is mounted once in the App
+		// tree (not keyed by session id).
+		const { settings } = useSettings();
+		const { queuesBySessionId, api: submitQueueApi } = useSubmitQueue();
+
 		const {
 			activeSendError,
 			handleComposerSubmit,
@@ -119,6 +133,8 @@ export const WorkspaceConversationContainer = memo(
 			handleElicitationResponse,
 			handlePermissionResponse,
 			handleStopStream,
+			handleSteerQueued,
+			handleRemoveQueued,
 			elicitationResponsePending,
 			isSending,
 			pendingElicitation,
@@ -136,12 +152,19 @@ export const WorkspaceConversationContainer = memo(
 			displayedSelectedModelId,
 			displayedSessionId,
 			displayedWorkspaceId,
+			repoId,
 			selectionPending,
+			followUpBehavior: settings.followUpBehavior,
+			submitQueue: submitQueueApi,
 			onSendingSessionsChange,
 			onSendingWorkspacesChange,
 			onInteractionSessionsChange,
 			onSessionCompleted,
 		});
+
+		const queueItems = displayedSessionId
+			? (queuesBySessionId.get(displayedSessionId) ?? EMPTY_QUEUE)
+			: EMPTY_QUEUE;
 
 		// Derived from thread messages — survives refresh / session switch.
 		const threadQuery = useQuery({
@@ -309,6 +332,9 @@ export const WorkspaceConversationContainer = memo(
 							onPendingPromptConsumed={onPendingPromptConsumed}
 							pendingInsertRequests={relevantPendingInsertRequests}
 							onPendingInsertRequestsConsumed={onPendingInsertRequestsConsumed}
+							queueItems={queueItems}
+							onSteerQueued={handleSteerQueued}
+							onRemoveQueued={handleRemoveQueued}
 						/>
 					</div>
 				</div>

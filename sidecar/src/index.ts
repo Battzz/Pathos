@@ -108,6 +108,10 @@ async function handleGenerateTitle(
 ): Promise<void> {
 	try {
 		const userMessage = requireString(params, "userMessage");
+		const branchRenamePrompt =
+			typeof params.branchRenamePrompt === "string"
+				? params.branchRenamePrompt
+				: null;
 		logger.debug(`[${id}] generateTitle`, {
 			userMessage: userMessage.slice(0, 100),
 		});
@@ -119,6 +123,7 @@ async function handleGenerateTitle(
 			await managers.claude.generateTitle(
 				id,
 				userMessage,
+				branchRenamePrompt,
 				emitter,
 				TITLE_GENERATION_TIMEOUT_MS,
 			);
@@ -130,6 +135,7 @@ async function handleGenerateTitle(
 			await managers.codex.generateTitle(
 				id,
 				userMessage,
+				branchRenamePrompt,
 				emitter,
 				TITLE_GENERATION_FALLBACK_TIMEOUT_MS,
 			);

@@ -114,6 +114,10 @@ import {
 } from "./lib/settings";
 import { useOsNotifications } from "./lib/use-os-notifications";
 import {
+	buildWorkspaceGroupsForDisplay,
+	shouldDisplayWorkspaceAsInProgress,
+} from "./lib/workspace-display-state";
+import {
 	recomputeWorkspaceDetailUnread,
 	recomputeWorkspaceUnreadInGroups,
 	summaryToArchivedRow,
@@ -658,6 +662,37 @@ function AppShell({
 			selectedWorkspaceDetail?.state !== "archived",
 	});
 	const workspaceGitActionStatus = workspaceGitActionStatusQuery.data ?? null;
+	const shouldDisplaySelectedWorkspaceAsInProgress = useMemo(
+		() =>
+			shouldDisplayWorkspaceAsInProgress({
+				manualStatus: selectedWorkspaceDetailQuery.data?.manualStatus ?? null,
+				derivedStatus: selectedWorkspaceDetailQuery.data?.derivedStatus ?? null,
+				prInfo: workspacePrInfo,
+				gitActionStatus: workspaceGitActionStatus,
+			}),
+		[
+			selectedWorkspaceDetailQuery.data?.derivedStatus,
+			selectedWorkspaceDetailQuery.data?.manualStatus,
+			workspaceGitActionStatus,
+			workspacePrInfo,
+		],
+	);
+	const effectiveWorkspacePrInfo = shouldDisplaySelectedWorkspaceAsInProgress
+		? null
+		: workspacePrInfo;
+	const displayWorkspaceGroups = useMemo(
+		() =>
+			buildWorkspaceGroupsForDisplay({
+				groups: workspaceGroups,
+				selectedWorkspaceId,
+				shouldDisplaySelectedWorkspaceAsInProgress,
+			}),
+		[
+			selectedWorkspaceId,
+			shouldDisplaySelectedWorkspaceAsInProgress,
+			workspaceGroups,
+		],
+	);
 
 	// Reactively transition workspace sidebar status when the PR query
 	// detects a state change. Handles PRs created/merged/closed externally.
@@ -1094,7 +1129,7 @@ function AppShell({
 		}
 
 		const candidateWorkspaceIds = flattenWorkspaceRows(
-			workspaceGroups,
+			displayWorkspaceGroups,
 			archivedRows,
 		)
 			.map((row) => row.id)
@@ -1148,7 +1183,7 @@ function AppShell({
 		isIdentityConnected,
 		primeWorkspaceDisplay,
 		selectedWorkspaceId,
-		workspaceGroups,
+		displayWorkspaceGroups,
 	]);
 
 	const handleSelectWorkspace = useCallback(
@@ -1322,8 +1357,9 @@ function AppShell({
 		queryClient,
 		selectedWorkspaceId,
 		selectedWorkspaceIdRef,
+		selectedRepoId: selectedWorkspaceDetailQuery.data?.repoId ?? null,
 		workspaceManualStatus: selectedWorkspaceManualStatus,
-		workspacePrInfo,
+		workspacePrInfo: effectiveWorkspacePrInfo,
 		workspacePrActionStatus,
 		workspaceGitActionStatus,
 		completedSessionIds: settledSessionIds,
@@ -1575,7 +1611,7 @@ function AppShell({
 	const handleNavigateWorkspaces = useCallback(
 		(offset: -1 | 1) => {
 			const nextWorkspaceId = findAdjacentWorkspaceId(
-				workspaceGroups,
+				displayWorkspaceGroups,
 				archivedRows,
 				selectedWorkspaceIdRef.current,
 				offset,
@@ -1587,7 +1623,7 @@ function AppShell({
 
 			handleSelectWorkspace(nextWorkspaceId);
 		},
-		[archivedRows, handleSelectWorkspace, workspaceGroups],
+		[archivedRows, displayWorkspaceGroups, handleSelectWorkspace],
 	);
 
 	const handleResolveDisplayedSession = useCallback(
@@ -1950,6 +1986,7 @@ function AppShell({
 														interactionRequiredWorkspaceIds={
 															interactionRequiredWorkspaceIds
 														}
+														groupsOverride={displayWorkspaceGroups}
 														onSelectWorkspace={handleSelectWorkspace}
 														pushWorkspaceToast={pushWorkspaceToast}
 													/>
@@ -2047,6 +2084,9 @@ function AppShell({
 												displayedWorkspaceId={displayedWorkspaceId}
 												selectedSessionId={selectedSessionId}
 												displayedSessionId={displayedSessionId}
+												repoId={
+													selectedWorkspaceDetailQuery.data?.repoId ?? null
+												}
 												sessionSelectionHistory={
 													selectedWorkspaceId
 														? (sessionSelectionHistoryByWorkspaceRef.current[
@@ -2067,7 +2107,7 @@ function AppShell({
 													interactionRequiredSessionIds
 												}
 												onSessionCompleted={handleSessionCompleted}
-												workspacePrInfo={workspacePrInfo}
+												workspacePrInfo={effectiveWorkspacePrInfo}
 												pendingPromptForSession={pendingPromptForSession}
 												onPendingPromptConsumed={handlePendingPromptConsumed}
 												pendingInsertRequests={pendingComposerInserts}
@@ -2245,14 +2285,15 @@ function AppShell({
 										onOpenEditorFile={handleOpenEditorFile}
 										onCommitAction={handleInspectorCommitAction}
 										currentSessionId={displayedSessionId}
-										sendingSessionIds={sendingSessionIds}
 										onQueuePendingPromptForSession={
 											queuePendingPromptForSession
 										}
-										pushToast={pushWorkspaceToast}
 										commitButtonMode={commitButtonMode}
 										commitButtonState={commitButtonState}
-										prInfo={workspacePrInfo}
+										prInfo={effectiveWorkspacePrInfo}
+										suppressMergedPrStatus={
+											shouldDisplaySelectedWorkspaceAsInProgress
+										}
 										onOpenSettings={handleOpenSettings}
 									/>
 								</aside>

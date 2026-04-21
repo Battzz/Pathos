@@ -103,6 +103,7 @@ export interface SessionManager {
 	generateTitle(
 		requestId: string,
 		userMessage: string,
+		branchRenamePrompt: string | null,
 		emitter: SidecarEmitter,
 		timeoutMs?: number,
 	): Promise<void>;

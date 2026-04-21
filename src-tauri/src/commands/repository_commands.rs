@@ -64,6 +64,11 @@ pub async fn load_repo_scripts(
 }
 
 #[tauri::command]
+pub async fn load_repo_preferences(repo_id: String) -> CmdResult<repos::RepoPreferences> {
+    run_blocking(move || repos::load_repo_preferences(&repo_id)).await
+}
+
+#[tauri::command]
 pub async fn update_repo_scripts(
     repo_id: String,
     setup_script: Option<String>,
@@ -79,6 +84,14 @@ pub async fn update_repo_scripts(
         )
     })
     .await
+}
+
+#[tauri::command]
+pub async fn update_repo_preferences(
+    repo_id: String,
+    preferences: repos::RepoPreferences,
+) -> CmdResult<()> {
+    run_blocking(move || repos::update_repo_preferences(&repo_id, &preferences)).await
 }
 
 #[tauri::command]

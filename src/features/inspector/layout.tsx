@@ -53,7 +53,7 @@ const TABS_BLUR_PEAK_PX = 6;
 const TABS_BLUR_FADE_MS = 120;
 // Hold blur past the end of the transition so the xterm re-fit (which
 // runs ~50ms after the main transition finishes) is still hidden.
-const TABS_BLUR_HOLD_UNTIL_MS = TABS_HOVER_TRANSITION_MS - 50;
+export const TABS_BLUR_HOLD_UNTIL_MS = TABS_HOVER_TRANSITION_MS - 50;
 // Minimum layout height of the collapsed wrapper. The real content lives
 // inside an absolutely-positioned child, so we need to reserve this
 // space explicitly to keep the header row visible when the panel is
@@ -164,6 +164,7 @@ export function InspectorTabsSection({
 	const hoverTimerRef = useRef<number | null>(null);
 	const presentationClearTimerRef = useRef<number | null>(null);
 	const blurClearTimerRef = useRef<number | null>(null);
+	const pointerInsideContainerRef = useRef(false);
 	// Holds the outstanding `suspendTerminalFit()` release while the CSS
 	// width/height transition is running, plus the timer that will release it
 	// and trigger the final fit.
@@ -273,6 +274,7 @@ export function InspectorTabsSection({
 	// but the intent signal now requires engaging with the actual output area.
 	const handleBodyMouseEnter = useCallback(() => {
 		if (!open || !canHoverExpand) return;
+		if (isHoverExpanded) return;
 		clearHoverTimer();
 		hoverTimerRef.current = window.setTimeout(() => {
 			beginZoomAnimation();
@@ -282,6 +284,7 @@ export function InspectorTabsSection({
 	}, [
 		open,
 		canHoverExpand,
+		isHoverExpanded,
 		clearHoverTimer,
 		beginZoomAnimation,
 		setZoomTarget,
@@ -291,10 +294,21 @@ export function InspectorTabsSection({
 	// body). Moving from body up into the header keeps the zoom alive so the
 	// Stop/Rerun action and the tab switcher stay reachable while zoomed.
 	const handleContainerMouseLeave = useCallback(() => {
+		pointerInsideContainerRef.current = false;
+		const hadPendingHoverIntent = hoverTimerRef.current !== null;
 		clearHoverTimer();
+		if (hadPendingHoverIntent || (!isHoverExpanded && !isZoomPresented)) {
+			return;
+		}
 		beginZoomAnimation();
 		setZoomTarget(false);
-	}, [clearHoverTimer, beginZoomAnimation, setZoomTarget]);
+	}, [
+		clearHoverTimer,
+		isHoverExpanded,
+		isZoomPresented,
+		beginZoomAnimation,
+		setZoomTarget,
+	]);
 
 	// When the panel collapses we must drop any pending/active zoom so it
 	// doesn't linger over the neighbouring sections. Also release any
@@ -324,6 +338,7 @@ export function InspectorTabsSection({
 	useEffect(() => {
 		if (canHoverExpand) return;
 		clearHoverTimer();
+		if (pointerInsideContainerRef.current) return;
 		if (!isHoverExpanded && !isZoomPresented) return;
 		beginZoomAnimation();
 		setZoomTarget(false);
@@ -372,6 +387,9 @@ export function InspectorTabsSection({
 		>
 			<div
 				data-tabs-zoomed={isZoomPresented ? "true" : undefined}
+				onMouseEnter={() => {
+					pointerInsideContainerRef.current = true;
+				}}
 				onMouseLeave={handleContainerMouseLeave}
 				className={cn(
 					// `bg-sidebar` is the safety floor — it guarantees the zoomed

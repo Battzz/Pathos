@@ -70,14 +70,14 @@ describe("inferDefaultModelId", () => {
 		);
 	});
 
-	it("returns null when no settings default is provided", () => {
-		// ensureDefaultModel is responsible for populating the setting — this
-		// function no longer invents its own fallback.
-		expect(inferDefaultModelId(null, MODEL_SECTIONS)).toBeNull();
+	it("falls back to the first catalog model when no settings default is provided", () => {
+		expect(inferDefaultModelId(null, MODEL_SECTIONS)).toBe("default");
 	});
 
-	it("returns null when settings model ID is not in the catalog", () => {
-		expect(inferDefaultModelId(null, MODEL_SECTIONS, "nonexistent")).toBeNull();
+	it("falls back to the first catalog model when the settings model ID is invalid", () => {
+		expect(inferDefaultModelId(null, MODEL_SECTIONS, "nonexistent")).toBe(
+			"default",
+		);
 	});
 
 	it("returns null when model sections are empty", () => {
@@ -300,6 +300,22 @@ describe("resolveSessionSelectedModelId", () => {
 				settingsDefaultModelId: "gpt-4o",
 			}),
 		).toBe("gpt-4o");
+	});
+
+	it("falls back to the first available model when no session or settings model is available", () => {
+		expect(
+			resolveSessionSelectedModelId({
+				session: {
+					id: "session-4",
+					agentType: null,
+					model: null,
+					lastUserMessageAt: null,
+				},
+				modelSelections: {},
+				modelSections: MODEL_SECTIONS,
+				settingsDefaultModelId: null,
+			}),
+		).toBe("default");
 	});
 });
 

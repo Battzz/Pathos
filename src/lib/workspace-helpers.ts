@@ -447,6 +447,8 @@ export function inferDefaultModelId(
 	modelSections: AgentModelSection[],
 	settingsDefaultModelId?: string | null,
 ): string | null {
+	const allOptions = modelSections.flatMap((section) => section.options);
+
 	// Existing session with history → respect whatever model it used
 	if (!isNewSession(session)) {
 		const sessionModel = session?.model ?? null;
@@ -465,7 +467,9 @@ export function inferDefaultModelId(
 		return settingsDefaultModelId;
 	}
 
-	return null;
+	// Last-resort UI fallback so the composer never renders an empty model chip
+	// while settings bootstrap or self-heal catches up.
+	return allOptions[0]?.id ?? null;
 }
 
 export function describeUnknownError(error: unknown, fallback: string): string {

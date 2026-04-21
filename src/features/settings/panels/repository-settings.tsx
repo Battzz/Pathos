@@ -34,6 +34,7 @@ import {
 	updateRepositoryRemote,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { RepositoryPreferencesSection } from "./repository-preferences-section";
 
 export function RepositorySettingsPanel({
 	repo,
@@ -125,7 +126,7 @@ export function RepositorySettingsPanel({
 				<div className="text-[13px] font-medium leading-snug text-app-foreground">
 					Remote origin
 				</div>
-				<div className="mt-1 text-[12px] leading-snug text-app-muted">
+				<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
 					Where should we push, pull, and create PRs?
 				</div>
 				<div className="mt-3">
@@ -184,7 +185,7 @@ export function RepositorySettingsPanel({
 				<div className="text-[13px] font-medium leading-snug text-app-foreground">
 					Branch new workspaces from
 				</div>
-				<div className="mt-1 text-[12px] leading-snug text-app-muted">
+				<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
 					Each workspace is an isolated copy of your codebase.
 				</div>
 				<div className="mt-3">
@@ -217,6 +218,7 @@ export function RepositorySettingsPanel({
 			</div>
 
 			<ScriptsSection repoId={repo.id} workspaceId={workspaceId} />
+			<RepositoryPreferencesSection repoId={repo.id} />
 
 			<DeleteRepoSection repo={repo} onDeleted={onRepoDeleted} />
 		</div>
@@ -254,7 +256,9 @@ function ScriptField({
 	return (
 		<div>
 			<div className="text-[12px] font-medium text-app-foreground">{label}</div>
-			<div className="mt-0.5 text-[11px] text-app-muted">{description}</div>
+			<div className="mt-0.5 text-[11px] text-muted-foreground">
+				{description}
+			</div>
 			{locked ? (
 				<TooltipProvider>
 					<Tooltip>
@@ -364,7 +368,7 @@ function ScriptsSection({
 			<div className="text-[13px] font-medium leading-snug text-app-foreground">
 				Scripts
 			</div>
-			<div className="mt-1 text-[12px] leading-snug text-app-muted">
+			<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
 				Commands that run when workspaces are set up, run, or archived.
 			</div>
 
@@ -432,7 +436,7 @@ function DeleteRepoSection({
 					<Trash2 className="size-3.5 text-destructive" strokeWidth={1.8} />
 					Delete Repository
 				</div>
-				<div className="mt-1 text-[12px] leading-snug text-app-muted">
+				<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
 					Permanently remove this repository and all its workspaces, sessions,
 					and messages.
 				</div>

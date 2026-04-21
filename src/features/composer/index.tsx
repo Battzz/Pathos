@@ -542,7 +542,9 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 												<ClaudeIcon className="size-[13px]" />
 											)}
 											<span>
-												{selectedModel?.label ?? selectedModelId ?? ""}
+												{selectedModel?.label ??
+													selectedModelId ??
+													"Select model"}
 											</span>
 											<ChevronDown
 												className="size-3 opacity-40"
