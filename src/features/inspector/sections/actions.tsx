@@ -110,6 +110,7 @@ type ActionsSectionProps = {
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
 	prInfo: PullRequestInfo | null;
+	suppressMergedPrStatus?: boolean;
 };
 
 function buildSyncResolutionPrompt(
@@ -150,6 +151,7 @@ export function ActionsSection({
 	commitButtonMode,
 	commitButtonState,
 	prInfo,
+	suppressMergedPrStatus = false,
 }: ActionsSectionProps) {
 	const queryClient = useQueryClient();
 	const [syncPending, setSyncPending] = useState(false);
@@ -162,7 +164,11 @@ export function ActionsSection({
 		enabled: workspaceId !== null,
 	});
 	const gitStatus = gitStatusQuery.data ?? EMPTY_GIT_ACTION_STATUS;
-	const prStatus = prStatusQuery.data ?? EMPTY_PR_ACTION_STATUS;
+	const rawPrStatus = prStatusQuery.data ?? EMPTY_PR_ACTION_STATUS;
+	const prStatus =
+		suppressMergedPrStatus && rawPrStatus.pr?.isMerged
+			? EMPTY_PR_ACTION_STATUS
+			: rawPrStatus;
 	const gitRows = sortStatusRows(buildGitRows(gitStatus, workspaceRemote));
 	const reviewRows = sortStatusRows(buildReviewRows(prStatus, prInfo));
 	const sortedDeployments = sortActionItems(prStatus.deployments);
