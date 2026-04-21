@@ -1,5 +1,4 @@
 import { memo } from "react";
-import type { WorkspaceGroup } from "@/lib/api";
 import { useWorkspacesSidebarController } from "./hooks/use-controller";
 import { WorkspacesSidebar } from "./index";
 
@@ -10,7 +9,6 @@ type WorkspacesSidebarContainerProps = {
 	sendingWorkspaceIds?: Set<string>;
 	completedWorkspaceIds?: Set<string>;
 	interactionRequiredWorkspaceIds?: Set<string>;
-	groupsOverride?: WorkspaceGroup[];
 	onSelectWorkspace: (workspaceId: string | null) => void;
 	pushWorkspaceToast: (
 		description: string,
@@ -29,7 +27,6 @@ export const WorkspacesSidebarContainer = memo(
 		sendingWorkspaceIds,
 		completedWorkspaceIds,
 		interactionRequiredWorkspaceIds,
-		groupsOverride,
 		onSelectWorkspace,
 		pushWorkspaceToast,
 	}: WorkspacesSidebarContainerProps) {
@@ -58,7 +55,7 @@ export const WorkspacesSidebarContainer = memo(
 
 		return (
 			<WorkspacesSidebar
-				groups={groupsOverride ?? groups}
+				groups={groups}
 				archivedRows={archivedRows}
 				availableRepositories={availableRepositories}
 				addingRepository={addingRepository}

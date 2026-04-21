@@ -40,7 +40,6 @@ type WorkspaceInspectorSidebarProps = {
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
 	prInfo?: PullRequestInfo | null;
-	suppressMergedPrStatus?: boolean;
 	onOpenSettings?: () => void;
 };
 
@@ -60,7 +59,6 @@ export function WorkspaceInspectorSidebar({
 	commitButtonMode,
 	commitButtonState,
 	prInfo,
-	suppressMergedPrStatus = false,
 	onOpenSettings,
 }: WorkspaceInspectorSidebarProps) {
 	const {
@@ -177,7 +175,6 @@ export function WorkspaceInspectorSidebar({
 				commitButtonMode={commitButtonMode}
 				commitButtonState={commitButtonState}
 				prInfo={prInfo ?? null}
-				suppressMergedPrStatus={suppressMergedPrStatus}
 			/>
 
 			{tabsOpen && (
