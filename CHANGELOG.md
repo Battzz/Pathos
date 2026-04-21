@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+- [#163](https://github.com/dohooo/helmor/pull/163) [`623c66b`](https://github.com/dohooo/helmor/commit/623c66b9895cc560f97d7ef33b2ddbeba6215629) Thanks [@natllian](https://github.com/natllian)! - Add a follow-up queue for messages sent while the AI is still responding:
+  - New Settings toggle (Follow-up behavior) picks between Queue and Steer — Queue stashes the next message and auto-sends it once the current turn finishes; Steer keeps the existing mid-turn interrupt.
+  - Queued messages appear as stacked rows above the composer with Steer-now / remove actions, and survive session and workspace switches.
+  - Pull-on-conflict and dirty-worktree resolution prompts now queue onto the active chat automatically instead of blocking with a toast when the AI is busy.
+
+### Patch Changes
+
+- [#172](https://github.com/dohooo/helmor/pull/172) [`7120573`](https://github.com/dohooo/helmor/commit/71205737770359e85922850e181be56ddd9542f8) Thanks [@natllian](https://github.com/natllian)! - Fix approval prompts so Allow and Deny stay clickable while the agent is waiting, and remove the unused optional reason field from that approval UI.
+
+- [#171](https://github.com/dohooo/helmor/pull/171) [`e8969e1`](https://github.com/dohooo/helmor/commit/e8969e19db80c03411fa3f145d902e5125c47622) Thanks [@natllian](https://github.com/natllian)! - Warn before closing a session while its chat is still running, and stop the in-flight response if you choose to close it anyway.
+
+- [#168](https://github.com/dohooo/helmor/pull/168) [`bcf68c2`](https://github.com/dohooo/helmor/commit/bcf68c2204483a272af9288ba07d48f04fcae33f) Thanks [@natllian](https://github.com/natllian)! - Polish the Settings UI for clearer navigation:
+
+  - Reorganize app settings into General, Appearance, Model, and Git sections with matching section titles.
+  - Remove the empty top-left gap in the Settings dialog so the sidebar aligns cleanly with the header.
+  - Remove the placeholder text from General preferences because that field no longer has a built-in prompt.
+
+- [#170](https://github.com/dohooo/helmor/pull/170) [`c8bcd61`](https://github.com/dohooo/helmor/commit/c8bcd619bf652958ce2b37985a170a0b7d94a17f) Thanks [@natllian](https://github.com/natllian)! - Make Claude's `/add-dir` behavior match Codex more closely by reloading slash commands after linked directories change and consistently using linked-directory context for Claude prompts and command discovery.
+
+- [#167](https://github.com/dohooo/helmor/pull/167) [`2b5bd0a`](https://github.com/dohooo/helmor/commit/2b5bd0a8f903db594e098cb5820fdf2dc0b373f3) Thanks [@natllian](https://github.com/natllian)! - Fix the macOS dock badge and sidebar unread indicators so they accurately track per-session unread state: opening a session marks it read, the workspace stays flagged while any of its sessions is still unread, and sessions waiting on a prompt only clear once the interaction is completed.
+
+- [#169](https://github.com/dohooo/helmor/pull/169) [`4ef8640`](https://github.com/dohooo/helmor/commit/4ef8640873e5b8ee80b60eadf016080aab2899be) Thanks [@natllian](https://github.com/natllian)! - Fix the streaming loading/timer footer so it stays below the live assistant output while long tool groups expand, and add a regression test for the overlap case.
+
 ## 0.3.0
 
 ### Minor Changes
