@@ -46,6 +46,22 @@ const PROGRESSIVE_VIEWPORT_STREAMING_FOOTER_HEIGHT = 40;
 const CONVERSATION_BOTTOM_SPACER_HEIGHT = 40;
 const STICK_TO_BOTTOM_ESCAPE_OFFSET_PX = 54;
 
+export function resolveConversationRowHeight({
+	estimatedHeight,
+	measuredHeight,
+	streaming,
+}: {
+	estimatedHeight: number;
+	measuredHeight?: number;
+	streaming: boolean;
+}) {
+	if (measuredHeight === undefined) {
+		return estimatedHeight;
+	}
+
+	return streaming ? Math.max(measuredHeight, estimatedHeight) : measuredHeight;
+}
+
 export function ActiveThreadViewport({
 	hasSession,
 	pane,
@@ -606,8 +622,11 @@ function ProgressiveConversationViewport({
 						const key = message.id ?? `${message.role}:${index}`;
 						const estimatedHeight = estimatedHeights[index] ?? 72;
 						const measuredHeight = measuredHeights[key];
-						const height =
-							measuredHeight !== undefined ? measuredHeight : estimatedHeight;
+						const height = resolveConversationRowHeight({
+							estimatedHeight,
+							measuredHeight,
+							streaming: message.streaming === true,
+						});
 						const row = {
 							height,
 							index,
@@ -928,7 +947,10 @@ function StreamingFooter({ startTime }: { startTime: number }) {
 					.padStart(2, "0")}s`;
 
 	return (
-		<div className="flex items-center gap-1.5 px-5 py-3 text-[12px] tabular-nums text-muted-foreground">
+		<div
+			data-testid="streaming-footer"
+			className="flex items-center gap-1.5 px-5 py-3 text-[12px] tabular-nums text-muted-foreground"
+		>
 			<HelmorLogoAnimated size={14} className="opacity-80" />
 			{display}
 		</div>

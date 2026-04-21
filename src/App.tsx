@@ -122,8 +122,22 @@ import {
 	type WorkspaceToastOptions,
 	WorkspaceToastProvider,
 } from "./lib/workspace-toast-context";
+import { StreamingFooterOverlapScenario } from "./test/e2e-scenarios/streaming-footer-overlap";
 
 function App() {
+	const e2eScenario =
+		typeof window === "undefined"
+			? null
+			: new URLSearchParams(window.location.search).get("e2eScenario");
+
+	if (e2eScenario === "streaming-footer-overlap") {
+		return <StreamingFooterOverlapScenario />;
+	}
+
+	return <MainApp />;
+}
+
+function MainApp() {
 	const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [settingsWorkspaceId, setSettingsWorkspaceId] = useState<string | null>(

@@ -434,7 +434,19 @@ function estimateToolCallHeight(part: ToolCallPart) {
 }
 
 function estimateCollapsedGroupHeight(group: CollapsedGroupPart) {
-	return group.active ? COLLAPSED_GROUP_HEIGHT + 4 : COLLAPSED_GROUP_HEIGHT;
+	if (group.tools.length === 0) {
+		return group.active ? COLLAPSED_GROUP_HEIGHT + 4 : COLLAPSED_GROUP_HEIGHT;
+	}
+
+	const childHeights = group.tools.map((tool) => estimateToolCallHeight(tool));
+	const childrenHeight = childHeights.reduce((sum, height) => sum + height, 0);
+	const childrenGapHeight = Math.max(0, group.tools.length - 1) * 2;
+	const expandedChildrenHeight = 4 + childrenHeight + childrenGapHeight;
+	const trailingToolHeight =
+		childHeights[childHeights.length - 1] ?? TOOL_SUMMARY_HEIGHT;
+	const activeBuffer = group.active ? trailingToolHeight + 8 : 0;
+
+	return COLLAPSED_GROUP_HEIGHT + expandedChildrenHeight + activeBuffer;
 }
 
 function looksLikeStructuredMarkdown(text: string) {
