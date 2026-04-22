@@ -126,7 +126,7 @@ export function ChatUserMessage({ message }: { message: RenderedMessage }) {
 		>
 			<div
 				className="max-w-[75%] overflow-hidden rounded-md bg-accent/35 px-3 py-2 leading-7 text-foreground"
-				style={{ fontSize: `${Math.max(settings.fontSize - 1, 12)}px` }}
+				style={{ fontSize: `${settings.fontSize}px` }}
 			>
 				<p className="whitespace-pre-wrap break-words">
 					{parts.map((part, index) => {

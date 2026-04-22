@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2
+
+### Patch Changes
+
+- [#180](https://github.com/dohooo/helmor/pull/180) [`b4882cd`](https://github.com/dohooo/helmor/commit/b4882cd803feaf5c74cb0cd0295e10fafc68386a) Thanks [@natllian](https://github.com/natllian)! - Append custom repository preferences after Helmor's built-in prompts, and tighten the preferences editor so placeholders and prompt previews better match what agents actually receive.
+
 ## 0.4.1
 
 ### Patch Changes

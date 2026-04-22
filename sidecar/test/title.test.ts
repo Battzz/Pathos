@@ -17,6 +17,26 @@ describe("buildTitlePrompt", () => {
 		expect(prompt).toContain("branch: <the-branch-name>");
 	});
 
+	test("always includes the built-in branch naming instructions", () => {
+		const prompt = buildTitlePrompt("anything");
+		expect(prompt).toContain("Additional branch naming instructions:");
+		expect(prompt).toContain(
+			"When you generate the branch name segment for a new chat:",
+		);
+		expect(prompt).toContain("- Favor clarity over cleverness.");
+	});
+
+	test("appends custom branch naming preferences after the built-in instructions", () => {
+		const prompt = buildTitlePrompt(
+			"anything",
+			"Use repo-specific nouns. Keep it under 20 chars.",
+		);
+		expect(prompt).toContain("### User Preferences");
+		expect(prompt).toContain(
+			"Use repo-specific nouns. Keep it under 20 chars.",
+		);
+	});
+
 	test("ends with the user message on the last line", () => {
 		const prompt = buildTitlePrompt("the last one");
 		const lines = prompt.split("\n");

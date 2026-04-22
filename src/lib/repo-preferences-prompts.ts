@@ -24,6 +24,8 @@ const DEFAULT_BRANCH_RENAME_PROMPT = `When you generate the branch name segment 
 - Omit any branch prefix such as \`feat/\` or usernames.
 - Favor clarity over cleverness.`;
 
+const CUSTOM_PREFERENCES_INTRO = `IMPORTANT: The following are the user's custom preferences. These preferences take precedence over any default guidelines or instructions provided above. When there is a conflict, always follow the user's preferences.`;
+
 export const DEFAULT_REPO_PREFERENCE_PROMPTS: Record<
 	RepoPreferenceKey,
 	string
@@ -95,13 +97,28 @@ function repoPreferenceOverride(
 	return trimmed ? trimmed : null;
 }
 
+function appendUserPreferences(
+	basePrompt: string,
+	override: string | null,
+): string {
+	const trimmedBase = basePrompt.trim();
+	const trimmedOverride = override?.trim();
+	if (!trimmedOverride) {
+		return trimmedBase;
+	}
+	if (!trimmedBase) {
+		return `${CUSTOM_PREFERENCES_INTRO}\n\n### User Preferences\n\n${trimmedOverride}`;
+	}
+	return `${trimmedBase}\n\n${CUSTOM_PREFERENCES_INTRO}\n\n### User Preferences\n\n${trimmedOverride}`;
+}
+
 export function resolveRepoPreferencePreview(
 	key: RepoPreferenceKey,
 	repoPreferences?: RepoPreferences | null,
 ): string {
-	return (
-		repoPreferenceOverride(key, repoPreferences) ??
-		DEFAULT_REPO_PREFERENCE_PROMPTS[key]
+	return appendUserPreferences(
+		DEFAULT_REPO_PREFERENCE_PROMPTS[key],
+		repoPreferenceOverride(key, repoPreferences),
 	);
 }
 
@@ -112,26 +129,33 @@ export function resolveRepoPreferencePrompt({
 	dirtyWorktree = false,
 }: ResolveRepoPreferencePromptArgs): string {
 	const override = repoPreferenceOverride(key, repoPreferences);
-	if (override) {
-		if (key === "resolveConflicts" && targetRef) {
-			return override
-				.replaceAll(TARGET_REF_PLACEHOLDER, targetRef)
-				.replaceAll(
-					DIRTY_WORKTREE_PLACEHOLDER,
-					dirtyWorktree ? "true" : "false",
-				);
-		}
-		return override;
-	}
+	const resolvedOverride =
+		key === "resolveConflicts" && targetRef && override
+			? override
+					.replaceAll(TARGET_REF_PLACEHOLDER, targetRef)
+					.replaceAll(
+						DIRTY_WORKTREE_PLACEHOLDER,
+						dirtyWorktree ? "true" : "false",
+					)
+			: override;
 
 	if (key === "resolveConflicts" && targetRef) {
 		if (dirtyWorktree) {
-			return `Commit uncommitted changes, then merge ${targetRef} into this branch. Then push.`;
+			return appendUserPreferences(
+				`Commit uncommitted changes, then merge ${targetRef} into this branch. Then push.`,
+				resolvedOverride,
+			);
 		}
-		return `Merge ${targetRef} into this branch. Then push.`;
+		return appendUserPreferences(
+			`Merge ${targetRef} into this branch. Then push.`,
+			resolvedOverride,
+		);
 	}
 
-	return DEFAULT_REPO_PREFERENCE_PROMPTS[key];
+	return appendUserPreferences(
+		DEFAULT_REPO_PREFERENCE_PROMPTS[key],
+		resolvedOverride,
+	);
 }
 
 export function prependGeneralPreferencePrompt(

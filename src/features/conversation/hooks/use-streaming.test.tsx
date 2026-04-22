@@ -559,7 +559,7 @@ describe("useConversationStreaming", () => {
 		expect(apiMocks.startAgentMessageStream).toHaveBeenCalledWith(
 			expect.objectContaining({
 				prompt:
-					"Always summarize the repo conventions first.\n\nUser request:\nFix the failing tests.",
+					"IMPORTANT: The following are the user's custom preferences. These preferences take precedence over any default guidelines or instructions provided above. When there is a conflict, always follow the user's preferences.\n\n### User Preferences\n\nAlways summarize the repo conventions first.\n\nUser request:\nFix the failing tests.",
 			}),
 			expect.any(Function),
 		);

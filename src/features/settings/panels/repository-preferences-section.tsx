@@ -98,11 +98,11 @@ export function RepositoryPreferencesSection({ repoId }: { repoId: string }) {
 									</CollapsibleTrigger>
 									<CollapsibleContent className="pt-4">
 										<Textarea
-											className="min-h-[140px] resize-y bg-app-base/30 font-mono text-[12px]"
+											className="min-h-[140px] resize-y bg-app-base/30 font-mono text-[12px] placeholder:text-[12px]"
 											placeholder={
 												key === "general"
-													? undefined
-													: "Leave empty to use Helmor's built-in prompt."
+													? "Add custom instructions for all agents working in this repo."
+													: "Add your preferences here. The agent will be told to prioritize these instructions over its default instructions."
 											}
 											value={value}
 											onChange={(event) =>
@@ -155,14 +155,14 @@ export function RepositoryPreferencesSection({ repoId }: { repoId: string }) {
 				onOpenChange={(open) => !open && setPreviewKey(null)}
 			>
 				<DialogContent className="w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] sm:w-[min(76vw,760px)] sm:max-w-[760px] rounded-2xl border-border/60 bg-background p-0 shadow-2xl">
-					<div className="border-b border-border/40 px-6 py-4">
-						<DialogTitle className="text-[15px] font-semibold text-foreground">
+					<div className="px-6 pt-4">
+						<DialogTitle className="text-[18px] font-semibold text-foreground">
 							{previewKey
 								? `${REPO_PREFERENCE_LABELS[previewKey]} prompt`
 								: "Prompt preview"}
 						</DialogTitle>
 					</div>
-					<div className="max-h-[78vh] overflow-y-auto px-6 py-5">
+					<div className="max-h-[78vh] overflow-y-auto px-6 pb-5 pt-1">
 						<div className="conversation-markdown max-w-none break-words text-[13px] leading-6 text-foreground">
 							<Suspense
 								fallback={

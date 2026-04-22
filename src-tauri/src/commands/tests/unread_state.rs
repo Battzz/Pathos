@@ -288,3 +288,41 @@ fn mark_session_read_preserves_workspace_unread_while_other_sessions_stay_unread
     // Workspace flag must stay because the second session still has unread.
     assert_eq!(workspace_unread, 1);
 }
+
+#[test]
+fn hide_session_clears_its_unread_and_drops_workspace_flag() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = ArchiveTestHarness::new(true);
+    let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
+
+    // Only session in the workspace has unread; workspace flag is derived on.
+    connection
+        .execute(
+            "UPDATE sessions SET unread_count = 3 WHERE id = ?1",
+            [&harness.session_id],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE workspaces SET unread = 1 WHERE id = ?1",
+            [&harness.workspace_id],
+        )
+        .unwrap();
+
+    sessions::hide_session(&harness.session_id).unwrap();
+
+    let (session_unread, workspace_unread): (i64, i64) = connection
+        .query_row(
+            "SELECT (SELECT unread_count FROM sessions WHERE id = ?1), (SELECT unread FROM workspaces WHERE id = ?2)",
+            (&harness.session_id, &harness.workspace_id),
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+
+    // Hidden session's unread must be wiped (the user can't reach it).
+    assert_eq!(session_unread, 0);
+    // And the workspace flag should drop because nothing is unread any more.
+    assert_eq!(workspace_unread, 0);
+}

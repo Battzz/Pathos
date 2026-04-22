@@ -488,6 +488,11 @@ pub fn hide_session(session_id: &str) -> Result<()> {
         )
         .with_context(|| format!("Failed to hide session {session_id}"))?;
 
+    // A hidden session can no longer contribute to the workspace unread dot —
+    // the user can't reach it to clear it. Drop its unread_count so the
+    // workspace flag can fall off too when this was the last unread session.
+    mark_session_read_in_transaction(&transaction, session_id)?;
+
     // If this was the workspace's active session, switch to the next visible one
     let current_active: Option<String> = transaction
         .query_row(

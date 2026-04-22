@@ -50,7 +50,7 @@ const AssistantText = memo(function AssistantText({
 	return (
 		<div
 			className="conversation-markdown assistant-markdown-scale max-w-none break-words text-foreground"
-			style={{ fontSize: `${Math.max(settings.fontSize - 1, 12)}px` }}
+			style={{ fontSize: `${settings.fontSize}px` }}
 		>
 			<Suspense fallback={<AssistantTextFallback text={text} />}>
 				<LazyStreamdown
