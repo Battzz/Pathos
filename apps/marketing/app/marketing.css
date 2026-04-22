@@ -868,6 +868,19 @@ html.light .mock-stage {
 		 * into a visible lean. Match the pitch's side padding. */
 		padding: 12px 32px;
 	}
+	/* Stacked layout — switch the pitch readability mask from left→right to
+	 * top→bottom. Hero copy sits above the product mock now, so the smoke
+	 * should fade in from the bottom of the pitch into the mock-wrap below
+	 * instead of being walled off on the left side. */
+	.pitch::before {
+		background: linear-gradient(
+			to bottom,
+			var(--background) 0%,
+			color-mix(in oklch, var(--background) 85%, transparent) 55%,
+			color-mix(in oklch, var(--background) 35%, transparent) 85%,
+			transparent 100%
+		);
+	}
 }
 @media (max-height: 700px) {
 	.pitch {
