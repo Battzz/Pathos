@@ -108,19 +108,26 @@ export function CloneFromUrlDialog({
 				onOpenChange(nextOpen);
 			}}
 		>
-			<DialogContent className="sm:max-w-md">
+			<DialogContent className="gap-3 p-4 sm:max-w-sm">
 				<DialogHeader>
-					<DialogTitle>Clone from URL</DialogTitle>
+					<DialogTitle className="text-[13px] font-medium tracking-[-0.01em]">
+						Clone from URL
+					</DialogTitle>
 				</DialogHeader>
 				<form
 					onSubmit={(event) => {
 						event.preventDefault();
 						void handleSubmit();
 					}}
-					className="flex flex-col gap-4"
+					className="flex flex-col gap-3"
 				>
-					<div className="flex flex-col gap-1.5">
-						<Label htmlFor="clone-git-url">Git URL</Label>
+					<div className="flex flex-col gap-1">
+						<Label
+							htmlFor="clone-git-url"
+							className="text-[12px] font-medium tracking-[-0.01em]"
+						>
+							Git URL
+						</Label>
 						<Input
 							id="clone-git-url"
 							type="text"
@@ -132,11 +139,17 @@ export function CloneFromUrlDialog({
 							autoCorrect="off"
 							spellCheck={false}
 							disabled={isSubmitting}
+							className="h-7 text-[13px] md:text-[13px]"
 						/>
 					</div>
-					<div className="flex flex-col gap-1.5">
-						<Label htmlFor="clone-location">Clone location</Label>
-						<div className="flex items-center gap-2">
+					<div className="flex flex-col gap-1">
+						<Label
+							htmlFor="clone-location"
+							className="text-[12px] font-medium tracking-[-0.01em]"
+						>
+							Clone location
+						</Label>
+						<div className="flex items-center gap-1.5">
 							<Input
 								id="clone-location"
 								type="text"
@@ -149,10 +162,12 @@ export function CloneFromUrlDialog({
 								autoCorrect="off"
 								spellCheck={false}
 								disabled={isSubmitting}
+								className="h-7 text-[13px] md:text-[13px]"
 							/>
 							<Button
 								type="button"
 								variant="outline"
+								size="sm"
 								onClick={() => {
 									void handleBrowse();
 								}}
@@ -163,12 +178,15 @@ export function CloneFromUrlDialog({
 						</div>
 					</div>
 					{errorMessage ? (
-						<p role="alert" className="text-destructive text-xs leading-snug">
+						<p
+							role="alert"
+							className="text-destructive text-[12px] leading-snug"
+						>
 							{errorMessage}
 						</p>
 					) : null}
-					<div className="flex justify-end">
-						<Button type="submit" disabled={!canSubmit}>
+					<div className="flex justify-end pt-0.5">
+						<Button type="submit" size="sm" disabled={!canSubmit}>
 							{isSubmitting ? (
 								<>
 									<LoaderCircle className="animate-spin" strokeWidth={2.1} />
