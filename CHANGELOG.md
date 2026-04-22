@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.1
+
+### Patch Changes
+
+- [#176](https://github.com/dohooo/helmor/pull/176) [`8536c7b`](https://github.com/dohooo/helmor/commit/8536c7b0f62dfa25266427a3d5e8537ca55485ae) Thanks [@natllian](https://github.com/natllian)! - Keep the model picker populated from the last good startup cache and only overwrite that cache after a successful model refresh, so reopening Helmor no longer flashes an empty "Select model" state before the catalog loads.
+
+- [#177](https://github.com/dohooo/helmor/pull/177) [`b7d2de2`](https://github.com/dohooo/helmor/commit/b7d2de22bbf2c06b822ad9ca36e2096f0fcabca0) Thanks [@natllian](https://github.com/natllian)! - Fix fast Claude thinking blocks that were collapsing themselves and showing a generic "Thinking" label — they now stay expanded and show "Thought for Ns" as soon as reasoning finishes, even when the block completes too quickly for the streaming UI to observe it mid-flight.
+
+- [#174](https://github.com/dohooo/helmor/pull/174) [`48bc8b1`](https://github.com/dohooo/helmor/commit/48bc8b1846e0a2e11ba2bc9a86c19c9f897a2d3e) Thanks [@natllian](https://github.com/natllian)! - Make the workspace unread dot behave the way you'd expect:
+  - Clicking a workspace you just marked as unread now actually clears the green dot. Previously the click was silently ignored when the workspace was already the currently selected one.
+  - "Mark as unread" only flips the workspace flag itself — it no longer flips a random session's unread state as a side effect, and your manual workspace-level mark is preserved as long as any session in that workspace is still unread.
+
 ## 0.4.0
 
 ### Minor Changes
