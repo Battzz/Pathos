@@ -32,7 +32,7 @@ pub async fn clone_repository_from_url(
     git_url: String,
     clone_directory: String,
 ) -> CmdResult<repos::AddRepositoryResponse> {
-    let _lock = db::WORKSPACE_MUTATION_LOCK.lock().await;
+    let _lock = db::WORKSPACE_FS_MUTATION_LOCK.lock().await;
     run_blocking(move || repos::clone_repository_from_url(&git_url, &clone_directory)).await
 }
 
