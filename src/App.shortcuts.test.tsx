@@ -286,7 +286,9 @@ function expectSelectedSession(title: string) {
 }
 
 function expectSelectedWorkspace(title: string) {
-	expect(screen.getByRole("button", { name: title })).toHaveClass("bg-accent");
+	expect(screen.getByRole("button", { name: title })).toHaveClass(
+		"workspace-row-selected",
+	);
 }
 
 function pressGlobalShortcut(
@@ -580,7 +582,7 @@ describe("App global navigation shortcuts", () => {
 		// assertion we actually care about.
 		expect(
 			screen.getByRole("button", { name: "Review workspace" }),
-		).not.toHaveClass("bg-accent");
+		).not.toHaveClass("workspace-row-selected");
 	});
 
 	it("navigates through archived workspaces after the active workspace list even while Archived stays collapsed", async () => {
