@@ -598,7 +598,12 @@ describe("WorkspaceComposerContainer", () => {
 									imagePaths: [],
 									filePaths: [],
 									customTags: [],
-									model: MODEL_SECTIONS[0].options[0],
+									model: {
+										...MODEL_SECTIONS[0].options[0],
+										effortLevels: [
+											...MODEL_SECTIONS[0].options[0].effortLevels,
+										],
+									},
 									workingDirectory: "/tmp/helmor",
 									effortLevel: "medium",
 									permissionMode: "default",
