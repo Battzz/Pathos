@@ -574,9 +574,9 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 															<div className="flex items-center gap-3">
 																<span className="text-muted-foreground">
 																	{option.provider === "codex" ? (
-																		<OpenAIIcon className="size-[13px]" />
+																		<OpenAIIcon />
 																	) : (
-																		<ClaudeIcon className="size-[13px]" />
+																		<ClaudeIcon />
 																	)}
 																</span>
 																<span className="font-mono tabular-nums">
@@ -787,7 +787,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 });
 
 function EffortBrainIcon({ level }: { level: string }) {
-	const cls = "size-4 shrink-0";
+	const cls = "shrink-0";
 
 	if (level === "minimal") {
 		return (

@@ -168,6 +168,7 @@ pub fn run() {
             commands::github_commands::get_github_identity_session,
             commands::workspace_commands::get_workspace,
             commands::repository_commands::add_repository_from_local_path,
+            commands::repository_commands::clone_repository_from_url,
             commands::github_commands::list_github_accessible_repositories,
             commands::workspace_commands::list_archived_workspaces,
             commands::repository_commands::list_repositories,

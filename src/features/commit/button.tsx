@@ -374,7 +374,6 @@ export function WorkspaceCommitButton({
 					<DropdownMenuItem
 						key={item.id}
 						onClick={() => runAction(item.onClick)}
-						className="text-[11px]"
 					>
 						{item.label}
 					</DropdownMenuItem>

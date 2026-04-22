@@ -711,6 +711,69 @@ pub fn resolve_repository_from_local_path(folder_path: &str) -> Result<ResolvedR
     })
 }
 
+pub fn clone_repository_from_url(
+    git_url: &str,
+    clone_directory: &str,
+) -> Result<AddRepositoryResponse> {
+    let url = git_url.trim();
+    if url.is_empty() {
+        bail!("Git URL is required.");
+    }
+
+    let parent = Path::new(clone_directory.trim());
+    if !parent.exists() {
+        bail!(
+            "Clone location does not exist: {}. Please choose an existing directory.",
+            parent.display()
+        );
+    }
+    if !parent.is_dir() {
+        bail!("Clone location is not a directory: {}", parent.display());
+    }
+
+    let repo_name = infer_repo_name_from_url(url)
+        .with_context(|| format!("Unable to derive a repository name from URL: {url}"))?;
+    let target_dir = parent.join(&repo_name);
+
+    if target_dir.exists() {
+        bail!(
+            "Target directory already exists: {}. Please remove it or choose a different clone location.",
+            target_dir.display()
+        );
+    }
+
+    let target_arg = target_dir.display().to_string();
+    let clone_result = git_ops::run_git_with_timeout(
+        ["clone", "--", url, target_arg.as_str()],
+        Some(parent),
+        git_ops::GIT_CLONE_TIMEOUT,
+    );
+
+    if let Err(error) = clone_result {
+        // git may have partially created the target directory before failing.
+        // Best-effort cleanup so the user can retry without hitting the
+        // "target directory already exists" branch above.
+        if target_dir.exists() {
+            let _ = fs::remove_dir_all(&target_dir);
+        }
+        return Err(error.context("Failed to clone repository"));
+    }
+
+    add_repository_from_local_path(&target_dir.display().to_string())
+}
+
+fn infer_repo_name_from_url(url: &str) -> Option<String> {
+    let trimmed = url.trim().trim_end_matches('/');
+    let without_git = trimmed.strip_suffix(".git").unwrap_or(trimmed);
+    let last = without_git.rsplit(['/', ':']).next()?;
+    let cleaned = last.trim();
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned.to_string())
+    }
+}
+
 pub fn add_repository_from_local_path(folder_path: &str) -> Result<AddRepositoryResponse> {
     // Fast duplicate check: only needs git root path, no network calls.
     let normalized_root_path = resolve_git_root_path(folder_path)?;

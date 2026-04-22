@@ -2170,13 +2170,13 @@ function AppShell({
 																		>
 																			<EditorIcon
 																				editorId={editor.id}
-																				className="size-3.5 shrink-0"
+																				className="shrink-0"
 																			/>
 																			<span className="flex-1">
 																				{editor.name}
 																			</span>
 																			{editor.id === preferredEditor.id && (
-																				<Check className="ml-auto size-3 text-muted-foreground" />
+																				<Check className="ml-auto text-muted-foreground" />
 																			)}
 																		</DropdownMenuItem>
 																	))}

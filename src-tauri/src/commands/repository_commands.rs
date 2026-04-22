@@ -28,6 +28,15 @@ pub async fn add_repository_from_local_path(
 }
 
 #[tauri::command]
+pub async fn clone_repository_from_url(
+    git_url: String,
+    clone_directory: String,
+) -> CmdResult<repos::AddRepositoryResponse> {
+    let _lock = db::WORKSPACE_MUTATION_LOCK.lock().await;
+    run_blocking(move || repos::clone_repository_from_url(&git_url, &clone_directory)).await
+}
+
+#[tauri::command]
 pub async fn update_repository_default_branch(
     app: AppHandle,
     repo_id: String,

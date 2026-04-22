@@ -34,17 +34,22 @@ export const WorkspacesSidebarContainer = memo(
 			archivedRows,
 			availableRepositories,
 			creatingWorkspaceRepoId,
+			cloneDefaultDirectory,
 			groups,
 			handleAddRepository,
 			handleArchiveWorkspace,
+			handleCloneFromUrl,
 			handleCreateWorkspaceFromRepo,
 			handleDeleteWorkspace,
 			handleMarkWorkspaceUnread,
+			handleOpenCloneDialog,
 			handleRestoreWorkspace,
 			handleSelectWorkspace,
 			handleSetManualStatus,
 			handleTogglePin,
+			isCloneDialogOpen,
 			prefetchWorkspace,
+			setIsCloneDialogOpen,
 		} = useWorkspacesSidebarController({
 			selectedWorkspaceId,
 			onSelectWorkspace,
@@ -65,6 +70,11 @@ export const WorkspacesSidebarContainer = memo(
 				onAddRepository={() => {
 					void handleAddRepository();
 				}}
+				onOpenCloneDialog={handleOpenCloneDialog}
+				isCloneDialogOpen={isCloneDialogOpen}
+				onCloneDialogOpenChange={setIsCloneDialogOpen}
+				cloneDefaultDirectory={cloneDefaultDirectory}
+				onSubmitClone={handleCloneFromUrl}
 				onSelectWorkspace={handleSelectWorkspace}
 				onPrefetchWorkspace={prefetchWorkspace}
 				onCreateWorkspace={(repoId) => {

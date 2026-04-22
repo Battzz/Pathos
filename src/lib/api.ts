@@ -1541,6 +1541,13 @@ export async function addRepositoryFromLocalPath(
 	});
 }
 
+export async function cloneRepositoryFromUrl(args: {
+	gitUrl: string;
+	cloneDirectory: string;
+}): Promise<AddRepositoryResponse> {
+	return invoke<AddRepositoryResponse>("clone_repository_from_url", args);
+}
+
 export async function markSessionRead(
 	sessionId: string,
 ): Promise<MarkWorkspaceReadResponse> {

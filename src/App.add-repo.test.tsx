@@ -275,6 +275,9 @@ describe("App add repository flow", () => {
 		await screen.findByRole("main", { name: "Application shell" });
 
 		await user.click(screen.getByRole("button", { name: "Add repository" }));
+		await user.click(
+			await screen.findByRole("menuitem", { name: "Open project" }),
+		);
 
 		await waitFor(() => {
 			expect(dialogMocks.open).toHaveBeenCalledWith({
@@ -310,6 +313,9 @@ describe("App add repository flow", () => {
 		await screen.findByRole("main", { name: "Application shell" });
 
 		await user.click(screen.getByRole("button", { name: "Add repository" }));
+		await user.click(
+			await screen.findByRole("menuitem", { name: "Open project" }),
+		);
 
 		await waitFor(() => {
 			expect(dialogMocks.open).toHaveBeenCalled();
@@ -332,6 +338,9 @@ describe("App add repository flow", () => {
 		await screen.findByRole("main", { name: "Application shell" });
 
 		await user.click(screen.getByRole("button", { name: "Add repository" }));
+		await user.click(
+			await screen.findByRole("menuitem", { name: "Open project" }),
+		);
 
 		await waitFor(() => {
 			expect(apiMocks.addRepositoryFromLocalPath).toHaveBeenCalledWith(
@@ -352,6 +361,9 @@ describe("App add repository flow", () => {
 		await screen.findByRole("main", { name: "Application shell" });
 
 		await user.click(screen.getByRole("button", { name: "Add repository" }));
+		await user.click(
+			await screen.findByRole("menuitem", { name: "Open project" }),
+		);
 
 		await waitFor(() => {
 			expect(

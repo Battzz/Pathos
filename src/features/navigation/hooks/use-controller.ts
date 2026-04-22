@@ -2,7 +2,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+	type AddRepositoryResponse,
 	addRepositoryFromLocalPath,
+	cloneRepositoryFromUrl,
 	type DerivedStatus,
 	finalizeWorkspaceFromRepo,
 	listenArchiveExecutionFailed,
@@ -81,6 +83,10 @@ export function useWorkspacesSidebarController({
 	const queryClient = useQueryClient();
 	const { settings } = useSettings();
 	const [addingRepository, setAddingRepository] = useState(false);
+	const [isCloneDialogOpen, setIsCloneDialogOpen] = useState(false);
+	const [cloneDefaultDirectory, setCloneDefaultDirectory] = useState<
+		string | null
+	>(null);
 	const [creatingWorkspaceRepoId, setCreatingWorkspaceRepoId] = useState<
 		string | null
 	>(null);
@@ -931,6 +937,28 @@ export function useWorkspacesSidebarController({
 		],
 	);
 
+	const applyAddRepositoryResponse = useCallback(
+		async (response: AddRepositoryResponse) => {
+			await refetchNavigation();
+			prefetchWorkspace(response.selectedWorkspaceId);
+			onSelectWorkspace(response.selectedWorkspaceId);
+
+			if (!response.createdRepository) {
+				pushWorkspaceToast(
+					"Switched to the existing workspace.",
+					"Repository already added",
+					"default",
+				);
+			}
+		},
+		[
+			onSelectWorkspace,
+			prefetchWorkspace,
+			pushWorkspaceToast,
+			refetchNavigation,
+		],
+	);
+
 	const handleAddRepository = useCallback(async () => {
 		if (addingRepository) {
 			return;
@@ -940,6 +968,7 @@ export function useWorkspacesSidebarController({
 
 		try {
 			const defaults = await loadAddRepositoryDefaults();
+			setCloneDefaultDirectory(defaults.lastCloneDirectory ?? null);
 			const selection = await open({
 				directory: true,
 				multiple: false,
@@ -952,17 +981,7 @@ export function useWorkspacesSidebarController({
 			}
 
 			const response = await addRepositoryFromLocalPath(selectedPath);
-			await refetchNavigation();
-			prefetchWorkspace(response.selectedWorkspaceId);
-			onSelectWorkspace(response.selectedWorkspaceId);
-
-			if (!response.createdRepository) {
-				pushWorkspaceToast(
-					"Switched to the existing workspace.",
-					"Repository already added",
-					"default",
-				);
-			}
+			await applyAddRepositoryResponse(response);
 		} catch (error) {
 			pushWorkspaceToast(
 				describeUnknownError(error, "Unable to add repository."),
@@ -970,13 +989,29 @@ export function useWorkspacesSidebarController({
 		} finally {
 			setAddingRepository(false);
 		}
-	}, [
-		addingRepository,
-		onSelectWorkspace,
-		prefetchWorkspace,
-		pushWorkspaceToast,
-		refetchNavigation,
-	]);
+	}, [addingRepository, applyAddRepositoryResponse, pushWorkspaceToast]);
+
+	const handleOpenCloneDialog = useCallback(() => {
+		setIsCloneDialogOpen(true);
+		// Lazy-load the last-used clone directory so the dialog pre-fills it.
+		// Errors here are non-fatal — the dialog still works without a default.
+		void loadAddRepositoryDefaults()
+			.then((defaults) => {
+				setCloneDefaultDirectory(defaults.lastCloneDirectory ?? null);
+			})
+			.catch(() => {
+				/* swallow: dialog will just have an empty default */
+			});
+	}, []);
+
+	const handleCloneFromUrl = useCallback(
+		async (args: { gitUrl: string; cloneDirectory: string }) => {
+			const response = await cloneRepositoryFromUrl(args);
+			await applyAddRepositoryResponse(response);
+			setCloneDefaultDirectory(args.cloneDirectory);
+		},
+		[applyAddRepositoryResponse],
+	);
 
 	const handleDeleteWorkspace = useCallback(
 		(workspaceId: string) => {
@@ -1409,17 +1444,22 @@ export function useWorkspacesSidebarController({
 		archivedRows,
 		availableRepositories: repositoriesQuery.data ?? [],
 		creatingWorkspaceRepoId,
+		cloneDefaultDirectory,
 		groups,
 		handleAddRepository,
 		handleArchiveWorkspace,
+		handleCloneFromUrl,
 		handleCreateWorkspaceFromRepo,
 		handleDeleteWorkspace,
 		handleMarkWorkspaceUnread,
+		handleOpenCloneDialog,
 		handleRestoreWorkspace,
 		handleSelectWorkspace,
 		handleSetManualStatus,
 		handleTogglePin,
+		isCloneDialogOpen,
 		prefetchWorkspace,
+		setIsCloneDialogOpen,
 	};
 }
 
