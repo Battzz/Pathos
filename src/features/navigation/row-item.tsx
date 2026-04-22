@@ -45,7 +45,7 @@ const rowVariants = cva(
 	{
 		variants: {
 			active: {
-				true: "bg-accent text-foreground",
+				true: "workspace-row-selected text-foreground",
 				false: "text-foreground/80 hover:bg-accent/60",
 			},
 		},

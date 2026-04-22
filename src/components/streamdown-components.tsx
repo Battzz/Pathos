@@ -54,7 +54,9 @@ export function StreamdownTable({
 				<TableCopyDropdown />
 				<TableDownloadDropdown />
 			</div>
-			<Table className={cn("text-[11px]", className)}>{children}</Table>
+			<div className="overflow-hidden rounded-md border border-border/70">
+				<Table className={cn("text-[0.9em]", className)}>{children}</Table>
+			</div>
 		</div>
 	);
 }
@@ -97,7 +99,12 @@ export function StreamdownTableHead({
 	className?: string;
 }) {
 	return (
-		<TableHead className={cn("h-8 text-[11px] font-semibold", className)}>
+		<TableHead
+			className={cn(
+				"h-8 border-r border-border/60 bg-muted/35 text-[0.9em] font-semibold last:border-r-0",
+				className,
+			)}
+		>
 			{children}
 		</TableHead>
 	);
@@ -111,7 +118,12 @@ export function StreamdownTableCell({
 	className?: string;
 }) {
 	return (
-		<TableCell className={cn("py-1.5 text-[11px]", className)}>
+		<TableCell
+			className={cn(
+				"border-r border-border/60 py-1.5 text-[0.9em] last:border-r-0",
+				className,
+			)}
+		>
 			{children}
 		</TableCell>
 	);

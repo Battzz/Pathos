@@ -167,12 +167,38 @@ body {
 }
 
 .assistant-markdown-scale {
+	--assistant-paragraph-line-height: 1.82;
 	line-height: 1.5;
 }
 
+.assistant-markdown-scale p,
 .assistant-markdown-scale [data-streamdown="paragraph"],
 .assistant-markdown-scale [data-streamdown="list-item"] {
-	line-height: 1.5;
+	line-height: var(--assistant-paragraph-line-height);
+}
+
+.assistant-markdown-scale
+	[data-streamdown="ordered-list"]
+	> [data-streamdown="list-item"]::marker {
+	color: var(--muted-foreground);
+}
+
+.assistant-markdown-scale
+	:is([data-streamdown="ordered-list"], [data-streamdown="unordered-list"]) {
+	padding-inline-start: 0.25rem;
+}
+
+.assistant-markdown-scale
+	:is([data-streamdown="ordered-list"], [data-streamdown="unordered-list"])
+	> [data-streamdown="list-item"] {
+	padding-top: 0.125rem;
+	padding-bottom: 0.125rem;
+}
+
+.conversation-streamdown
+	> :is(p, [data-streamdown="paragraph"])
+	+ :is([data-streamdown="ordered-list"], [data-streamdown="unordered-list"]) {
+	margin-top: 0.75rem;
 }
 
 .assistant-markdown-scale [data-streamdown="heading-1"],
@@ -182,7 +208,7 @@ body {
 .assistant-markdown-scale [data-streamdown="heading-5"],
 .assistant-markdown-scale [data-streamdown="heading-6"] {
 	margin: 0;
-	color: var(--foreground);
+	color: inherit;
 }
 
 .assistant-markdown-scale [data-streamdown="heading-1"] {
@@ -218,6 +244,9 @@ body {
 
 .assistant-markdown-scale [data-streamdown="inline-code"] {
 	font-size: 0.88em;
+	background: transparent;
+	border: 1px solid
+		color-mix(in oklch, var(--muted) 87%, var(--muted-foreground) 13%);
 }
 
 .assistant-markdown-scale [data-streamdown="code-block"] {
@@ -419,9 +448,17 @@ body {
 	}
 }
 
+.conversation-body-text {
+	color: var(--conversation-body-foreground);
+}
+
+.workspace-row-selected {
+	background: var(--workspace-sidebar-selected-bg);
+}
+
 /* Streamdown theme overrides — minimal, no !important */
 .conversation-streamdown {
-	color: var(--foreground);
+	color: var(--conversation-body-foreground);
 }
 
 .conversation-streamdown [data-sd-animate] {
@@ -452,6 +489,9 @@ body {
  */
 .conversation-streamdown :not(pre) > code {
 	font-size: inherit;
+	background: transparent;
+	border: 1px solid
+		color-mix(in oklch, var(--muted) 87%, var(--muted-foreground) 13%);
 }
 
 /* Table layout for assistant markdown */

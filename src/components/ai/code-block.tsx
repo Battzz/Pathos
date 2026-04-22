@@ -75,6 +75,8 @@ export const CodeBlock = ({
 	const [darkHtml, setDarkHtml] = useState(() => plainHtml(code));
 	const resolvedLanguage = useMemo(() => resolveLanguage(language), [language]);
 	const isPlain = variant === "plain";
+	const hasHeaderActions = !isPlain && Boolean(language);
+	const hasFloatingActions = !isPlain && !language && Boolean(children);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -142,7 +144,11 @@ export const CodeBlock = ({
 
 	const codePadding = isPlain
 		? "[&>pre]:p-3.5"
-		: "[&>pre]:px-3.5 [&>pre]:pb-3.5 [&>pre]:pt-1";
+		: hasHeaderActions
+			? "[&>pre]:px-3.5 [&>pre]:pb-3.5 [&>pre]:pt-1"
+			: hasFloatingActions
+				? "[&>pre]:px-3.5 [&>pre]:py-3.5 [&>pre]:pr-11"
+				: "[&>pre]:p-3.5";
 	const wrapClasses = wrapLines
 		? "overflow-x-hidden overflow-y-hidden [&>pre]:whitespace-pre-wrap [&>pre]:break-words [&_code]:whitespace-pre-wrap [&_code]:break-words"
 		: "overflow-x-auto overflow-y-hidden [&>pre]:min-w-full";
@@ -160,20 +166,27 @@ export const CodeBlock = ({
 				)}
 				{...props}
 			>
-				{isPlain ? null : (
-					<div className="flex items-center justify-between gap-2 px-3 pt-1.5">
-						{language ? (
-							<span className="truncate font-mono text-[10px] leading-none tracking-wide text-muted-foreground/50 uppercase select-none">
-								{language}
-							</span>
-						) : (
-							<span />
-						)}
+				{hasHeaderActions ? (
+					<div
+						data-code-block-actions="header"
+						className="flex items-center justify-between gap-2 px-3 pt-1.5"
+					>
+						<span className="truncate font-mono text-[10px] leading-none tracking-wide text-muted-foreground/50 uppercase select-none">
+							{language}
+						</span>
 						<div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
 							{children}
 						</div>
 					</div>
-				)}
+				) : null}
+				{hasFloatingActions ? (
+					<div
+						data-code-block-actions="floating"
+						className="absolute top-2 right-2 z-10 flex items-center gap-0.5"
+					>
+						{children}
+					</div>
+				) : null}
 				<div className="relative">
 					<div
 						className={cn(codeBase, codePadding, wrapClasses, "dark:hidden")}
