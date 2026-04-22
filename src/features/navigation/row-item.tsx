@@ -9,7 +9,7 @@ import {
 	RotateCcw,
 	Trash2,
 } from "lucide-react";
-import { memo, useEffect } from "react";
+import { memo, useEffect, useState } from "react";
 import { HelmorThinkingIndicator } from "@/components/helmor-thinking-indicator";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +28,10 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+	getScriptState,
+	subscribeStatus,
+} from "@/features/inspector/script-store";
 import type { DerivedStatus, WorkspaceRow } from "@/lib/api";
 import { recordSidebarRowRender } from "@/lib/dev-render-debug";
 import { cn } from "@/lib/utils";
@@ -78,6 +82,26 @@ export type WorkspaceRowItemProps = {
 	workspaceActionsDisabled?: boolean;
 };
 
+/**
+ * Subscribes to this workspace's `run`-script status via the module-level
+ * script-store used by the inspector. Returns true only while the script is
+ * actively executing (not "idle" or "exited"). Per-row subscription keeps the
+ * re-render fan-out narrow — only rows whose status flipped re-render.
+ */
+function useIsRunScriptRunning(workspaceId: string): boolean {
+	const [running, setRunning] = useState(
+		() => getScriptState(workspaceId, "run")?.status === "running",
+	);
+	useEffect(() => {
+		// Re-sync when the row is reused for a different workspace (virtual list).
+		setRunning(getScriptState(workspaceId, "run")?.status === "running");
+		return subscribeStatus(workspaceId, "run", (status) => {
+			setRunning(status === "running");
+		});
+	}, [workspaceId]);
+	return running;
+}
+
 export const WorkspaceRowItem = memo(
 	function WorkspaceRowItem({
 		row,
@@ -101,6 +125,7 @@ export const WorkspaceRowItem = memo(
 		useEffect(() => {
 			recordSidebarRowRender(row.id);
 		});
+		const isRunScriptRunning = useIsRunScriptRunning(row.id);
 		const actionLabel =
 			row.state === "archived" ? "Restore workspace" : "Archive workspace";
 		const isArchiving = archivingWorkspaceIds?.has(row.id) ?? false;
@@ -189,6 +214,7 @@ export const WorkspaceRowItem = memo(
 						title={displayTitle}
 						badgeClassName={showStatusDot ? statusDotClassName : null}
 						badgeAriaLabel={statusDotLabel ?? undefined}
+						isRunning={isRunScriptRunning}
 					/>
 					{/* Fade is on an inner wrapper so the avatar's overflowing badge isn't clipped by mask-image. */}
 					<div className="row-content-fade flex min-w-0 flex-1 items-center gap-2">

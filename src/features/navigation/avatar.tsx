@@ -5,6 +5,7 @@ import {
 	AvatarFallback,
 	AvatarImage,
 } from "@/components/ui/avatar";
+import { ShineBorder } from "@/components/ui/shine-border";
 import { cn } from "@/lib/utils";
 
 function initialsFromLabel(label?: string | null) {
@@ -44,6 +45,7 @@ export const WorkspaceAvatar = memo(function WorkspaceAvatar({
 	fallbackClassName,
 	badgeClassName,
 	badgeAriaLabel,
+	isRunning,
 }: {
 	repoIconSrc?: string | null;
 	repoInitials?: string | null;
@@ -53,6 +55,7 @@ export const WorkspaceAvatar = memo(function WorkspaceAvatar({
 	fallbackClassName?: string;
 	badgeClassName?: string | null;
 	badgeAriaLabel?: string;
+	isRunning?: boolean;
 }) {
 	const fallback = (
 		repoInitials?.trim() || initialsFromLabel(repoName || title)
@@ -99,11 +102,24 @@ export const WorkspaceAvatar = memo(function WorkspaceAvatar({
 					{fallback}
 				</AvatarFallback>
 			) : null}
+			{isRunning ? (
+				<ShineBorder
+					borderWidth={1}
+					duration={6}
+					shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]}
+					style={{
+						inset: "-2px",
+						width: "calc(100% + 4px)",
+						height: "calc(100% + 4px)",
+						borderRadius: "6px",
+					}}
+				/>
+			) : null}
 			{badgeClassName ? (
 				<AvatarBadge
 					aria-label={badgeAriaLabel}
 					className={cn(
-						"bottom-auto -top-0.5 size-1.5 border-0 ring-2 ring-sidebar",
+						"bottom-auto -top-0.5 z-10 size-1.5 border-0 ring-2 ring-sidebar",
 						badgeClassName,
 					)}
 				/>
