@@ -217,6 +217,9 @@ function MainApp() {
 							if (key[0] === "slashCommands") {
 								return false;
 							}
+							if (key[0] === "agentModelSections") {
+								return false;
+							}
 							// Workspace lists are fast local DB queries — always
 							// load fresh to avoid "ghost workspace" errors on startup.
 							if (
