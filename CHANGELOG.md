@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+### Patch Changes
+
+- [#203](https://github.com/dohooo/helmor/pull/203) [`4b9cf2e`](https://github.com/dohooo/helmor/commit/4b9cf2e454bcac77f083b25a07e666d72a2eae33) Thanks [@dohooo](https://github.com/dohooo)! - Enable the WebView devtools panel in production builds, so you can right-click → Inspect Element inside Helmor to help diagnose rendering issues like scrollbar glitches.
+
 ## 0.6.0
 
 ### Minor Changes
