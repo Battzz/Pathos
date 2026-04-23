@@ -158,7 +158,35 @@ pub struct StreamAccumulator {
 /// label. Both Claude `assistant.error` and (in the future) any other
 /// turn-level failure surface route through this — the rendered SystemNotice
 /// is the same shape across providers, so the frontend never branches.
-fn assistant_error_message(category: &str) -> String {
+fn assistant_error_fallback_text(value: &Value) -> Option<String> {
+    value
+        .get("message")
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_array)
+        .and_then(|blocks| {
+            blocks.iter().find_map(|block| {
+                block
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .filter(|ty| *ty == "text")
+                    .and_then(|_| block.get("text"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_string)
+            })
+        })
+        .or_else(|| {
+            value
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string)
+        })
+}
+
+fn assistant_error_message(category: &str, value: &Value) -> String {
     match category {
         "rate_limit" => "Rate limited by Anthropic API",
         "max_output_tokens" => "Output truncated: max output tokens reached",
@@ -166,7 +194,12 @@ fn assistant_error_message(category: &str) -> String {
         "authentication_failed" => "Authentication failed: please re-authenticate",
         "invalid_request" => "Invalid request: malformed payload",
         "server_error" => "Anthropic API server error (5xx)",
-        "unknown" => "Assistant turn ended in an unknown error state",
+        "unknown" => {
+            if let Some(message) = assistant_error_fallback_text(value) {
+                return message;
+            }
+            "Assistant turn ended in an unknown error state"
+        }
         other => return format!("Assistant error: {other}"),
     }
     .to_string()
@@ -938,7 +971,7 @@ impl StreamAccumulator {
 
         // Turn-level failure category → error envelope.
         if let Some(category) = value.get("error").and_then(Value::as_str) {
-            let label = assistant_error_message(category);
+            let label = assistant_error_message(category, value);
             let synthetic = serde_json::json!({
                 "type": "error",
                 "message": label,

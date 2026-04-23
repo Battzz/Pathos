@@ -12,6 +12,7 @@ import type {
 	DeferredToolResponseOptions,
 } from "@/features/composer/deferred-tool";
 import { WorkspacePanelContainer } from "@/features/panel/container";
+import { FileLinkProvider } from "@/features/panel/message-components/file-link-context";
 import type { PullRequestInfo } from "@/lib/api";
 import type { ResolvedComposerInsertRequest } from "@/lib/composer-insert";
 import { insertRequestMatchesComposer } from "@/lib/composer-insert";
@@ -71,6 +72,8 @@ type WorkspaceConversationContainerProps = {
 		modelId?: string | null;
 		permissionMode?: string | null;
 	}) => void;
+	workspaceRootPath?: string | null;
+	onOpenFileReference?: (path: string, line?: number, column?: number) => void;
 };
 
 export const WorkspaceConversationContainer = memo(
@@ -96,6 +99,8 @@ export const WorkspaceConversationContainer = memo(
 		pendingInsertRequests = [],
 		onPendingInsertRequestsConsumed,
 		onQueuePendingPromptForSession,
+		workspaceRootPath,
+		onOpenFileReference,
 	}: WorkspaceConversationContainerProps) {
 		const [composerModelSelections, setComposerModelSelections] = useState<
 			Record<string, string>
@@ -278,7 +283,12 @@ export const WorkspaceConversationContainer = memo(
 			);
 
 		return (
-			<>
+			<FileLinkProvider
+				value={{
+					openInEditor: onOpenFileReference,
+					workspaceRootPath,
+				}}
+			>
 				<WorkspacePanelContainer
 					selectedWorkspaceId={selectedWorkspaceId}
 					displayedWorkspaceId={displayedWorkspaceId}
@@ -338,7 +348,7 @@ export const WorkspaceConversationContainer = memo(
 						/>
 					</div>
 				</div>
-			</>
+			</FileLinkProvider>
 		);
 	},
 );

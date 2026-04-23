@@ -716,6 +716,19 @@ fn asst_empty_content_fallback() {
     assert_yaml_snapshot!(run_normalized(msgs));
 }
 
+#[test]
+fn asst_unknown_error_prefers_message_text() {
+    let msgs = vec![assistant_json(
+        "a1",
+        json!([{
+            "type": "text",
+            "text": "API Error: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()"
+        }]),
+        Some(json!({ "error": "unknown" })),
+    )];
+    assert_yaml_snapshot!(run_normalized(msgs));
+}
+
 // ============================================================================
 // 6. System messages
 // ============================================================================

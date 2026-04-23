@@ -28,6 +28,9 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { useFileLinkContext } from "@/features/panel/message-components/file-link-context";
+import { isPathWithinRoot } from "@/lib/editor-session";
+import { parseLocalFileLink } from "@/lib/local-file-link";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -182,6 +185,8 @@ export function StreamdownAnchor({
 	className?: string;
 	href?: string;
 } & Record<string, unknown>) {
+	const { openInEditor, workspaceRootPath } = useFileLinkContext();
+
 	const handleClick = async (event: MouseEvent<HTMLAnchorElement>) => {
 		if (!href) {
 			return;
@@ -197,6 +202,17 @@ export function StreamdownAnchor({
 			event.shiftKey ||
 			event.altKey
 		) {
+			return;
+		}
+
+		const localTarget = parseLocalFileLink(href, workspaceRootPath);
+		if (
+			localTarget &&
+			openInEditor &&
+			isPathWithinRoot(localTarget.path, workspaceRootPath)
+		) {
+			event.preventDefault();
+			openInEditor(localTarget.path, localTarget.line, localTarget.column);
 			return;
 		}
 

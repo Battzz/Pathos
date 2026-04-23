@@ -930,6 +930,56 @@ function AppShell({
 		],
 	);
 
+	const handleOpenFileReference = useCallback(
+		(path: string, line?: number, column?: number) => {
+			if (!workspaceRootPath) {
+				pushWorkspaceToast(
+					"Open a workspace with a resolved root path before using the in-app editor.",
+					"Editor unavailable",
+				);
+				return;
+			}
+
+			if (!isPathWithinRoot(path, workspaceRootPath)) {
+				pushWorkspaceToast(
+					"Only files inside the current workspace can be opened in the in-app editor.",
+					"File unavailable",
+				);
+				return;
+			}
+
+			if (
+				editorSession?.path !== path &&
+				!confirmDiscardEditorChanges("open another file")
+			) {
+				return;
+			}
+
+			if (selectedWorkspaceId) {
+				triggerWorkspaceFetch(selectedWorkspaceId);
+			}
+
+			setWorkspaceViewMode("editor");
+			setEditorSession((current) => ({
+				kind: "file",
+				path,
+				line,
+				column,
+				dirty: current?.path === path ? current.dirty : false,
+				originalText: current?.path === path ? current.originalText : undefined,
+				modifiedText: current?.path === path ? current.modifiedText : undefined,
+				mtimeMs: current?.path === path ? current.mtimeMs : undefined,
+			}));
+		},
+		[
+			confirmDiscardEditorChanges,
+			editorSession?.path,
+			pushWorkspaceToast,
+			selectedWorkspaceId,
+			workspaceRootPath,
+		],
+	);
+
 	const handleEditorSessionChange = useCallback(
 		(session: EditorSessionState) => {
 			setEditorSession(session);
@@ -2079,6 +2129,8 @@ function AppShell({
 												onQueuePendingPromptForSession={
 													queuePendingPromptForSession
 												}
+												workspaceRootPath={workspaceRootPath}
+												onOpenFileReference={handleOpenFileReference}
 												headerLeading={
 													sidebarCollapsed ? (
 														<>
