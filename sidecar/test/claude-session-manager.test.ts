@@ -39,6 +39,13 @@ type MockQueryResult = AsyncIterable<unknown> & {
 	close?: () => void;
 };
 
+type MockHookFn = (
+	input: { hook_event_name: string; tool_name: string },
+	toolUseID: string,
+) => Promise<{
+	hookSpecificOutput?: Record<string, unknown>;
+}>;
+
 type MockQueryImpl = (options: {
 	prompt?: unknown;
 	options?: {
@@ -54,6 +61,9 @@ type MockQueryImpl = (options: {
 			},
 			options: { signal: AbortSignal },
 		) => Promise<{ action: string; content?: Record<string, unknown> }>;
+		hooks?: {
+			PreToolUse?: Array<{ hooks: MockHookFn[] }>;
+		};
 	};
 }) => MockQueryResult;
 
@@ -629,6 +639,84 @@ describe("ClaudeSessionManager.sendMessage", () => {
 			},
 		});
 		expect(captured[2]).toEqual({ id: "REQ-DEFER", type: "end" });
+	});
+
+	// Regression for AskUserQuestion answer delivery: the Steer commit
+	// (1e0d07b) forced every sendMessage through streaming-input mode, which
+	// made resume-only streams push a synthetic `{ role: "user", content: "" }`
+	// into the SDK. Claude treated that as a new empty user turn and skipped
+	// re-invoking the PreToolUse hook, so the user's answer (stored in
+	// `deferredToolResponses`) never reached Claude. This test pins the fix:
+	// empty prompt => pass `""` (string) to `query()` so the hook re-fires.
+	test("empty prompt: query() gets string prompt and PreToolUse hook surfaces the stored resolution", async () => {
+		manager.resolveDeferredTool("tool-ask-1", "allow", undefined, {
+			questions: [{ question: "Which path should we take?", options: [] }],
+			answers: { "Which path should we take?": "Option A" },
+		});
+
+		let hookOutput: unknown = null;
+		mockQueryImpl = (queryArgs) => {
+			const hook = queryArgs.options?.hooks?.PreToolUse?.[0]?.hooks?.[0];
+			// Simulate the SDK re-invoking PreToolUse for the pending tool_use
+			// on resume. The real SDK does this inside its replay loop before
+			// executing the deferred tool.
+			if (hook) {
+				void (async () => {
+					hookOutput = await hook(
+						{
+							hook_event_name: "PreToolUse",
+							tool_name: "AskUserQuestion",
+						},
+						"tool-ask-1",
+					);
+				})();
+			}
+			return makeMockQuery({
+				stream: [
+					{
+						type: "result",
+						session_id: "sdk-session-resume",
+						subtype: "success",
+						is_error: false,
+						result: "done",
+					},
+				],
+			});
+		};
+
+		await manager.sendMessage(
+			"REQ-RESUME",
+			{
+				sessionId: "helmor-sess-defer",
+				prompt: "",
+				model: undefined,
+				cwd: undefined,
+				resume: "sdk-session-resume",
+				permissionMode: undefined,
+				effortLevel: undefined,
+				fastMode: undefined,
+			},
+			emitter,
+		);
+
+		// Pre-Steer shape: plain empty string. If this ever becomes an object
+		// (pushable / iterable), AskUserQuestion answers stop reaching Claude.
+		expect(typeof (lastQueryArgs as { prompt?: unknown } | null)?.prompt).toBe(
+			"string",
+		);
+		expect((lastQueryArgs as { prompt: string }).prompt).toBe("");
+
+		await waitForCondition(() => hookOutput !== null, "hook invocation");
+		expect(hookOutput).toEqual({
+			hookSpecificOutput: {
+				hookEventName: "PreToolUse",
+				permissionDecision: "allow",
+				updatedInput: {
+					questions: [{ question: "Which path should we take?", options: [] }],
+					answers: { "Which path should we take?": "Option A" },
+				},
+			},
+		});
 	});
 
 	test("stops after a successful result and ignores trailing SDK noise", async () => {

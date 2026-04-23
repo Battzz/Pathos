@@ -358,6 +358,11 @@ export class ClaudeSessionManager implements SessionManager {
 		this.pruneExpiredDeferredToolResponses();
 		const resolved = this.deferredToolResponses.get(toolUseID);
 		if (resolved) {
+			// Consume once: the SDK invokes the hook exactly once per
+			// tool_use lifecycle before executing the tool, so leaving the
+			// resolution in the map only risks stale reads if the same
+			// toolUseID is re-evaluated within TTL (5 min).
+			this.deferredToolResponses.delete(toolUseID);
 			return {
 				hookSpecificOutput: {
 					hookEventName: "PreToolUse",
@@ -406,21 +411,31 @@ export class ClaudeSessionManager implements SessionManager {
 		);
 
 		const { text, imagePaths } = parseImageRefs(promptWithContext);
-		// Always use streaming-input mode so `steer()` can push additional
-		// `SDKUserMessage`s into the same turn. For Claude real steer, the
-		// SDK consumes subsequent pushes as part of the in-flight turn and
-		// emits ONE final `result` — so bail-on-first-result semantics are
-		// unchanged.
+		// Resume-only streams (AskUserQuestion answer submission) arrive with
+		// `prompt === ""` — the Rust command layer rejects empty prompts in
+		// every other case (see `agents.rs: "Prompt cannot be empty"`), so
+		// this check is unambiguous. In that path we pass `""` as a plain
+		// string to `query()` (pre-Steer shape) so the SDK replays the
+		// session and re-invokes PreToolUse for the pending tool_use, which
+		// is how the stored `deferredToolResponses` resolution reaches
+		// Claude. Pushing a synthetic `{ role: "user", content: "" }` into
+		// the pushable — what streaming-input mode would do — makes the SDK
+		// treat it as a new empty user turn and skip that re-evaluation.
 		const promptSource = createPushable<SDKUserMessage>();
-		const initialMessage =
-			imagePaths.length === 0
-				? ({
-						type: "user",
-						message: { role: "user", content: text },
-						parent_tool_use_id: null,
-					} as SDKUserMessage)
-				: await buildUserMessageWithImages(text, imagePaths);
-		promptSource.push(initialMessage);
+		const isResumeOnly = text === "" && imagePaths.length === 0;
+		if (isResumeOnly) {
+			promptSource.close();
+		} else {
+			const initialMessage =
+				imagePaths.length === 0
+					? ({
+							type: "user",
+							message: { role: "user", content: text },
+							parent_tool_use_id: null,
+						} as SDKUserMessage)
+					: await buildUserMessageWithImages(text, imagePaths);
+			promptSource.push(initialMessage);
+		}
 
 		const effectiveFastMode =
 			fastMode === true && claudeModelSupportsFastMode(model);
@@ -430,7 +445,7 @@ export class ClaudeSessionManager implements SessionManager {
 				: undefined;
 
 		const q = query({
-			prompt: promptSource,
+			prompt: isResumeOnly ? "" : promptSource,
 			options: {
 				abortController,
 				pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
