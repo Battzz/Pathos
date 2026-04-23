@@ -1,4 +1,10 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -131,6 +137,26 @@ describe("WorkspacesSidebar", () => {
 
 		expect(onCreateWorkspace).toHaveBeenCalledWith("repo-1");
 		expect(screen.queryByRole("option", { name: /helmor/i })).toBeNull();
+	});
+
+	it("shows an Open in Finder action for active workspaces", async () => {
+		const user = userEvent.setup();
+		const onOpenInFinder = vi.fn();
+
+		render(
+			<TooltipProvider delayDuration={0}>
+				<WorkspacesSidebar
+					groups={workspaceGroups}
+					archivedRows={[]}
+					onOpenInFinder={onOpenInFinder}
+				/>
+			</TooltipProvider>,
+		);
+
+		fireEvent.contextMenu(screen.getByRole("button", { name: "Workspace 1" }));
+		await user.click(screen.getByRole("menuitem", { name: "Open in Finder" }));
+
+		expect(onOpenInFinder).toHaveBeenCalledWith("workspace-1");
 	});
 
 	it("keeps non-archived sections open by default while archived stays collapsed", () => {

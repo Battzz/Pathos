@@ -246,6 +246,7 @@ pub fn run() {
             commands::workspace_commands::trigger_workspace_fetch,
             commands::editors::detect_installed_editors,
             commands::editors::open_workspace_in_editor,
+            commands::editors::open_workspace_in_finder,
             commands::workspace_commands::permanently_delete_workspace,
             commands::workspace_commands::restore_workspace,
             commands::editor_commands::stat_editor_file,

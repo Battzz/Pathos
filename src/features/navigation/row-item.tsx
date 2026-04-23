@@ -2,6 +2,7 @@ import { cva } from "class-variance-authority";
 import {
 	Archive,
 	Circle,
+	FolderOpen,
 	GitBranch,
 	LoaderCircle,
 	Pin,
@@ -69,6 +70,7 @@ export type WorkspaceRowItemProps = {
 	onPrefetch?: (workspaceId: string) => void;
 	onArchiveWorkspace?: (workspaceId: string) => void;
 	onMarkWorkspaceUnread?: (workspaceId: string) => void;
+	onOpenInFinder?: (workspaceId: string) => void;
 	onRestoreWorkspace?: (workspaceId: string) => void;
 	onDeleteWorkspace?: (workspaceId: string) => void;
 	onTogglePin?: (workspaceId: string, currentlyPinned: boolean) => void;
@@ -113,6 +115,7 @@ export const WorkspaceRowItem = memo(
 		onPrefetch,
 		onArchiveWorkspace,
 		onMarkWorkspaceUnread: _onMarkWorkspaceUnread,
+		onOpenInFinder,
 		onRestoreWorkspace,
 		onDeleteWorkspace,
 		onTogglePin,
@@ -371,6 +374,16 @@ export const WorkspaceRowItem = memo(
 						>
 							<Circle className="size-4 shrink-0" strokeWidth={1.6} />
 							<span>Mark as unread</span>
+						</ContextMenuItem>
+					) : null}
+
+					{onOpenInFinder ? (
+						<ContextMenuItem
+							disabled={isBusy || Boolean(workspaceActionsDisabled)}
+							onClick={() => onOpenInFinder(row.id)}
+						>
+							<FolderOpen className="size-4 shrink-0" strokeWidth={1.6} />
+							<span>Open in Finder</span>
 						</ContextMenuItem>
 					) : null}
 

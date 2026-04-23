@@ -114,6 +114,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	onMarkWorkspaceUnread,
 	onRestoreWorkspace,
 	onDeleteWorkspace,
+	onOpenInFinder,
 	onTogglePin,
 	onSetManualStatus,
 	archivingWorkspaceIds,
@@ -144,6 +145,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	onMarkWorkspaceUnread?: (workspaceId: string) => void;
 	onRestoreWorkspace?: (workspaceId: string) => void;
 	onDeleteWorkspace?: (workspaceId: string) => void;
+	onOpenInFinder?: (workspaceId: string) => void;
 	onTogglePin?: (workspaceId: string, currentlyPinned: boolean) => void;
 	onSetManualStatus?: (
 		workspaceId: string,
@@ -432,6 +434,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 						onPrefetch={onPrefetchWorkspace}
 						onArchiveWorkspace={onArchiveWorkspace}
 						onMarkWorkspaceUnread={onMarkWorkspaceUnread}
+						onOpenInFinder={onOpenInFinder}
 						onTogglePin={onTogglePin}
 						onSetManualStatus={onSetManualStatus}
 						archivingWorkspaceIds={archivingWorkspaceIds}

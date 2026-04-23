@@ -6,6 +6,7 @@ import {
 	Check,
 	ChevronDown,
 	CircleAlertIcon,
+	FolderOpen,
 	PanelLeftClose,
 	PanelLeftOpen,
 } from "lucide-react";
@@ -72,6 +73,7 @@ import {
 	markSessionRead,
 	markSessionUnread,
 	openWorkspaceInEditor,
+	openWorkspaceInFinder,
 	prewarmSlashCommandsForWorkspace,
 	setWorkspaceManualStatus,
 	triggerWorkspaceFetch,
@@ -2230,6 +2232,25 @@ function AppShell({
 																	sideOffset={6}
 																	className="min-w-[11rem]"
 																>
+																	<DropdownMenuItem
+																		onClick={() => {
+																			void openWorkspaceInFinder(
+																				selectedWorkspaceId,
+																			).catch((e) =>
+																				pushWorkspaceToast(
+																					String(e),
+																					"Failed to open Finder",
+																				),
+																			);
+																		}}
+																		className="flex items-center gap-2"
+																	>
+																		<FolderOpen
+																			className="shrink-0"
+																			strokeWidth={1.8}
+																		/>
+																		<span className="flex-1">Finder</span>
+																	</DropdownMenuItem>
 																	{installedEditors.map((editor) => (
 																		<DropdownMenuItem
 																			key={editor.id}

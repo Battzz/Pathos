@@ -992,6 +992,12 @@ export async function openWorkspaceInEditor(
 	await invoke("open_workspace_in_editor", { workspaceId, editor });
 }
 
+export async function openWorkspaceInFinder(
+	workspaceId: string,
+): Promise<void> {
+	await invoke("open_workspace_in_finder", { workspaceId });
+}
+
 export async function readEditorFile(
 	path: string,
 ): Promise<EditorFileReadResponse> {
