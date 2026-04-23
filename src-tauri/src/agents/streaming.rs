@@ -431,12 +431,10 @@ pub fn lookup_workspace_linked_directories(helmor_session_id: Option<&str>) -> V
 /// Outcome of parsing+writing a `contextUsageUpdated` event.
 #[derive(Debug, PartialEq, Eq)]
 enum ContextUsageWriteOutcome {
-    /// Malformed event (missing/empty sessionId).
+    /// Malformed event (missing/empty sessionId or meta).
     Skipped,
     /// Event valid, DB row updated.
     Wrote(String),
-    /// Event valid but `meta = null` — DB intentionally untouched.
-    NoMeta(String),
     /// Event valid but no row matched the sessionId. Don't broadcast —
     /// nobody is subscribed to a ghost session, and silently treating it
     /// as a successful write would mask sidecar/DB races.
@@ -454,7 +452,7 @@ fn write_context_usage_meta(
         return Ok(ContextUsageWriteOutcome::Skipped);
     }
     let Some(meta) = raw.get("meta").and_then(Value::as_str) else {
-        return Ok(ContextUsageWriteOutcome::NoMeta(session_id.to_string()));
+        return Ok(ContextUsageWriteOutcome::Skipped);
     };
     let affected = conn.execute(
         "UPDATE sessions SET context_usage_meta = ?1 WHERE id = ?2",
@@ -486,9 +484,9 @@ fn persist_codex_rate_limits_event(app: &AppHandle, raw: &Value) {
     crate::ui_sync::publish(app, crate::ui_sync::UiMutationEvent::CodexRateLimitsChanged);
 }
 
-/// Persist a `contextUsageUpdated` event and broadcast `ContextUsageChanged`
-/// to subscribers. Skips the broadcast when nothing actually changed (no
-/// matching row, malformed event).
+/// Persist a `contextUsageUpdated` event and broadcast `ContextUsageChanged`.
+/// Payload-free — the frontend refetches via React Query on invalidation,
+/// same pattern as `codexRateLimitsUpdated`.
 fn persist_context_usage_event(app: &AppHandle, raw: &Value) {
     let outcome = match crate::models::db::write_conn() {
         Ok(conn) => match write_context_usage_meta(&conn, raw) {
@@ -505,7 +503,7 @@ fn persist_context_usage_event(app: &AppHandle, raw: &Value) {
     };
     let session_id = match outcome {
         ContextUsageWriteOutcome::Skipped => {
-            tracing::warn!("contextUsageUpdated event missing sessionId");
+            tracing::warn!("contextUsageUpdated event malformed (missing sessionId or meta)");
             return;
         }
         ContextUsageWriteOutcome::UnknownSession(id) => {
@@ -515,7 +513,7 @@ fn persist_context_usage_event(app: &AppHandle, raw: &Value) {
             );
             return;
         }
-        ContextUsageWriteOutcome::Wrote(id) | ContextUsageWriteOutcome::NoMeta(id) => id,
+        ContextUsageWriteOutcome::Wrote(id) => id,
     };
     crate::ui_sync::publish(
         app,
@@ -1497,13 +1495,13 @@ mod tests {
         let conn = open_test_db_with_session("s1");
         let raw = serde_json::json!({
             "sessionId": "s1",
-            "meta": r#"{"totalTokens":42}"#,
+            "meta": r#"{"usedTokens":42,"maxTokens":1000,"percentage":4.2}"#,
         });
         let outcome = write_context_usage_meta(&conn, &raw).unwrap();
         assert_eq!(outcome, ContextUsageWriteOutcome::Wrote("s1".to_string()));
         assert_eq!(
             read_meta(&conn, "s1").as_deref(),
-            Some(r#"{"totalTokens":42}"#)
+            Some(r#"{"usedTokens":42,"maxTokens":1000,"percentage":4.2}"#)
         );
     }
 
@@ -1518,7 +1516,7 @@ mod tests {
         .unwrap();
         let raw = serde_json::json!({ "sessionId": "s1", "meta": null });
         let outcome = write_context_usage_meta(&conn, &raw).unwrap();
-        assert_eq!(outcome, ContextUsageWriteOutcome::NoMeta("s1".to_string()));
+        assert_eq!(outcome, ContextUsageWriteOutcome::Skipped);
         // Pre-seeded value still there.
         assert_eq!(read_meta(&conn, "s1").as_deref(), Some("{}"));
     }
@@ -1552,20 +1550,6 @@ mod tests {
             ContextUsageWriteOutcome::UnknownSession("ghost".to_string())
         );
         assert!(read_meta(&conn, "s1").is_none());
-    }
-
-    #[test]
-    fn write_context_usage_meta_null_meta_does_not_check_session_existence() {
-        // null meta is "no live Query", not a real DB update — we report
-        // NoMeta even when the session doesn't exist. The outcome is the
-        // same as for a known session so callers don't have to special-case.
-        let conn = open_test_db_with_session("s1");
-        let raw = serde_json::json!({ "sessionId": "ghost", "meta": null });
-        let outcome = write_context_usage_meta(&conn, &raw).unwrap();
-        assert_eq!(
-            outcome,
-            ContextUsageWriteOutcome::NoMeta("ghost".to_string())
-        );
     }
 
     #[test]

@@ -6,6 +6,7 @@
 
 import type { ElicitationResult } from "@anthropic-ai/claude-agent-sdk";
 import type {
+	GetContextUsageParams,
 	ListSlashCommandsParams,
 	Provider,
 	SendMessageParams,
@@ -161,6 +162,17 @@ export function parseListSlashCommandsParams(
 			params,
 			"additionalDirectories",
 		),
+	};
+}
+
+export function parseGetContextUsageParams(
+	params: Record<string, unknown>,
+): GetContextUsageParams {
+	return {
+		helmorSessionId: requireString(params, "sessionId"),
+		providerSessionId: optionalString(params, "providerSessionId") ?? null,
+		model: requireString(params, "model"),
+		cwd: optionalString(params, "cwd"),
 	};
 }
 

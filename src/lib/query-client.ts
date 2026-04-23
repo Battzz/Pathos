@@ -7,6 +7,7 @@ import {
 	type DetectedEditor,
 	detectInstalledEditors,
 	getCodexRateLimits,
+	getLiveContextUsage,
 	getSessionContextUsage,
 	listRepositories,
 	listSlashCommands,
@@ -53,6 +54,17 @@ export const helmorQueryKeys = {
 	sessionContextUsage: (sessionId: string) =>
 		["sessionContextUsage", sessionId] as const,
 	codexRateLimits: ["codexRateLimits"] as const,
+	claudeRichContextUsage: (
+		sessionId: string,
+		providerSessionId: string | null,
+		model: string | null,
+	) =>
+		[
+			"claudeRichContextUsage",
+			sessionId,
+			providerSessionId ?? "",
+			model ?? "",
+		] as const,
 	sessionMessages: (sessionId: string) =>
 		["sessionMessages", sessionId] as const,
 	workspaceChanges: (workspaceRootPath: string) =>
@@ -198,6 +210,8 @@ export function workspaceSessionsQueryOptions(workspaceId: string) {
 	});
 }
 
+/** Baseline context-usage cache. Event-driven: `contextUsageChanged`
+ *  invalidates → observer refetches from DB. Same pattern as rate limits. */
 export function sessionContextUsageQueryOptions(sessionId: string) {
 	return queryOptions({
 		queryKey: helmorQueryKeys.sessionContextUsage(sessionId),
@@ -211,6 +225,36 @@ export function codexRateLimitsQueryOptions() {
 		queryKey: helmorQueryKeys.codexRateLimits,
 		queryFn: getCodexRateLimits,
 		staleTime: 0,
+	});
+}
+
+/** Hover-triggered rich Claude context breakdown. `staleTime: Infinity`
+ *  so cached categories survive session hops — SDK context doesn't
+ *  mutate between turns, and `contextUsageChanged` invalidates on turn
+ *  end to force a refetch the next time hover opens. */
+export function claudeRichContextUsageQueryOptions(params: {
+	sessionId: string;
+	providerSessionId: string | null;
+	model: string | null;
+	cwd: string | null;
+	enabled: boolean;
+}) {
+	return queryOptions({
+		queryKey: helmorQueryKeys.claudeRichContextUsage(
+			params.sessionId,
+			params.providerSessionId,
+			params.model,
+		),
+		queryFn: () =>
+			getLiveContextUsage({
+				sessionId: params.sessionId,
+				providerSessionId: params.providerSessionId,
+				// `enabled` gate ensures model is non-null before queryFn runs.
+				model: params.model ?? "",
+				cwd: params.cwd,
+			}),
+		staleTime: Number.POSITIVE_INFINITY,
+		enabled: params.enabled,
 	});
 }
 

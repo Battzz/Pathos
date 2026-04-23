@@ -1,6 +1,9 @@
 use anyhow::Context;
 
-use crate::{agents::ActionKind, db, pipeline, sessions};
+use crate::{
+    agents::{self, ActionKind},
+    db, pipeline, sessions,
+};
 
 use super::common::{run_blocking, CmdResult};
 
@@ -64,6 +67,17 @@ pub async fn list_hidden_sessions(
 #[tauri::command]
 pub async fn get_session_context_usage(session_id: String) -> CmdResult<Option<String>> {
     run_blocking(move || sessions::get_session_context_usage(&session_id)).await
+}
+
+/// Ad-hoc Claude-only context-usage fetch for the hover popover. Pure
+/// passthrough to the sidecar — no DB write, no mutex, no TTL. The
+/// frontend caches the result for 30 s via React Query.
+#[tauri::command]
+pub async fn get_live_context_usage(
+    sidecar: tauri::State<'_, crate::sidecar::ManagedSidecar>,
+    request: agents::GetLiveContextUsageRequest,
+) -> CmdResult<String> {
+    agents::fetch_live_context_usage(&sidecar, request)
 }
 
 #[tauri::command]

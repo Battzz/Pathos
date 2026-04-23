@@ -18,8 +18,9 @@ mod support;
 pub use self::action_kind::ActionKind;
 pub use self::catalog::{resolve_model, AgentModelOption, AgentModelSection, ResolvedModel};
 pub use self::queries::{
-    fetch_agent_model_sections, GenerateSessionTitleRequest, GenerateSessionTitleResponse,
-    ListSlashCommandsRequest, SlashCommandEntry, SlashCommandsResponse,
+    fetch_agent_model_sections, fetch_live_context_usage, GenerateSessionTitleRequest,
+    GenerateSessionTitleResponse, GetLiveContextUsageRequest, ListSlashCommandsRequest,
+    SlashCommandEntry, SlashCommandsResponse,
 };
 pub use self::slash_commands::SlashCommandCache;
 pub use self::streaming::{

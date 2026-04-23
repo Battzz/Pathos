@@ -63,6 +63,11 @@ function handleUiMutation(
 			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.sessionContextUsage(event.sessionId),
 			});
+			void queryClient.invalidateQueries({
+				predicate: (query) =>
+					query.queryKey[0] === "claudeRichContextUsage" &&
+					query.queryKey[1] === event.sessionId,
+			});
 			return;
 		case "codexRateLimitsChanged":
 			void queryClient.invalidateQueries({

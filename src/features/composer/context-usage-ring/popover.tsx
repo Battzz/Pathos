@@ -1,57 +1,73 @@
-import { ClaudeBreakdown } from "./breakdowns";
+import { HelmorThinkingIndicator } from "@/components/helmor-thinking-indicator";
+import type { CodexRateLimitsDisplay, DisplayResolution } from "./parse";
 import {
-	type CodexRateLimitsDisplay,
-	type ContextUsageDisplay,
-	ringTier,
-} from "./parse";
-import {
+	AutoCompactNote,
+	CategoryList,
 	Divider,
-	EmptyBlock,
 	LimitRow,
 	UsageBar,
 	UsageHeader,
 } from "./popover-parts";
 
 type Props = {
-	display: ContextUsageDisplay | null;
-	/** Only meaningful when `display.source === "codex"`; ignored for
-	 *  Claude. Null when Codex hasn't emitted a snapshot yet. */
+	display: DisplayResolution;
+	/** Provider hint — lets us render Codex rate limits even before the
+	 *  session has run its first turn. Also gates Claude rich section. */
+	agentType?: "claude" | "codex" | null;
 	codexRateLimits?: CodexRateLimitsDisplay | null;
+	/** True while the rich fetch is in-flight and we don't yet have
+	 *  fresh categories. */
+	richLoading?: boolean;
 };
 
-// State dispatch: empty placeholder vs. header + bar (+ source-specific
-// extras). Codex gets account-global rate limits below the bar; Claude
-// gets the categories breakdown and the auto-compact footer.
 export function ContextUsagePopoverContent({
 	display,
+	agentType = null,
 	codexRateLimits = null,
+	richLoading = false,
 }: Props) {
-	if (!display) return <EmptyBlock />;
-
+	const isCodex = agentType === "codex";
 	const hasCodexLimits =
-		display.source === "codex" &&
+		isCodex &&
 		codexRateLimits !== null &&
 		(codexRateLimits.primary !== null || codexRateLimits.secondary !== null);
 
+	const showCategories =
+		display.kind === "full" &&
+		display.rich !== null &&
+		display.rich.categories.length > 0;
+
 	return (
 		<div className="flex flex-col gap-3 px-1 py-1">
-			<UsageHeader
-				used={display.used}
-				max={display.max}
-				percentage={display.percentage}
-			/>
-			<UsageBar
-				percentage={display.percentage}
-				tier={ringTier(display.percentage)}
-			/>
+			{display.kind === "full" ? (
+				<>
+					<UsageHeader
+						used={display.usedTokens}
+						max={display.maxTokens}
+						percentage={display.percentage}
+					/>
+					<UsageBar percentage={display.percentage} tier={display.tier} />
+					{showCategories && display.rich ? (
+						<>
+							<CategoryList
+								categories={display.rich.categories}
+								maxTokens={display.rich.maxTokens}
+							/>
+							{display.rich.isAutoCompactEnabled ? <AutoCompactNote /> : null}
+						</>
+					) : null}
+				</>
+			) : (
+				<>
+					<UsageHeader used={null} max={null} percentage={0} />
+					<UsageBar percentage={0} tier="default" />
+				</>
+			)}
 
-			{display.source === "claude" ? (
-				<ClaudeBreakdown display={display} />
-			) : null}
-
-			{display.source === "claude" && display.autoCompacts ? (
-				<div className="text-[11px] text-muted-foreground">
-					Auto-compacts older turns when the window fills.
+			{richLoading && !showCategories ? (
+				<div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+					<HelmorThinkingIndicator size={12} />
+					<span>Loading context details…</span>
 				</div>
 			) : null}
 

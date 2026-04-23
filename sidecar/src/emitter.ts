@@ -162,6 +162,15 @@ export type CodexRateLimitsUpdatedEvent = {
 	readonly snapshot: string;
 };
 
+// Ad-hoc response to a `getContextUsage` RPC. Rides on the request's
+// own id (not a stream id) and carries the slim JSON directly — not
+// persisted, frontend caches for 30s.
+export type ContextUsageResultEvent = {
+	readonly id: string;
+	readonly type: "contextUsageResult";
+	readonly meta: string;
+};
+
 export type SidecarControlEvent =
 	| ReadyEvent
 	| EndEvent
@@ -181,7 +190,8 @@ export type SidecarControlEvent =
 	| ModelsListedEvent
 	| UserInputRequestEvent
 	| ContextUsageUpdatedEvent
-	| CodexRateLimitsUpdatedEvent;
+	| CodexRateLimitsUpdatedEvent
+	| ContextUsageResultEvent;
 
 /**
  * Typed emitter for the sidecar's stdout protocol.
@@ -259,6 +269,7 @@ export interface SidecarEmitter {
 		meta: string | null,
 	): void;
 	codexRateLimitsUpdated(requestId: string, snapshot: string): void;
+	contextUsageResult(requestId: string, meta: string): void;
 	/**
 	 * Forward a raw provider SDK message. `id` is appended LAST so an SDK
 	 * field named `id` can never override our request id.
@@ -376,6 +387,8 @@ export function createSidecarEmitter(
 				type: "codexRateLimitsUpdated",
 				snapshot,
 			}),
+		contextUsageResult: (requestId, meta) =>
+			write({ id: requestId, type: "contextUsageResult", meta }),
 		passthrough: (requestId, message) =>
 			write({ ...(message as Record<string, unknown>), id: requestId }),
 	};

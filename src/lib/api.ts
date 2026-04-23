@@ -2032,6 +2032,27 @@ export async function getCodexRateLimits(): Promise<string | null> {
 	return await invoke<string | null>("get_codex_rate_limits");
 }
 
+/** Live Claude-only context-usage fetch for the hover popover. Pure
+ *  passthrough to the sidecar — no DB read. `model` is required because
+ *  the sidecar stamps it into the returned rich meta (used for the
+ *  model-match check in the ring). Returns slim JSON (never null;
+ *  errors throw). */
+export async function getLiveContextUsage(params: {
+	sessionId: string;
+	providerSessionId: string | null;
+	model: string;
+	cwd: string | null;
+}): Promise<string> {
+	return await invoke<string>("get_live_context_usage", {
+		request: {
+			sessionId: params.sessionId,
+			providerSessionId: params.providerSessionId,
+			model: params.model,
+			cwd: params.cwd,
+		},
+	});
+}
+
 export async function unhideSession(sessionId: string): Promise<void> {
 	await invoke("unhide_session", { sessionId });
 }

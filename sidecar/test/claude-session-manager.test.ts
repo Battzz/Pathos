@@ -218,8 +218,13 @@ describe("ClaudeSessionManager.sendMessage", () => {
 			emitter,
 		);
 
-		// One event per SDK message plus a trailing `end`
-		expect(captured).toHaveLength(sdkMessages.length + 1);
+		// One passthrough per SDK message, plus an optional
+		// `contextUsageUpdated` (emitted when the terminal result carries
+		// usage data — most fixtures do), plus a trailing `end`.
+		const withoutCtxUsage = captured.filter(
+			(e) => e.type !== "contextUsageUpdated",
+		);
+		expect(withoutCtxUsage).toHaveLength(sdkMessages.length + 1);
 
 		const last = captured[captured.length - 1];
 		expect(last).toEqual({ id: "REQ-1", type: "end" });
@@ -381,10 +386,13 @@ describe("ClaudeSessionManager.sendMessage", () => {
 			emitter,
 		);
 
-		// The passthrough events (everything except the final `end`) must
-		// still carry the SDK's session_id verbatim — that's how the Rust
-		// side learns the provider_session_id to persist.
-		const passthroughs = captured.slice(0, -1);
+		// The passthrough events must carry the SDK's snake_case session_id
+		// verbatim — that's how the Rust side learns the provider_session_id
+		// to persist. Skip the terminal `end` and any `contextUsageUpdated`
+		// (our derived event, which carries a camelCase sessionId instead).
+		const passthroughs = captured.filter(
+			(e) => e.type !== "end" && e.type !== "contextUsageUpdated",
+		);
 		for (const event of passthroughs) {
 			expect(event.session_id).toBe(expectedSessionId);
 		}
@@ -1157,9 +1165,15 @@ describe("Claude full-fixture round-trip", () => {
 			);
 
 			// The sidecar forwards every SDK event up to the first successful
-			// terminal result, then emits exactly one terminal `end`.
-			expect(captured).toHaveLength(expectedMessages.length + 1);
-			expect(captured[captured.length - 1]).toEqual({
+			// terminal result, optionally emits a derived `contextUsageUpdated`
+			// just before `end` (when the result carries usage data), then
+			// emits exactly one terminal `end`. Strip the derived event for
+			// the strict passthrough count.
+			const passthroughs = captured.filter(
+				(e) => e.type !== "contextUsageUpdated",
+			);
+			expect(passthroughs).toHaveLength(expectedMessages.length + 1);
+			expect(passthroughs[passthroughs.length - 1]).toEqual({
 				id: `REQ-${fixture}`,
 				type: "end",
 			});
@@ -1173,7 +1187,7 @@ describe("Claude full-fixture round-trip", () => {
 			// source event one-for-one (in order). This is the strict
 			// "no transformation, no reorder, no drop" guarantee.
 			for (let i = 0; i < expectedMessages.length; i++) {
-				expect(captured[i]?.type).toBe(expectedMessages[i]?.type);
+				expect(passthroughs[i]?.type).toBe(expectedMessages[i]?.type);
 			}
 		});
 	}
