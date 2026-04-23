@@ -255,16 +255,18 @@ pub async fn generate_session_title(
 
             // Re-read branch under lock to avoid TOCTOU: if another title-gen
             // already renamed the branch, we'll see the updated value and skip.
-            let connection = crate::models::db::read_conn()
-                .map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
-            let old_branch: Option<String> = connection
-                .query_row(
-                    "SELECT branch FROM workspaces WHERE id = ?1",
-                    [&workspace_id],
-                    |row| row.get(0),
-                )
-                .ok()
-                .flatten();
+            let old_branch: Option<String> = {
+                let read_conn = crate::models::db::read_conn()
+                    .map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
+                read_conn
+                    .query_row(
+                        "SELECT branch FROM workspaces WHERE id = ?1",
+                        [&workspace_id],
+                        |row| row.get(0),
+                    )
+                    .ok()
+                    .flatten()
+            };
 
             if !old_branch.as_deref().is_some_and(|b| {
                 crate::helpers::is_default_branch_name(b, &directory_name, &branch_settings)
@@ -320,10 +322,14 @@ pub async fn generate_session_title(
                     };
 
                     if fs_rename_ok {
-                        if let Err(error) = connection.execute(
-                            "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
-                            (&new_branch, &workspace_id),
-                        ) {
+                        let write_result = crate::models::db::write_conn().and_then(|conn| {
+                            conn.execute(
+                                "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
+                                (&new_branch, &workspace_id),
+                            )
+                            .map_err(|e| anyhow::anyhow!(e))
+                        });
+                        if let Err(error) = write_result {
                             tracing::error!(workspace_id = %workspace_id, "DB UPDATE workspaces.branch failed: {error:#}");
                             if fs_rename_attempted {
                                 if let (Some(ref old_name), Some(ref repo_root)) =
