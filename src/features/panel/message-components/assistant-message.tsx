@@ -22,6 +22,7 @@ import {
 	isTextPart,
 	isTodoListPart,
 	isToolCallPart,
+	reasoningLifecycle,
 } from "./shared";
 import { LazyStreamdown } from "./streamdown-loader";
 import { AssistantToolCall, CollapsedToolGroup } from "./tool-call";
@@ -49,7 +50,7 @@ const AssistantText = memo(function AssistantText({
 	return (
 		<div
 			className="conversation-markdown assistant-markdown-scale max-w-none break-words text-foreground"
-			style={{ fontSize: `${Math.max(settings.fontSize - 1, 12)}px` }}
+			style={{ fontSize: `${settings.fontSize}px` }}
 		>
 			<Suspense fallback={<AssistantTextFallback text={text} />}>
 				<LazyStreamdown
@@ -162,8 +163,16 @@ export function ChatAssistantMessage({
 					);
 				}
 				if (isReasoningPart(part)) {
+					const durationSeconds =
+						typeof part.durationMs === "number"
+							? Math.max(1, Math.ceil(part.durationMs / 1000))
+							: undefined;
 					return (
-						<Reasoning key={key} isStreaming={part.streaming === true}>
+						<Reasoning
+							key={key}
+							lifecycle={reasoningLifecycle(part)}
+							duration={durationSeconds}
+						>
 							<ReasoningTrigger />
 							<ReasoningContent fontSize={settings.fontSize}>
 								{part.text}

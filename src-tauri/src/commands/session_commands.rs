@@ -23,13 +23,6 @@ pub async fn list_session_thread_messages(
 }
 
 #[tauri::command]
-pub async fn list_session_attachments(
-    session_id: String,
-) -> CmdResult<Vec<sessions::SessionAttachmentRecord>> {
-    run_blocking(move || sessions::list_session_attachments(&session_id)).await
-}
-
-#[tauri::command]
 pub async fn create_session(
     workspace_id: String,
     action_kind: Option<ActionKind>,
@@ -69,9 +62,18 @@ pub async fn list_hidden_sessions(
 }
 
 #[tauri::command]
+pub async fn get_session_context_usage(session_id: String) -> CmdResult<Option<String>> {
+    run_blocking(move || sessions::get_session_context_usage(&session_id)).await
+}
+
+#[tauri::command]
 pub async fn mark_session_read(session_id: String) -> CmdResult<()> {
-    let _lock = db::WORKSPACE_MUTATION_LOCK.lock().await;
-    Ok(sessions::mark_session_read(&session_id)?)
+    run_blocking(move || sessions::mark_session_read(&session_id)).await
+}
+
+#[tauri::command]
+pub async fn mark_session_unread(session_id: String) -> CmdResult<()> {
+    run_blocking(move || sessions::mark_session_unread(&session_id)).await
 }
 
 #[tauri::command]
@@ -82,7 +84,7 @@ pub async fn update_session_settings(
     permission_mode: Option<String>,
 ) -> CmdResult<()> {
     run_blocking(move || {
-        let connection = db::open_connection(true)?;
+        let connection = db::write_conn()?;
         connection
             .execute(
                 r#"

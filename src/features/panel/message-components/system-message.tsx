@@ -155,7 +155,7 @@ export function ChatSystemMessage({
 			<MessageTimestamp createdAt={message.createdAt} />
 			<CopyMessageButton
 				message={copyTarget}
-				className="size-5 shrink-0 text-muted-foreground/30 opacity-0 transition-all hover:text-muted-foreground group-hover/sys:opacity-100"
+				className="size-5 shrink-0 text-muted-foreground/30 opacity-0 hover:text-muted-foreground group-hover/sys:opacity-100"
 			/>
 		</div>
 	);

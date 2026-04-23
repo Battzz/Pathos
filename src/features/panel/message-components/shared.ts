@@ -50,6 +50,11 @@ export function isReasoningPart(
 	);
 }
 
+export {
+	type ReasoningLifecycle,
+	reasoningLifecycle,
+} from "@/lib/reasoning-lifecycle";
+
 export function isToolCallPart(
 	part: unknown,
 ): part is Extract<MessagePart, { type: "tool-call" }> {

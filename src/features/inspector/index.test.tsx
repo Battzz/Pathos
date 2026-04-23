@@ -1,4 +1,10 @@
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +13,6 @@ import type {
 	WorkspacePrActionStatus,
 } from "@/lib/api";
 import { ComposerInsertProvider } from "@/lib/composer-insert-context";
-import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import { renderWithProviders } from "@/test/render-with-providers";
 import { WorkspaceInspectorSidebar } from "./index";
 
@@ -81,7 +86,6 @@ function renderInspector(
 			editorMode={false}
 			onOpenEditorFile={vi.fn()}
 			currentSessionId="session-1"
-			sendingSessionIds={new Set<string>()}
 			{...props}
 		/>,
 	);
@@ -239,6 +243,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 				sessionId: "session-1",
 				prompt:
 					"Commit uncommitted changes, then merge testuser/main into this branch. Then push.",
+				forceQueue: true,
 			});
 		});
 	});
@@ -268,6 +273,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			expect(onQueuePendingPromptForSession).toHaveBeenCalledWith({
 				sessionId: "session-1",
 				prompt: "Merge testuser/main into this branch. Then push.",
+				forceQueue: true,
 			});
 		});
 	});
@@ -300,14 +306,14 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			expect(onQueuePendingPromptForSession).toHaveBeenCalledWith({
 				sessionId: "session-1",
 				prompt: "Merge Origin/testuser/testing into this branch. Then push.",
+				forceQueue: true,
 			});
 		});
 	});
 
-	it("still attempts pull while the current chat is streaming when no AI follow-up is needed", async () => {
+	it("attempts pull without queueing a prompt when no AI follow-up is needed", async () => {
 		const user = userEvent.setup();
 		const onQueuePendingPromptForSession = vi.fn();
-		const pushToast = vi.fn() as PushWorkspaceToast;
 		apiMocks.syncWorkspaceWithTargetBranch.mockResolvedValue({
 			outcome: "updated",
 			targetBranch: "main",
@@ -321,11 +327,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			behindTargetCount: 2,
 		});
 
-		renderInspector({
-			onQueuePendingPromptForSession,
-			pushToast,
-			sendingSessionIds: new Set(["session-1"]),
-		});
+		renderInspector({ onQueuePendingPromptForSession });
 
 		await screen.findByText("2 commits behind testuser/main");
 		await user.click(screen.getByRole("button", { name: "Pull" }));
@@ -335,14 +337,12 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 				"workspace-1",
 			);
 		});
-		expect(pushToast).not.toHaveBeenCalled();
 		expect(onQueuePendingPromptForSession).not.toHaveBeenCalled();
 	});
 
-	it("shows a workspace toast instead of queueing when pull needs AI follow-up and the current chat is still streaming", async () => {
+	it("queues the merge prompt with forceQueue when pull hits a conflict — even if the chat is streaming", async () => {
 		const user = userEvent.setup();
 		const onQueuePendingPromptForSession = vi.fn();
-		const pushToast = vi.fn() as PushWorkspaceToast;
 		apiMocks.syncWorkspaceWithTargetBranch.mockResolvedValue({
 			outcome: "conflict",
 			targetBranch: "main",
@@ -356,25 +356,22 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			behindTargetCount: 2,
 		});
 
-		renderInspector({
-			onQueuePendingPromptForSession,
-			pushToast,
-			sendingSessionIds: new Set(["session-1"]),
-		});
+		renderInspector({ onQueuePendingPromptForSession });
 
 		await screen.findByText("2 commits behind testuser/main");
 		await user.click(screen.getByRole("button", { name: "Pull" }));
 
 		await waitFor(() => {
-			expect(pushToast).toHaveBeenCalledWith(
-				expect.stringContaining("AI is still responding in the current chat"),
-				"AI is still responding",
+			expect(onQueuePendingPromptForSession).toHaveBeenCalledWith(
+				expect.objectContaining({
+					sessionId: "session-1",
+					forceQueue: true,
+				}),
 			);
 		});
 		expect(apiMocks.syncWorkspaceWithTargetBranch).toHaveBeenCalledWith(
 			"workspace-1",
 		);
-		expect(onQueuePendingPromptForSession).not.toHaveBeenCalled();
 	});
 
 	it("shows push when local branch is ahead of its remote tracking ref", async () => {
@@ -910,5 +907,26 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		renderInspector({ workspaceRemote: "upstream" });
 
 		await screen.findByText("Up to date with upstream/main");
+	});
+
+	it("does not blur the tabs panel when hover zoom never became eligible", async () => {
+		const user = userEvent.setup();
+		renderInspector();
+
+		await user.click(
+			screen.getByRole("button", { name: "Toggle inspector tabs section" }),
+		);
+
+		const tabsBody = await screen.findByLabelText("Inspector tabs body");
+		const filterLayer = tabsBody.parentElement;
+		const tabsSection = screen.getByLabelText("Inspector section Tabs");
+
+		expect(filterLayer).not.toBeNull();
+		expect(filterLayer).toHaveStyle({ filter: "blur(0)" });
+
+		fireEvent.mouseEnter(tabsBody);
+		fireEvent.mouseLeave(tabsSection.parentElement as HTMLElement);
+
+		expect(filterLayer).toHaveStyle({ filter: "blur(0)" });
 	});
 });

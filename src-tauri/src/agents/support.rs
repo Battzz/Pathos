@@ -61,7 +61,7 @@ pub(super) fn resolve_working_directory(provided: Option<&str>) -> Result<PathBu
 }
 
 pub(super) fn resolve_resume_working_directory(session_id: &str) -> Result<Option<PathBuf>> {
-    let connection = crate::models::db::open_connection(false)
+    let connection = crate::models::db::read_conn()
         .context("Failed to open DB while resolving resume workspace")?;
     let workspace_info: Option<(String, String)> = connection
         .query_row(

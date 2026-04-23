@@ -2,7 +2,6 @@ import { memo, type ReactNode, useEffect } from "react";
 import type {
 	AgentProvider,
 	PullRequestInfo,
-	SessionAttachmentRecord,
 	WorkspaceDetail,
 	WorkspaceSessionSummary,
 } from "@/lib/api";
@@ -15,6 +14,7 @@ import {
 	ConversationColdPlaceholder,
 	type PresentedSessionPane,
 } from "./thread-viewport";
+import type { SessionCloseRequest } from "./use-confirm-session-close";
 
 export {
 	AssistantToolCall,
@@ -29,20 +29,19 @@ type WorkspacePanelProps = {
 	selectedSessionId: string | null;
 	sessionDisplayProviders?: Record<string, AgentProvider>;
 	sessionPanes: PresentedSessionPane[];
-	attachments?: SessionAttachmentRecord[];
 	loadingWorkspace?: boolean;
 	loadingSession?: boolean;
 	refreshingWorkspace?: boolean;
 	refreshingSession?: boolean;
 	sending?: boolean;
 	sendingSessionIds?: Set<string>;
-	completedSessionIds?: Set<string>;
 	interactionRequiredSessionIds?: Set<string>;
 	onSelectSession?: (sessionId: string) => void;
 	onPrefetchSession?: (sessionId: string) => void;
 	onSessionsChanged?: () => void;
 	onSessionRenamed?: (sessionId: string, title: string) => void;
 	onWorkspaceChanged?: () => void;
+	onRequestCloseSession?: (request: SessionCloseRequest) => void;
 	headerActions?: ReactNode;
 	headerLeading?: ReactNode;
 	missingScriptTypes?: WorkspaceScriptType[];
@@ -56,20 +55,19 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 	selectedSessionId,
 	sessionDisplayProviders,
 	sessionPanes,
-	attachments: _attachments,
 	loadingWorkspace = false,
 	loadingSession = false,
 	refreshingWorkspace: _refreshingWorkspace = false,
 	refreshingSession: _refreshingSession = false,
 	sending = false,
 	sendingSessionIds,
-	completedSessionIds,
 	interactionRequiredSessionIds,
 	onSelectSession,
 	onPrefetchSession,
 	onSessionsChanged,
 	onSessionRenamed,
 	onWorkspaceChanged,
+	onRequestCloseSession,
 	headerActions,
 	headerLeading,
 	missingScriptTypes = [],
@@ -119,7 +117,6 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 					sessionDisplayProviders={sessionDisplayProviders}
 					sending={sending}
 					sendingSessionIds={sendingSessionIds}
-					completedSessionIds={completedSessionIds}
 					interactionRequiredSessionIds={interactionRequiredSessionIds}
 					loadingWorkspace={loadingWorkspace}
 					headerActions={headerActions}
@@ -129,6 +126,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 					onSessionsChanged={onSessionsChanged}
 					onSessionRenamed={onSessionRenamed}
 					onWorkspaceChanged={onWorkspaceChanged}
+					onRequestCloseSession={onRequestCloseSession}
 				/>
 
 				<div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">

@@ -39,7 +39,6 @@ function makeArchivedSummary(id: string): WorkspaceSummary {
 		state: "archived",
 		hasUnread: false,
 		workspaceUnread: 0,
-		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 		derivedStatus: "in-progress",
 		manualStatus: null,
@@ -51,7 +50,6 @@ function makeArchivedSummary(id: string): WorkspaceSummary {
 		prTitle: null,
 		sessionCount: 0,
 		messageCount: 0,
-		attachmentCount: 0,
 	};
 }
 

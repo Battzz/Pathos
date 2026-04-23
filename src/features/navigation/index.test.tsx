@@ -81,6 +81,27 @@ describe("WorkspacesSidebar", () => {
 		).not.toBeNull();
 	});
 
+	it("keeps the unread dot visible for the selected workspace", () => {
+		render(
+			<TooltipProvider delayDuration={0}>
+				<WorkspacesSidebar
+					groups={[
+						{
+							id: "progress",
+							label: "In Progress",
+							tone: "progress",
+							rows: [{ ...workspaceRow, hasUnread: true }],
+						},
+					]}
+					archivedRows={[]}
+					selectedWorkspaceId="workspace-1"
+				/>
+			</TooltipProvider>,
+		);
+
+		expect(screen.getByLabelText("Unread")).toBeInTheDocument();
+	});
+
 	it("opens the repository picker and creates a workspace from the selected repository", async () => {
 		const user = userEvent.setup();
 		const onCreateWorkspace = vi.fn();

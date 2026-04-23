@@ -167,12 +167,38 @@ body {
 }
 
 .assistant-markdown-scale {
+	--assistant-paragraph-line-height: 1.82;
 	line-height: 1.5;
 }
 
+.assistant-markdown-scale p,
 .assistant-markdown-scale [data-streamdown="paragraph"],
 .assistant-markdown-scale [data-streamdown="list-item"] {
-	line-height: 1.5;
+	line-height: var(--assistant-paragraph-line-height);
+}
+
+.assistant-markdown-scale
+	[data-streamdown="ordered-list"]
+	> [data-streamdown="list-item"]::marker {
+	color: var(--muted-foreground);
+}
+
+.assistant-markdown-scale
+	:is([data-streamdown="ordered-list"], [data-streamdown="unordered-list"]) {
+	padding-inline-start: 0.25rem;
+}
+
+.assistant-markdown-scale
+	:is([data-streamdown="ordered-list"], [data-streamdown="unordered-list"])
+	> [data-streamdown="list-item"] {
+	padding-top: 0.125rem;
+	padding-bottom: 0.125rem;
+}
+
+.conversation-streamdown
+	> :is(p, [data-streamdown="paragraph"])
+	+ :is([data-streamdown="ordered-list"], [data-streamdown="unordered-list"]) {
+	margin-top: 0.75rem;
 }
 
 .assistant-markdown-scale [data-streamdown="heading-1"],
@@ -181,30 +207,39 @@ body {
 .assistant-markdown-scale [data-streamdown="heading-4"],
 .assistant-markdown-scale [data-streamdown="heading-5"],
 .assistant-markdown-scale [data-streamdown="heading-6"] {
-	margin: 0;
-	color: var(--foreground);
+	margin: 1.4em 0 0.4em;
+	color: inherit;
+}
+
+.assistant-markdown-scale [data-streamdown="heading-1"]:first-child,
+.assistant-markdown-scale [data-streamdown="heading-2"]:first-child,
+.assistant-markdown-scale [data-streamdown="heading-3"]:first-child,
+.assistant-markdown-scale [data-streamdown="heading-4"]:first-child,
+.assistant-markdown-scale [data-streamdown="heading-5"]:first-child,
+.assistant-markdown-scale [data-streamdown="heading-6"]:first-child {
+	margin-top: 0;
 }
 
 .assistant-markdown-scale [data-streamdown="heading-1"] {
-	font-size: 1.12em;
-	line-height: 1.24;
+	font-size: 1.35em;
+	line-height: 1.3;
 }
 
 .assistant-markdown-scale [data-streamdown="heading-2"] {
-	font-size: 1.06em;
-	line-height: 1.28;
+	font-size: 1.2em;
+	line-height: 1.32;
 }
 
 .assistant-markdown-scale [data-streamdown="heading-3"] {
-	font-size: 1.02em;
-	line-height: 1.34;
+	font-size: 1.1em;
+	line-height: 1.36;
 }
 
 .assistant-markdown-scale [data-streamdown="heading-4"],
 .assistant-markdown-scale [data-streamdown="heading-5"],
 .assistant-markdown-scale [data-streamdown="heading-6"] {
-	font-size: 0.98em;
-	line-height: 1.38;
+	font-size: 1em;
+	line-height: 1.4;
 }
 
 .assistant-markdown-scale [data-streamdown="list"] {
@@ -218,6 +253,10 @@ body {
 
 .assistant-markdown-scale [data-streamdown="inline-code"] {
 	font-size: 0.88em;
+	background: transparent;
+	border: 1px solid
+		color-mix(in oklch, var(--muted) 87%, var(--muted-foreground) 13%);
+	margin: 0 2px;
 }
 
 .assistant-markdown-scale [data-streamdown="code-block"] {
@@ -233,36 +272,45 @@ body {
 	}
 }
 
-* {
-	scrollbar-width: thin;
-	scrollbar-color: color-mix(in oklch, var(--foreground) 18%, transparent)
-		transparent;
-}
+/*
+ * Global scrollbar styling lives in @layer utilities so that Tailwind v4
+ * `@utility` classes such as `no-scrollbar` (from shadcn) can win via
+ * specificity. Without the layer, these rules are unlayered and beat every
+ * layered utility per CSS cascade spec (unlayered > layered), which silently
+ * breaks `no-scrollbar` in production builds while still working in dev.
+ */
+@layer utilities {
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: color-mix(in oklch, var(--foreground) 18%, transparent)
+			transparent;
+	}
 
-*::-webkit-scrollbar {
-	width: 8px;
-	height: 8px;
-	background: transparent;
-}
+	*::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+		background: transparent;
+	}
 
-*::-webkit-scrollbar-track {
-	background: transparent;
-}
+	*::-webkit-scrollbar-track {
+		background: transparent;
+	}
 
-*::-webkit-scrollbar-thumb {
-	border: 2px solid transparent;
-	border-radius: 999px;
-	background: color-mix(in oklch, var(--foreground) 18%, transparent);
-	background-clip: padding-box;
-}
+	*::-webkit-scrollbar-thumb {
+		border: 2px solid transparent;
+		border-radius: 999px;
+		background: color-mix(in oklch, var(--foreground) 18%, transparent);
+		background-clip: padding-box;
+	}
 
-*::-webkit-scrollbar-thumb:hover {
-	background: color-mix(in oklch, var(--foreground) 30%, transparent);
-	background-clip: padding-box;
-}
+	*::-webkit-scrollbar-thumb:hover {
+		background: color-mix(in oklch, var(--foreground) 30%, transparent);
+		background-clip: padding-box;
+	}
 
-*::-webkit-scrollbar-corner {
-	background: transparent;
+	*::-webkit-scrollbar-corner {
+		background: transparent;
+	}
 }
 
 /* xterm: custom scrollbar shape to match app style */
@@ -352,7 +400,7 @@ body {
 		50% {
 			background-position: 100% 100%;
 		}
-		100% {
+		to {
 			background-position: 0% 0%;
 		}
 	}
@@ -419,9 +467,17 @@ body {
 	}
 }
 
+.conversation-body-text {
+	color: var(--conversation-body-foreground);
+}
+
+.workspace-row-selected {
+	background: var(--workspace-sidebar-selected-bg);
+}
+
 /* Streamdown theme overrides — minimal, no !important */
 .conversation-streamdown {
-	color: var(--foreground);
+	color: var(--conversation-body-foreground);
 }
 
 .conversation-streamdown [data-sd-animate] {
@@ -452,6 +508,10 @@ body {
  */
 .conversation-streamdown :not(pre) > code {
 	font-size: inherit;
+	background: transparent;
+	border: 1px solid
+		color-mix(in oklch, var(--muted) 87%, var(--muted-foreground) 13%);
+	margin: 0 2px;
 }
 
 /* Table layout for assistant markdown */

@@ -1,7 +1,82 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// Maximum time we wait between sidecar events before declaring the sidecar
+/// dead. The sidecar emits a `heartbeat` event every 15s for every active
+/// stream; 45s = 3× heartbeat interval tolerates a single missed tick from
+/// GC / busy system without false positives. A long-running tool call (e.g.
+/// `bash: pytest` for 20 minutes) is fine because heartbeats keep flowing
+/// regardless of what the AI is doing.
+const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// Persist an error message and finalize the session after an abnormal
+/// stream exit (heartbeat timeout, channel disconnect). Returns `true` iff
+/// the session row was successfully transitioned to `idle`.
+///
+/// Kept as a free fn so both the timeout/disconnect match arms and the
+/// regression tests can drive the same code path.
+pub(crate) fn cleanup_abnormal_stream_exit(
+    rid: &str,
+    exchange_ctx: Option<&ExchangeContext>,
+    resolved_model: &str,
+    user_message: &str,
+    effort_level: Option<&str>,
+    permission_mode: Option<&str>,
+) -> bool {
+    let Some(ctx) = exchange_ctx else {
+        tracing::debug!(
+            rid = %rid,
+            "cleanup_abnormal_stream_exit: no exchange_ctx — nothing to finalize"
+        );
+        return false;
+    };
+    let conn = match crate::models::db::write_conn() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(
+                rid = %rid,
+                session_id = %ctx.helmor_session_id,
+                "cleanup_abnormal_stream_exit: write_conn borrow failed — session may be stuck: {e}"
+            );
+            return false;
+        }
+    };
+
+    let err_persist_ok = match persist_error_message(&conn, ctx, resolved_model, user_message) {
+        Ok(_) => true,
+        Err(error) => {
+            tracing::error!(
+                rid = %rid,
+                session_id = %ctx.helmor_session_id,
+                "cleanup_abnormal_stream_exit: persist_error_message failed: {error}"
+            );
+            false
+        }
+    };
+
+    match finalize_session_metadata(&conn, ctx, "idle", effort_level, permission_mode) {
+        Ok(_) => {
+            tracing::debug!(
+                rid = %rid,
+                session_id = %ctx.helmor_session_id,
+                err_persist_ok,
+                "cleanup_abnormal_stream_exit: session finalized to idle"
+            );
+            true
+        }
+        Err(error) => {
+            tracing::error!(
+                rid = %rid,
+                session_id = %ctx.helmor_session_id,
+                "cleanup_abnormal_stream_exit: finalize_session_metadata failed: {error}"
+            );
+            false
+        }
+    }
+}
 
 use rusqlite::params;
 use serde_json::{json, Value};
@@ -13,16 +88,16 @@ use crate::pipeline::types::{
 };
 
 use super::{
-    finalize_session_metadata, open_write_connection, persist_error_message,
-    persist_exit_plan_message, persist_result_and_finalize, persist_turn_message,
-    persist_user_message, AgentSendRequest, AgentStreamEvent, CmdResult, ExchangeContext,
+    finalize_session_metadata, persist_error_message, persist_exit_plan_message,
+    persist_result_and_finalize, persist_turn_message, persist_user_message, AgentSendRequest,
+    AgentStreamEvent, CmdResult, ExchangeContext,
 };
 
 #[derive(Debug, Clone)]
-struct ActiveStreamHandle {
-    request_id: String,
-    sidecar_session_id: String,
-    provider: String,
+pub(crate) struct ActiveStreamHandle {
+    pub request_id: String,
+    pub sidecar_session_id: String,
+    pub provider: String,
 }
 
 #[derive(Default)]
@@ -52,6 +127,17 @@ impl ActiveStreams {
             .lock()
             .map(|map| map.values().cloned().collect())
             .unwrap_or_default()
+    }
+
+    pub(crate) fn lookup_by_sidecar_session_id(
+        &self,
+        sidecar_session_id: &str,
+    ) -> Option<ActiveStreamHandle> {
+        self.inner.lock().ok().and_then(|map| {
+            map.values()
+                .find(|h| h.sidecar_session_id == sidecar_session_id)
+                .cloned()
+        })
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -250,6 +336,193 @@ pub fn convert_elicitation_content_to_codex_answers(content: &Value) -> Value {
     Value::Object(answers)
 }
 
+/// Inputs to `build_send_message_params`. Grouped into a struct so the
+/// constructor stays call-site ergonomic and we don't need to track
+/// argument positions.
+pub struct BuildSendMessageParamsInput<'a> {
+    pub sidecar_session_id: &'a str,
+    pub prompt: &'a str,
+    pub cli_model: &'a str,
+    pub cwd: &'a str,
+    pub resume_session_id: Option<&'a str>,
+    pub provider: &'a str,
+    pub effort_level: Option<&'a str>,
+    pub permission_mode: Option<&'a str>,
+    pub fast_mode: bool,
+    pub helmor_session_id: Option<&'a str>,
+}
+
+/// Build the `sendMessage` request params that the sidecar receives. Pure
+/// function modulo `lookup_workspace_linked_directories` which reads from
+/// the configured data dir DB — isolated so tests can snapshot the full
+/// payload against a seeded workspace row.
+///
+/// `additionalDirectories` is omitted when empty so the sidecar payload
+/// stays tight and existing snapshot fixtures for untouched sessions
+/// don't churn.
+pub fn build_send_message_params(input: BuildSendMessageParamsInput<'_>) -> Value {
+    let additional_directories = lookup_workspace_linked_directories(input.helmor_session_id);
+
+    let mut params = serde_json::json!({
+        "sessionId": input.sidecar_session_id,
+        "prompt": input.prompt,
+        "model": input.cli_model,
+        "cwd": input.cwd,
+        "resume": input.resume_session_id,
+        "provider": input.provider,
+        "effortLevel": input.effort_level,
+        "permissionMode": input.permission_mode,
+        "fastMode": input.fast_mode,
+    });
+    if !additional_directories.is_empty() {
+        if let Some(obj) = params.as_object_mut() {
+            obj.insert(
+                "additionalDirectories".to_string(),
+                Value::from(additional_directories),
+            );
+        }
+    }
+    params
+}
+
+/// Load the workspace's `/add-dir` list via the helmor session id. Returns
+/// an empty vec if the session is not yet persisted or the workspace has
+/// no linked directories — both are normal states. DB read failures are
+/// degraded to an empty list (the feature is best-effort per turn) but
+/// logged so a broken DB surfaces in the logs instead of as "my
+/// /add-dir silently stopped working".
+pub fn lookup_workspace_linked_directories(helmor_session_id: Option<&str>) -> Vec<String> {
+    let Some(hsid) = helmor_session_id else {
+        return Vec::new();
+    };
+    let conn = match crate::models::db::read_conn() {
+        Ok(c) => c,
+        Err(err) => {
+            tracing::warn!(
+                helmor_session_id = %hsid,
+                error = %err,
+                "Failed to open DB for linked-directory lookup; falling back to empty list",
+            );
+            return Vec::new();
+        }
+    };
+    let raw: Option<String> = match conn.query_row(
+        r#"SELECT w.linked_directory_paths
+           FROM sessions s
+           JOIN workspaces w ON w.id = s.workspace_id
+           WHERE s.id = ?1"#,
+        [hsid],
+        |row| row.get(0),
+    ) {
+        Ok(v) => v,
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(err) => {
+            tracing::warn!(
+                helmor_session_id = %hsid,
+                error = %err,
+                "linked_directory_paths query failed; falling back to empty list",
+            );
+            return Vec::new();
+        }
+    };
+    crate::workspaces::parse_linked_directory_paths(raw.as_deref())
+}
+
+/// Outcome of parsing+writing a `contextUsageUpdated` event.
+#[derive(Debug, PartialEq, Eq)]
+enum ContextUsageWriteOutcome {
+    /// Malformed event (missing/empty sessionId).
+    Skipped,
+    /// Event valid, DB row updated.
+    Wrote(String),
+    /// Event valid but `meta = null` — DB intentionally untouched.
+    NoMeta(String),
+    /// Event valid but no row matched the sessionId. Don't broadcast —
+    /// nobody is subscribed to a ghost session, and silently treating it
+    /// as a successful write would mask sidecar/DB races.
+    UnknownSession(String),
+}
+
+fn write_context_usage_meta(
+    conn: &rusqlite::Connection,
+    raw: &Value,
+) -> std::result::Result<ContextUsageWriteOutcome, rusqlite::Error> {
+    let Some(session_id) = raw.get("sessionId").and_then(Value::as_str) else {
+        return Ok(ContextUsageWriteOutcome::Skipped);
+    };
+    if session_id.is_empty() {
+        return Ok(ContextUsageWriteOutcome::Skipped);
+    }
+    let Some(meta) = raw.get("meta").and_then(Value::as_str) else {
+        return Ok(ContextUsageWriteOutcome::NoMeta(session_id.to_string()));
+    };
+    let affected = conn.execute(
+        "UPDATE sessions SET context_usage_meta = ?1 WHERE id = ?2",
+        params![meta, session_id],
+    )?;
+    if affected == 0 {
+        return Ok(ContextUsageWriteOutcome::UnknownSession(
+            session_id.to_string(),
+        ));
+    }
+    Ok(ContextUsageWriteOutcome::Wrote(session_id.to_string()))
+}
+
+/// Persist a `codexRateLimitsUpdated` event into the global settings table
+/// and broadcast `CodexRateLimitsChanged`. Account-scoped data — no
+/// session_id involved, so the event carries no payload.
+fn persist_codex_rate_limits_event(app: &AppHandle, raw: &Value) {
+    let Some(snapshot) = raw.get("snapshot").and_then(Value::as_str) else {
+        tracing::warn!("codexRateLimitsUpdated event missing snapshot");
+        return;
+    };
+    if let Err(err) = crate::models::settings::upsert_setting_value(
+        crate::models::settings::CODEX_RATE_LIMITS_KEY,
+        snapshot,
+    ) {
+        tracing::warn!("Failed to persist codex rate limits: {err}");
+        return;
+    }
+    crate::ui_sync::publish(app, crate::ui_sync::UiMutationEvent::CodexRateLimitsChanged);
+}
+
+/// Persist a `contextUsageUpdated` event and broadcast `ContextUsageChanged`
+/// to subscribers. Skips the broadcast when nothing actually changed (no
+/// matching row, malformed event).
+fn persist_context_usage_event(app: &AppHandle, raw: &Value) {
+    let outcome = match crate::models::db::write_conn() {
+        Ok(conn) => match write_context_usage_meta(&conn, raw) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                tracing::warn!("Failed to persist context_usage_meta: {err}");
+                return;
+            }
+        },
+        Err(err) => {
+            tracing::warn!("context_usage write_conn borrow failed: {err}");
+            return;
+        }
+    };
+    let session_id = match outcome {
+        ContextUsageWriteOutcome::Skipped => {
+            tracing::warn!("contextUsageUpdated event missing sessionId");
+            return;
+        }
+        ContextUsageWriteOutcome::UnknownSession(id) => {
+            tracing::warn!(
+                session_id = %id,
+                "contextUsageUpdated for unknown session — likely a stale/post-delete event"
+            );
+            return;
+        }
+        ContextUsageWriteOutcome::Wrote(id) | ContextUsageWriteOutcome::NoMeta(id) => id,
+    };
+    crate::ui_sync::publish(
+        app,
+        crate::ui_sync::UiMutationEvent::ContextUsageChanged { session_id },
+    );
+}
+
 fn should_adopt_provider_session_id(
     current_provider_session_id: Option<&str>,
     observed_provider_session_id: &str,
@@ -284,7 +557,7 @@ pub(super) fn stream_via_sidecar(
 
     let resume_session_id = request.session_id.clone().or_else(|| {
         request.helmor_session_id.as_deref().and_then(|hsid| {
-            let conn = open_write_connection().ok()?;
+            let conn = crate::models::db::read_conn().ok()?;
             let (stored_sid, stored_provider): (Option<String>, Option<String>) = conn
                 .query_row(
                     "SELECT provider_session_id, agent_type FROM sessions WHERE id = ?1",
@@ -313,20 +586,44 @@ pub(super) fn stream_via_sidecar(
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
+    let params = build_send_message_params(BuildSendMessageParamsInput {
+        sidecar_session_id: &sidecar_session_id,
+        prompt,
+        cli_model: &model.cli_model,
+        cwd: &working_directory.display().to_string(),
+        resume_session_id: resume_session_id.as_deref(),
+        provider: &model.provider,
+        effort_level: request.effort_level.as_deref(),
+        permission_mode: request.permission_mode.as_deref(),
+        fast_mode: request.fast_mode.unwrap_or(false),
+        helmor_session_id: request.helmor_session_id.as_deref(),
+    });
+
+    // Surface the `/add-dir` decision in logs — we often debug linked-
+    // directory issues by asking "did the path actually make it to the
+    // sidecar?" and this answers that without grepping the sidecar
+    // wire-format later.
+    if let Some(arr) = params
+        .get("additionalDirectories")
+        .and_then(|v| v.as_array())
+    {
+        tracing::info!(
+            count = arr.len(),
+            dirs = ?arr,
+            helmor_session_id = ?request.helmor_session_id,
+            "sendMessage with linked additionalDirectories"
+        );
+    } else {
+        tracing::info!(
+            helmor_session_id = ?request.helmor_session_id,
+            "sendMessage without linked additionalDirectories (none configured)"
+        );
+    }
+
     let sidecar_req = crate::sidecar::SidecarRequest {
         id: request_id.clone(),
         method: "sendMessage".to_string(),
-        params: serde_json::json!({
-            "sessionId": sidecar_session_id,
-            "prompt": prompt,
-            "model": model.cli_model,
-            "cwd": working_directory.display().to_string(),
-            "resume": resume_session_id,
-            "provider": model.provider,
-            "effortLevel": request.effort_level,
-            "permissionMode": request.permission_mode,
-            "fastMode": request.fast_mode.unwrap_or(false),
-        }),
+        params,
     };
 
     let rx = sidecar.subscribe(&request_id);
@@ -354,9 +651,21 @@ pub(super) fn stream_via_sidecar(
     let user_message_id_copy = request.user_message_id.clone();
     let files_copy = request.files.clone().unwrap_or_default();
     let resume_only = request.resume_only;
+    let sidecar_session_id_copy = sidecar_session_id.clone();
     let rid = request_id.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
+        let stream_started_at = Instant::now();
+        tracing::info!(
+            rid = %rid,
+            helmor_session_id = ?hsid_copy,
+            sidecar_session_id = %sidecar_session_id_copy,
+            provider = %provider,
+            model = %model_copy.cli_model,
+            resume_only,
+            "stream: event loop starting"
+        );
+
         let sidecar_state: tauri::State<'_, crate::sidecar::ManagedSidecar> = app.state();
         let active_streams_state: tauri::State<'_, ActiveStreams> = app.state();
         let mut resolved_session_id: Option<String> = resume_session_id.clone();
@@ -371,54 +680,135 @@ pub(super) fn stream_via_sidecar(
             )
         });
         let mut event_count: u64 = 0;
+        let mut heartbeat_count: u64 = 0;
 
         let mut exchange_ctx: Option<ExchangeContext> = None;
         let mut persisted_turn_count: usize = 0;
-        let db_conn = if hsid_copy.is_some() {
-            open_write_connection().ok()
-        } else {
-            None
-        };
         let mut persisted_exit_plan_review: Option<ThreadMessageLike> = None;
 
-        if let (Some(hsid), Some(conn)) = (&hsid_copy, &db_conn) {
+        // Short-borrow only. The single-writer pool (max_size=1) is shared
+        // with every other write in the app; a long-held handle here would
+        // block pin/unpin/mark-read/rename for the entire turn.
+        if let Some(hsid) = &hsid_copy {
             let ctx = ExchangeContext {
                 helmor_session_id: hsid.clone(),
-                turn_id: Uuid::new_v4().to_string(),
                 model_id: model_copy.id.to_string(),
                 model_provider: model_copy.provider.to_string(),
-                assistant_sdk_message_id: format!("helmor-assistant-{}", Uuid::new_v4()),
                 user_message_id: user_message_id_copy
                     .clone()
                     .unwrap_or_else(|| Uuid::new_v4().to_string()),
             };
 
-            // Persist fast_mode toggle to session
-            if let Err(e) = conn.execute(
-                "UPDATE sessions SET fast_mode = ?1 WHERE id = ?2",
-                rusqlite::params![fast_mode, &ctx.helmor_session_id],
-            ) {
-                tracing::error!(rid = %rid, "Failed to update fast_mode: {e}");
-            }
+            match crate::models::db::write_conn() {
+                Ok(conn) => {
+                    if let Err(e) = conn.execute(
+                        "UPDATE sessions SET fast_mode = ?1 WHERE id = ?2",
+                        rusqlite::params![fast_mode, &ctx.helmor_session_id],
+                    ) {
+                        tracing::error!(rid = %rid, "Failed to update fast_mode: {e}");
+                    }
 
-            if resume_only {
-                exchange_ctx = Some(ctx);
-            } else {
-                match persist_user_message(conn, &ctx, &prompt_copy, &files_copy) {
-                    Ok(()) => {
-                        tracing::debug!(rid = %rid, "User message persisted to DB");
+                    if resume_only {
                         exchange_ctx = Some(ctx);
+                    } else {
+                        match persist_user_message(&conn, &ctx, &prompt_copy, &files_copy) {
+                            Ok(()) => {
+                                tracing::debug!(rid = %rid, "User message persisted to DB");
+                                exchange_ctx = Some(ctx);
+                            }
+                            Err(error) => {
+                                tracing::error!(rid = %rid, "Failed to persist user message: {error}");
+                            }
+                        }
                     }
-                    Err(error) => {
-                        tracing::error!(rid = %rid, "Failed to persist user message: {error}");
-                    }
+                }
+                Err(e) => {
+                    tracing::error!(rid = %rid, "Failed to borrow write conn for initial persist: {e}");
                 }
             }
         }
 
         tracing::debug!(rid = %rid, "Waiting for sidecar events...");
 
-        for event in rx.iter() {
+        loop {
+            let event = match rx.recv_timeout(HEARTBEAT_TIMEOUT) {
+                Ok(ev) => ev,
+                Err(err @ (RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected)) => {
+                    let (reason_log, user_message, should_stop_sidecar) = match err {
+                        RecvTimeoutError::Timeout => (
+                            format!(
+                                "heartbeat lost for {:?} — treating stream as dead",
+                                HEARTBEAT_TIMEOUT
+                            ),
+                            format!(
+                                "Sidecar stopped responding (no heartbeat for {:?}). You can retry the request.",
+                                HEARTBEAT_TIMEOUT,
+                            ),
+                            true,
+                        ),
+                        RecvTimeoutError::Disconnected => (
+                            "sidecar channel disconnected".to_string(),
+                            "Sidecar connection was lost. You can retry the request.".to_string(),
+                            // Channel already closed — stopSession would most
+                            // likely fail, and if the sidecar already died
+                            // the request isn't running anyway.
+                            false,
+                        ),
+                    };
+                    tracing::error!(rid = %rid, "{reason_log}");
+
+                    if should_stop_sidecar {
+                        let stop_req = crate::sidecar::SidecarRequest {
+                            id: Uuid::new_v4().to_string(),
+                            method: "stopSession".to_string(),
+                            params: serde_json::json!({
+                                "sessionId": sidecar_session_id_copy,
+                                "provider": provider,
+                            }),
+                        };
+                        if let Err(e) = sidecar_state.send(&stop_req) {
+                            tracing::warn!(rid = %rid, "stopSession during abnormal exit failed: {e}");
+                        }
+                    }
+
+                    let resolved_model = pipeline
+                        .as_ref()
+                        .map(|p| p.accumulator.resolved_model().to_string())
+                        .unwrap_or_else(|| model_copy.cli_model.to_string());
+                    let persisted = cleanup_abnormal_stream_exit(
+                        &rid,
+                        exchange_ctx.as_ref(),
+                        &resolved_model,
+                        &user_message,
+                        effort_copy.as_deref(),
+                        permission_mode_copy.as_deref(),
+                    );
+
+                    tracing::info!(
+                        rid = %rid,
+                        event_count,
+                        heartbeat_count,
+                        elapsed_ms = stream_started_at.elapsed().as_millis(),
+                        persisted,
+                        has_exchange_ctx = exchange_ctx.is_some(),
+                        "stream: abnormal exit — finalized"
+                    );
+                    let _ = on_event.send(AgentStreamEvent::Error {
+                        message: user_message,
+                        persisted,
+                        internal: true,
+                    });
+                    break;
+                }
+            };
+
+            // Heartbeats are keepalives only — do not advance pipeline state.
+            if event.event_type() == "heartbeat" {
+                heartbeat_count += 1;
+                tracing::trace!(rid = %rid, heartbeat_count, "heartbeat");
+                continue;
+            }
+
             event_count += 1;
 
             // Claude's authoritative session_id comes only from `system.init`.
@@ -445,7 +835,9 @@ pub(super) fn stream_via_sidecar(
                                 provider_session_id = sid,
                                 "Skipping provider session persistence for resume-only stream"
                             );
-                        } else if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                        } else if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
                             if let Err(error) = conn.execute(
                                 "UPDATE sessions SET provider_session_id = ?2, agent_type = ?3 WHERE id = ?1",
                                 params![ctx.helmor_session_id, sid, ctx.model_provider],
@@ -476,7 +868,11 @@ pub(super) fn stream_via_sidecar(
                     };
                     let status = if is_aborted { "aborted" } else { "idle" };
 
-                    let persisted = exchange_ctx.is_some();
+                    // Tracks whether the FINAL finalize (persist_result_and_finalize
+                    // for end, finalize_session_metadata for aborted) succeeded.
+                    // Turn-message failures don't flip this back to false — the
+                    // frontend uses `persisted` as "end state is durable in DB".
+                    let mut persisted = false;
                     let mut resolved_model = model_copy.cli_model.to_string();
 
                     if let Some(mut pipeline_state) = pipeline.take() {
@@ -494,7 +890,9 @@ pub(super) fn stream_via_sidecar(
 
                         // Persist remaining turns and sync their UUIDs back
                         // into collected[] so streaming IDs = DB IDs.
-                        if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                        if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
                             let model_str = pipeline_state.accumulator.resolved_model().to_string();
                             while persisted_turn_count < pipeline_state.accumulator.turns_len() {
                                 match persist_turn_message(
@@ -520,20 +918,25 @@ pub(super) fn stream_via_sidecar(
                         if !output.assistant_text.is_empty() {
                             resolved_model = output.resolved_model.clone();
                         }
-                        if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                        if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
                             if is_aborted {
-                                if let Err(error) = finalize_session_metadata(
+                                match finalize_session_metadata(
                                     conn,
                                     ctx,
                                     status,
                                     effort_copy.as_deref(),
                                     permission_mode_copy.as_deref(),
                                 ) {
-                                    tracing::error!(rid = %rid, "Failed to finalize exchange: {error}");
+                                    Ok(_) => persisted = true,
+                                    Err(error) => {
+                                        tracing::error!(rid = %rid, "Failed to finalize exchange: {error}");
+                                    }
                                 }
                             } else {
                                 let preassigned = pipeline_state.accumulator.take_result_id();
-                                if let Err(error) = persist_result_and_finalize(
+                                match persist_result_and_finalize(
                                     conn,
                                     ctx,
                                     &output.resolved_model,
@@ -545,9 +948,17 @@ pub(super) fn stream_via_sidecar(
                                     status,
                                     preassigned,
                                 ) {
-                                    tracing::error!(rid = %rid, "Failed to finalize exchange: {error}");
+                                    Ok(_) => persisted = true,
+                                    Err(error) => {
+                                        tracing::error!(rid = %rid, "Failed to finalize exchange: {error}");
+                                    }
                                 }
                             }
+                        } else if exchange_ctx.is_some() {
+                            tracing::error!(
+                                rid = %rid,
+                                "Failed to borrow writer for finalize — reporting persisted=false"
+                            );
                         }
 
                         // Final render with DB-synced IDs so the frontend
@@ -561,6 +972,16 @@ pub(super) fn stream_via_sidecar(
                         });
                     }
 
+                    tracing::info!(
+                        rid = %rid,
+                        outcome = if is_aborted { "aborted" } else { "done" },
+                        event_count,
+                        heartbeat_count,
+                        persisted_turn_count,
+                        elapsed_ms = stream_started_at.elapsed().as_millis(),
+                        persisted,
+                        "stream: terminal event received"
+                    );
                     let _ = if let Some(reason) = reason {
                         on_event.send(AgentStreamEvent::Aborted {
                             provider: provider.clone(),
@@ -635,7 +1056,9 @@ pub(super) fn stream_via_sidecar(
                     if let Some(pipeline_state) = pipeline.as_mut() {
                         pipeline_state.accumulator.flush_pending();
 
-                        if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                        if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
                             let model_str = pipeline_state.accumulator.resolved_model().to_string();
                             while persisted_turn_count < pipeline_state.accumulator.turns_len() {
                                 match persist_turn_message(
@@ -658,20 +1081,21 @@ pub(super) fn stream_via_sidecar(
 
                         let resolved_model =
                             pipeline_state.accumulator.resolved_model().to_string();
-                        let persisted_metadata =
-                            if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
-                                persist_exit_plan_message(
-                                    conn,
-                                    ctx,
-                                    &resolved_model,
-                                    &tool_use_id,
-                                    "ExitPlanMode",
-                                    &tool_input,
-                                )
-                                .ok()
-                            } else {
-                                None
-                            };
+                        let persisted_metadata = if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
+                            persist_exit_plan_message(
+                                conn,
+                                ctx,
+                                &resolved_model,
+                                &tool_use_id,
+                                "ExitPlanMode",
+                                &tool_input,
+                            )
+                            .ok()
+                        } else {
+                            None
+                        };
                         let (msg_id, created_at) = persisted_metadata.unwrap_or_default();
                         persisted_exit_plan_review = Some(build_exit_plan_review_message(
                             (!msg_id.is_empty()).then_some(msg_id),
@@ -714,7 +1138,9 @@ pub(super) fn stream_via_sidecar(
                     if let Some(mut pipeline_state) = pipeline.take() {
                         pipeline_state.accumulator.flush_pending();
 
-                        if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                        if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
                             let model_str = pipeline_state.accumulator.resolved_model().to_string();
                             while persisted_turn_count < pipeline_state.accumulator.turns_len() {
                                 match persist_turn_message(
@@ -746,7 +1172,9 @@ pub(super) fn stream_via_sidecar(
                             messages: final_messages,
                         });
 
-                        if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                        if let (Some(ctx), Some(conn)) =
+                            (&exchange_ctx, &crate::models::db::write_conn().ok())
+                        {
                             if let Err(error) = finalize_session_metadata(
                                 conn,
                                 ctx,
@@ -781,6 +1209,12 @@ pub(super) fn stream_via_sidecar(
                         .get("permissionMode")
                         .and_then(Value::as_str)
                         .map(str::to_string);
+                }
+                "contextUsageUpdated" => {
+                    persist_context_usage_event(&app, &event.raw);
+                }
+                "codexRateLimitsUpdated" => {
+                    persist_codex_rate_limits_event(&app, &event.raw);
                 }
                 "elicitationRequest" => {
                     let resolved_model = pipeline
@@ -844,7 +1278,9 @@ pub(super) fn stream_via_sidecar(
                     tracing::debug!(rid = %rid, internal, "Sidecar error: {message}");
                     let mut persisted = false;
 
-                    if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                    if let (Some(ctx), Some(conn)) =
+                        (&exchange_ctx, &crate::models::db::write_conn().ok())
+                    {
                         let resolved_model = pipeline
                             .as_ref()
                             .map(|pipeline_state| {
@@ -870,6 +1306,15 @@ pub(super) fn stream_via_sidecar(
                         }
                     }
 
+                    tracing::info!(
+                        rid = %rid,
+                        event_count,
+                        heartbeat_count,
+                        elapsed_ms = stream_started_at.elapsed().as_millis(),
+                        persisted,
+                        internal,
+                        "stream: error event — finalized"
+                    );
                     let _ = on_event.send(AgentStreamEvent::Error {
                         message,
                         persisted,
@@ -883,7 +1328,9 @@ pub(super) fn stream_via_sidecar(
                         if let Some(pipeline_state) = pipeline.as_mut() {
                             let emit = pipeline_state.push_event(&event.raw, &line);
 
-                            if let (Some(ctx), Some(conn)) = (&exchange_ctx, &db_conn) {
+                            if let (Some(ctx), Some(conn)) =
+                                (&exchange_ctx, &crate::models::db::write_conn().ok())
+                            {
                                 let model_str =
                                     pipeline_state.accumulator.resolved_model().to_string();
                                 while persisted_turn_count < pipeline_state.accumulator.turns_len()
@@ -927,7 +1374,14 @@ pub(super) fn stream_via_sidecar(
             }
         }
 
-        tracing::debug!(rid = %rid, event_count, "Event loop exited");
+        tracing::info!(
+            rid = %rid,
+            event_count,
+            heartbeat_count,
+            persisted_turn_count,
+            elapsed_ms = stream_started_at.elapsed().as_millis(),
+            "stream: event loop exited, cleaning up subscription"
+        );
         sidecar_state.unsubscribe(&rid);
         active_streams_state.unregister(&rid);
     });
@@ -1016,6 +1470,102 @@ mod tests {
             "helmor-session-1",
             Some("helmor-session-1"),
         ));
+    }
+
+    fn open_test_db_with_session(session_id: &str) -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::schema::ensure_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, workspace_id, status) VALUES (?1, 'w1', 'idle')",
+            [session_id],
+        )
+        .unwrap();
+        conn
+    }
+
+    fn read_meta(conn: &rusqlite::Connection, session_id: &str) -> Option<String> {
+        conn.query_row(
+            "SELECT context_usage_meta FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn write_context_usage_meta_persists_string() {
+        let conn = open_test_db_with_session("s1");
+        let raw = serde_json::json!({
+            "sessionId": "s1",
+            "meta": r#"{"totalTokens":42}"#,
+        });
+        let outcome = write_context_usage_meta(&conn, &raw).unwrap();
+        assert_eq!(outcome, ContextUsageWriteOutcome::Wrote("s1".to_string()));
+        assert_eq!(
+            read_meta(&conn, "s1").as_deref(),
+            Some(r#"{"totalTokens":42}"#)
+        );
+    }
+
+    #[test]
+    fn write_context_usage_meta_skips_when_meta_null() {
+        let conn = open_test_db_with_session("s1");
+        // Pre-seed so we can prove the row was NOT touched.
+        conn.execute(
+            "UPDATE sessions SET context_usage_meta = '{}' WHERE id = 's1'",
+            [],
+        )
+        .unwrap();
+        let raw = serde_json::json!({ "sessionId": "s1", "meta": null });
+        let outcome = write_context_usage_meta(&conn, &raw).unwrap();
+        assert_eq!(outcome, ContextUsageWriteOutcome::NoMeta("s1".to_string()));
+        // Pre-seeded value still there.
+        assert_eq!(read_meta(&conn, "s1").as_deref(), Some("{}"));
+    }
+
+    #[test]
+    fn write_context_usage_meta_skips_when_session_id_missing() {
+        let conn = open_test_db_with_session("s1");
+        for raw in [
+            serde_json::json!({}),
+            serde_json::json!({ "sessionId": "" }),
+            serde_json::json!({ "sessionId": null, "meta": "{}" }),
+        ] {
+            let outcome = write_context_usage_meta(&conn, &raw).unwrap();
+            assert_eq!(outcome, ContextUsageWriteOutcome::Skipped);
+        }
+        // Row never touched.
+        assert!(read_meta(&conn, "s1").is_none());
+    }
+
+    #[test]
+    fn write_context_usage_meta_reports_unknown_session() {
+        // UPDATE against a non-existent id affects 0 rows. The outcome must
+        // distinguish this from a real write so persist_context_usage_event
+        // can skip the broadcast — silently treating it as a write would
+        // mask sidecar/DB races (stale event after delete, etc.).
+        let conn = open_test_db_with_session("s1");
+        let raw = serde_json::json!({ "sessionId": "ghost", "meta": "{}" });
+        let outcome = write_context_usage_meta(&conn, &raw).unwrap();
+        assert_eq!(
+            outcome,
+            ContextUsageWriteOutcome::UnknownSession("ghost".to_string())
+        );
+        assert!(read_meta(&conn, "s1").is_none());
+    }
+
+    #[test]
+    fn write_context_usage_meta_null_meta_does_not_check_session_existence() {
+        // null meta is "no live Query", not a real DB update — we report
+        // NoMeta even when the session doesn't exist. The outcome is the
+        // same as for a known session so callers don't have to special-case.
+        let conn = open_test_db_with_session("s1");
+        let raw = serde_json::json!({ "sessionId": "ghost", "meta": null });
+        let outcome = write_context_usage_meta(&conn, &raw).unwrap();
+        assert_eq!(
+            outcome,
+            ContextUsageWriteOutcome::NoMeta("ghost".to_string())
+        );
     }
 
     #[test]
@@ -1217,5 +1767,229 @@ working_directory: /tmp/helmor
         // No header → title falls back to question, description is empty
         assert_eq!(q0["title"], "Simple question?");
         assert_eq!(q0["description"], "");
+    }
+
+    // ---- lookup_workspace_linked_directories ----------------------------
+
+    mod lookup_linked_directories {
+        use super::*;
+
+        /// Set up an isolated DB + schema for each test and seed a repo row
+        /// that the workspace fixture can reference.
+        fn with_test_db<F: FnOnce(&rusqlite::Connection)>(name: &str, f: F) {
+            let dir = tempfile::tempdir().unwrap();
+            let _guard = crate::data_dir::TEST_ENV_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            std::env::set_var("HELMOR_DATA_DIR", dir.path());
+            crate::data_dir::ensure_directory_structure().unwrap();
+
+            let db_path = crate::data_dir::db_path().unwrap();
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            crate::schema::ensure_schema(&conn).unwrap();
+            conn.execute(
+                "INSERT INTO repos (id, name, default_branch) VALUES ('r-1', ?1, 'main')",
+                [name],
+            )
+            .unwrap();
+            f(&conn);
+            std::env::remove_var("HELMOR_DATA_DIR");
+        }
+
+        fn insert_ws_session(
+            conn: &rusqlite::Connection,
+            ws_id: &str,
+            sess_id: &str,
+            linked: Option<&str>,
+        ) {
+            conn.execute(
+                "INSERT INTO workspaces (id, repository_id, directory_name, state,
+                 derived_status, linked_directory_paths) VALUES (?1, 'r-1', 'ws', 'ready',
+                 'in-progress', ?2)",
+                rusqlite::params![ws_id, linked],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO sessions (id, workspace_id, status) VALUES (?1, ?2, 'idle')",
+                [sess_id, ws_id],
+            )
+            .unwrap();
+        }
+
+        #[test]
+        fn returns_empty_when_session_id_is_missing() {
+            with_test_db("noop", |_conn| {
+                assert!(lookup_workspace_linked_directories(None).is_empty());
+            });
+        }
+
+        #[test]
+        fn returns_empty_when_session_row_not_found() {
+            with_test_db("orphan", |_conn| {
+                assert!(lookup_workspace_linked_directories(Some("unknown-session")).is_empty());
+            });
+        }
+
+        #[test]
+        fn returns_empty_when_linked_column_is_null() {
+            with_test_db("null-col", |conn| {
+                insert_ws_session(conn, "w-1", "s-1", None);
+                assert!(lookup_workspace_linked_directories(Some("s-1")).is_empty());
+            });
+        }
+
+        #[test]
+        fn returns_parsed_list_when_linked_column_populated() {
+            with_test_db("populated", |conn| {
+                insert_ws_session(conn, "w-2", "s-2", Some(r#"["/abs/a","/abs/b"]"#));
+                assert_eq!(
+                    lookup_workspace_linked_directories(Some("s-2")),
+                    vec!["/abs/a".to_string(), "/abs/b".to_string()],
+                );
+            });
+        }
+
+        #[test]
+        fn returns_empty_when_json_is_malformed() {
+            with_test_db("malformed", |conn| {
+                insert_ws_session(conn, "w-3", "s-3", Some("not json"));
+                assert!(lookup_workspace_linked_directories(Some("s-3")).is_empty());
+            });
+        }
+
+        #[test]
+        fn trims_and_dedupes_at_parse_time() {
+            with_test_db("normalize", |conn| {
+                insert_ws_session(
+                    conn,
+                    "w-4",
+                    "s-4",
+                    Some(r#"["  /abs/a  ","/abs/a","","/abs/b"]"#),
+                );
+                assert_eq!(
+                    lookup_workspace_linked_directories(Some("s-4")),
+                    vec!["/abs/a".to_string(), "/abs/b".to_string()],
+                );
+            });
+        }
+    }
+
+    // ---- cleanup_abnormal_stream_exit ------------------------------------
+
+    mod cleanup_abnormal_exit {
+        use super::*;
+        use crate::agents::ExchangeContext;
+
+        fn with_session<F: FnOnce()>(session_status: &str, f: F) {
+            let dir = tempfile::tempdir().unwrap();
+            let _guard = crate::data_dir::TEST_ENV_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            std::env::set_var("HELMOR_DATA_DIR", dir.path());
+            crate::data_dir::ensure_directory_structure().unwrap();
+
+            let db_path = crate::data_dir::db_path().unwrap();
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            crate::schema::ensure_schema(&conn).unwrap();
+            conn.execute(
+                "INSERT INTO repos (id, name, default_branch) VALUES ('r-1', 'r', 'main')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status)
+                 VALUES ('w-1', 'r-1', 'd', 'ready', 'in-progress')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO sessions (id, workspace_id, status, title) VALUES (?1, 'w-1', ?2, 't')",
+                rusqlite::params!["s-1", session_status],
+            )
+            .unwrap();
+            drop(conn);
+
+            f();
+
+            std::env::remove_var("HELMOR_DATA_DIR");
+        }
+
+        fn ctx() -> ExchangeContext {
+            ExchangeContext {
+                helmor_session_id: "s-1".to_string(),
+                model_id: "opus".to_string(),
+                model_provider: "claude".to_string(),
+                user_message_id: "user-1".to_string(),
+            }
+        }
+
+        fn session_status() -> String {
+            crate::models::db::read_conn()
+                .unwrap()
+                .query_row("SELECT status FROM sessions WHERE id = 's-1'", [], |r| {
+                    r.get::<_, String>(0)
+                })
+                .unwrap()
+        }
+
+        fn error_message_count() -> i64 {
+            crate::models::db::read_conn()
+                .unwrap()
+                .query_row(
+                    "SELECT COUNT(*) FROM session_messages
+                     WHERE session_id = 's-1' AND content LIKE '%sidecar%'",
+                    [],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap()
+        }
+
+        #[test]
+        fn finalizes_session_to_idle_and_persists_error_message() {
+            with_session("streaming", || {
+                let persisted = cleanup_abnormal_stream_exit(
+                    "rid-1",
+                    Some(&ctx()),
+                    "opus",
+                    "sidecar dead, retry",
+                    None,
+                    None,
+                );
+                assert!(persisted, "expected persisted=true on successful finalize");
+                assert_eq!(session_status(), "idle");
+                assert_eq!(error_message_count(), 1);
+            });
+        }
+
+        #[test]
+        fn returns_false_and_does_not_touch_db_when_exchange_ctx_is_none() {
+            with_session("streaming", || {
+                let persisted =
+                    cleanup_abnormal_stream_exit("rid-2", None, "opus", "sidecar dead", None, None);
+                assert!(!persisted);
+                // Session must remain in streaming state — nothing happened.
+                assert_eq!(session_status(), "streaming");
+                assert_eq!(error_message_count(), 0);
+            });
+        }
+
+        #[test]
+        fn returns_false_when_session_row_does_not_exist() {
+            with_session("streaming", || {
+                let mut bad_ctx = ctx();
+                bad_ctx.helmor_session_id = "nonexistent".to_string();
+                let persisted = cleanup_abnormal_stream_exit(
+                    "rid-3",
+                    Some(&bad_ctx),
+                    "opus",
+                    "sidecar dead",
+                    None,
+                    None,
+                );
+                // finalize_session_metadata fails when no row matches; helper
+                // must report the session as NOT persisted rather than lying.
+                assert!(!persisted);
+            });
+        }
     }
 }

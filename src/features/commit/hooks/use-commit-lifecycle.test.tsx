@@ -14,6 +14,7 @@ const apiMocks = vi.hoisted(() => ({
 	closeWorkspacePr: vi.fn(),
 	createSession: vi.fn(),
 	hideSession: vi.fn(),
+	loadRepoPreferences: vi.fn(),
 	loadAutoCloseActionKinds: vi.fn(),
 	lookupWorkspacePr: vi.fn(),
 	mergeWorkspacePr: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 		closeWorkspacePr: apiMocks.closeWorkspacePr,
 		createSession: apiMocks.createSession,
 		hideSession: apiMocks.hideSession,
+		loadRepoPreferences: apiMocks.loadRepoPreferences,
 		loadAutoCloseActionKinds: apiMocks.loadAutoCloseActionKinds,
 		lookupWorkspacePr: apiMocks.lookupWorkspacePr,
 		mergeWorkspacePr: apiMocks.mergeWorkspacePr,
@@ -71,6 +73,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 		apiMocks.closeWorkspacePr.mockReset();
 		apiMocks.createSession.mockReset();
 		apiMocks.hideSession.mockReset();
+		apiMocks.loadRepoPreferences.mockReset();
 		apiMocks.loadAutoCloseActionKinds.mockReset();
 		apiMocks.lookupWorkspacePr.mockReset();
 		apiMocks.mergeWorkspacePr.mockReset();
@@ -78,6 +81,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 		apiMocks.setWorkspaceManualStatus.mockReset();
 
 		apiMocks.createSession.mockResolvedValue({ sessionId: "session-action" });
+		apiMocks.loadRepoPreferences.mockResolvedValue({});
 		apiMocks.loadAutoCloseActionKinds.mockResolvedValue(["create-pr"]);
 		apiMocks.setWorkspaceManualStatus.mockResolvedValue(undefined);
 		apiMocks.lookupWorkspacePr.mockResolvedValue({
@@ -129,6 +133,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 					queryClient,
 					selectedWorkspaceId: "workspace-1",
 					selectedWorkspaceIdRef,
+					selectedRepoId: "repo-1",
 					workspaceManualStatus: null,
 					workspacePrInfo: null,
 					workspacePrActionStatus: EMPTY_PR_ACTION_STATUS,
@@ -219,6 +224,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 					queryClient,
 					selectedWorkspaceId: "workspace-1",
 					selectedWorkspaceIdRef: { current: "workspace-1" },
+					selectedRepoId: "repo-1",
 					workspaceManualStatus: null,
 					workspacePrInfo: null,
 					workspacePrActionStatus: EMPTY_PR_ACTION_STATUS,
@@ -290,6 +296,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 					queryClient,
 					selectedWorkspaceId: "workspace-1",
 					selectedWorkspaceIdRef: { current: "workspace-1" },
+					selectedRepoId: "repo-1",
 					workspaceManualStatus: null,
 					workspacePrInfo: null,
 					workspacePrActionStatus: EMPTY_PR_ACTION_STATUS,
@@ -338,6 +345,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 					queryClient,
 					selectedWorkspaceId: "workspace-1",
 					selectedWorkspaceIdRef: { current: "workspace-1" },
+					selectedRepoId: "repo-1",
 					workspaceManualStatus: null,
 					workspacePrInfo: null,
 					workspacePrActionStatus: EMPTY_PR_ACTION_STATUS,
@@ -383,6 +391,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 					queryClient,
 					selectedWorkspaceId: "workspace-1",
 					selectedWorkspaceIdRef: { current: "workspace-1" },
+					selectedRepoId: "repo-1",
 					workspaceManualStatus: null,
 					workspacePrInfo: {
 						number: 53,

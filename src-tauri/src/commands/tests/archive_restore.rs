@@ -12,7 +12,7 @@ fn restore_workspace_recreates_worktree_and_context() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = RestoreTestHarness::new(true);
+    let harness = RestoreTestHarness::new();
 
     let response = workspaces::restore_workspace_impl(&harness.workspace_id, None).unwrap();
 
@@ -37,16 +37,8 @@ fn restore_workspace_recreates_worktree_and_context() {
             |row| row.get(0),
         )
         .unwrap();
-    let attachment_path: String = connection
-        .query_row(
-            "SELECT path FROM attachments WHERE session_id = ?1",
-            [&harness.session_id],
-            |row| row.get(0),
-        )
-        .unwrap();
 
     assert_eq!(state, "ready");
-    assert_eq!(attachment_path, harness.attachment_path());
 }
 
 #[test]
@@ -54,7 +46,7 @@ fn archive_workspace_moves_context_and_removes_worktree() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = ArchiveTestHarness::new(true);
+    let harness = ArchiveTestHarness::new();
 
     let response = workspaces::archive_workspace_impl(&harness.workspace_id).unwrap();
 
@@ -80,17 +72,16 @@ fn archive_workspace_moves_context_and_removes_worktree() {
     assert!(!worktree_list.contains(harness.workspace_dir().to_str().unwrap()));
 
     let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
-    let (state, archive_commit, attachment_path): (String, String, String) = connection
+    let (state, archive_commit): (String, String) = connection
         .query_row(
-            "SELECT state, archive_commit, (SELECT path FROM attachments WHERE session_id = ?2) FROM workspaces WHERE id = ?1",
-            (&harness.workspace_id, &harness.session_id),
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            "SELECT state, archive_commit FROM workspaces WHERE id = ?1",
+            [&harness.workspace_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
 
     assert_eq!(state, "archived");
     assert_eq!(archive_commit, harness.head_commit);
-    assert_eq!(attachment_path, harness.attachment_path());
 }
 
 #[test]
@@ -98,7 +89,7 @@ fn permanently_delete_archived_workspace_removes_db_rows_and_context() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = ArchiveTestHarness::new(true);
+    let harness = ArchiveTestHarness::new();
 
     workspaces::archive_workspace_impl(&harness.workspace_id).unwrap();
     assert!(harness.archived_context_dir().exists());
@@ -127,18 +118,10 @@ fn permanently_delete_archived_workspace_removes_db_rows_and_context() {
             |row| row.get(0),
         )
         .unwrap();
-    let attachment_count: i64 = connection
-        .query_row(
-            "SELECT COUNT(*) FROM attachments WHERE session_id = ?1",
-            [&harness.session_id],
-            |row| row.get(0),
-        )
-        .unwrap();
 
     assert_eq!(workspace_count, 0);
     assert_eq!(session_count, 0);
     assert_eq!(message_count, 0);
-    assert_eq!(attachment_count, 0);
     assert!(!harness.archived_context_dir().exists());
 }
 
@@ -147,7 +130,7 @@ fn permanently_delete_workspace_surfaces_sql_errors() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = ArchiveTestHarness::new(true);
+    let harness = ArchiveTestHarness::new();
     let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
     connection
         .execute(
@@ -189,7 +172,7 @@ fn prepare_archive_plan_is_read_only() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = ArchiveTestHarness::new(true);
+    let harness = ArchiveTestHarness::new();
 
     let _plan = workspaces::prepare_archive_plan(&harness.workspace_id).unwrap();
 
@@ -212,7 +195,7 @@ fn archive_workspace_allows_setup_pending_state() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = ArchiveTestHarness::new(true);
+    let harness = ArchiveTestHarness::new();
     harness.set_state("setup_pending");
 
     let response = workspaces::archive_workspace_impl(&harness.workspace_id).unwrap();
@@ -226,7 +209,7 @@ fn archive_workspace_rejects_initializing_state() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = ArchiveTestHarness::new(true);
+    let harness = ArchiveTestHarness::new();
     harness.set_state("initializing");
 
     let error = workspaces::prepare_archive_plan(&harness.workspace_id).unwrap_err();
@@ -239,7 +222,7 @@ fn restore_workspace_cleans_up_existing_target_directory() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = RestoreTestHarness::new(true);
+    let harness = RestoreTestHarness::new();
     fs::create_dir_all(harness.workspace_dir()).unwrap();
     fs::write(harness.workspace_dir().join("stale.txt"), "old").unwrap();
 
@@ -258,7 +241,7 @@ fn restore_workspace_recreates_deleted_branch() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = RestoreTestHarness::new(true);
+    let harness = RestoreTestHarness::new();
     git_ops::run_git(
         [
             "-C",
@@ -289,7 +272,7 @@ fn restore_workspace_returns_branch_rename_when_original_taken() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = RestoreTestHarness::new(true);
+    let harness = RestoreTestHarness::new();
 
     let response = workspaces::restore_workspace_impl(&harness.workspace_id, None)
         .expect("Restore should succeed on a renamed branch");
@@ -317,7 +300,7 @@ fn restore_workspace_fails_when_archive_commit_missing() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = RestoreTestHarness::new(true);
+    let harness = RestoreTestHarness::new();
 
     let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
     connection
@@ -364,7 +347,7 @@ fn restore_workspace_cleans_up_when_db_update_fails() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = RestoreTestHarness::new(false);
+    let harness = RestoreTestHarness::new_with_blocked_workspace_update();
 
     let error = workspaces::restore_workspace_impl(&harness.workspace_id, None).unwrap_err();
 
@@ -378,7 +361,7 @@ fn archive_workspace_cleans_up_when_db_update_fails() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = ArchiveTestHarness::new(false);
+    let harness = ArchiveTestHarness::new_with_blocked_workspace_update();
 
     let error = workspaces::archive_workspace_impl(&harness.workspace_id).unwrap_err();
 
@@ -407,7 +390,7 @@ fn start_archive_workspace_syncs_git_fetchers_after_success() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = ArchiveTestHarness::new(true);
+    let harness = ArchiveTestHarness::new();
     let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
     connection
         .execute("UPDATE repos SET remote = 'origin' WHERE id = 'repo-1'", [])
@@ -459,7 +442,7 @@ fn source_repo_branches_accessible_for_worktree_creation() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = RestoreTestHarness::new(true);
+    let harness = RestoreTestHarness::new();
     let source = &harness.source_repo_root;
 
     git_ops::run_git(["-C", source.to_str().unwrap(), "checkout", "main"], None).unwrap();

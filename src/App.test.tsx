@@ -104,6 +104,10 @@ describe("App", () => {
 		).toBeInTheDocument();
 		expect(resizeHandle).toHaveAttribute("aria-valuenow", "336");
 		expect(inspectorResizeHandle).toHaveAttribute("aria-valuenow", "336");
+		expect(inspectorResizeHandle).toHaveStyle({
+			right: "316px",
+			width: "20px",
+		});
 		expect(safeAreas).toHaveLength(1);
 		expect(groupsScrollRegion).toHaveClass("overflow-y-auto");
 		expect(groupsScrollRegion).toHaveClass("flex-1");
@@ -685,13 +689,10 @@ describe("App", () => {
 						status: "idle",
 						permissionMode: "default",
 						unreadCount: 1,
-						contextTokenCount: 0,
-						thinkingEnabled: false,
 						fastMode: false,
 						createdAt: "2026-04-03T00:00:00Z",
 						updatedAt: "2026-04-03T00:00:00Z",
 						isHidden: false,
-						isCompacting: false,
 						active: false,
 					},
 				]}
@@ -738,13 +739,10 @@ describe("App", () => {
 						status: "idle",
 						permissionMode: "default",
 						unreadCount: 0,
-						contextTokenCount: 0,
-						thinkingEnabled: false,
 						fastMode: false,
 						createdAt: "2026-04-03T00:00:00Z",
 						updatedAt: "2026-04-03T00:00:00Z",
 						isHidden: false,
-						isCompacting: false,
 						active: true,
 					},
 				]}

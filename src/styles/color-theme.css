@@ -4,6 +4,7 @@
 	/* Official shadcn/ui radix-nova neutral theme */
 	--background: oklch(1 0 0);
 	--foreground: oklch(0.145 0 0);
+	--conversation-body-foreground: rgb(44, 40, 38);
 	--card: oklch(1 0 0);
 	--card-foreground: oklch(0.145 0 0);
 	--popover: oklch(1 0 0);
@@ -31,6 +32,11 @@
 	--sidebar-primary-foreground: oklch(0.985 0 0);
 	--sidebar-accent: oklch(0.97 0 0);
 	--sidebar-accent-foreground: oklch(0.205 0 0);
+	--workspace-sidebar-selected-bg: color-mix(
+		in oklch,
+		var(--sidebar-accent) 98.5%,
+		var(--sidebar-foreground) 1.5%
+	);
 	--sidebar-border: oklch(0.922 0 0);
 	--sidebar-ring: oklch(0.708 0 0);
 	--workspace-sidebar-status-done: color-mix(
@@ -109,6 +115,7 @@
 	/* Official shadcn/ui radix-nova neutral theme */
 	--background: oklch(0.165 0 0);
 	--foreground: oklch(0.985 0 0);
+	--conversation-body-foreground: rgb(234, 232, 230);
 	--card: oklch(0.205 0 0);
 	--card-foreground: oklch(0.985 0 0);
 	--popover: oklch(0.205 0 0);
@@ -136,6 +143,11 @@
 	--sidebar-primary-foreground: oklch(0.985 0 0);
 	--sidebar-accent: oklch(0.269 0 0);
 	--sidebar-accent-foreground: oklch(0.985 0 0);
+	--workspace-sidebar-selected-bg: color-mix(
+		in oklch,
+		var(--sidebar-accent) 98.5%,
+		var(--sidebar-foreground) 1.5%
+	);
 	--sidebar-border: oklch(1 0 0 / 10%);
 	--sidebar-ring: oklch(0.556 0 0);
 	--workspace-sidebar-status-done: color-mix(

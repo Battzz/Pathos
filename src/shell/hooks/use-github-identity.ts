@@ -20,6 +20,11 @@ export function useGithubIdentity(pushWorkspaceToast: WorkspaceToastFn) {
 	const [githubIdentityState, setGithubIdentityState] =
 		useState<GithubIdentityState>(getInitialGithubIdentityState);
 
+	const refreshGithubIdentityState = useCallback(async () => {
+		const snapshot = await loadGithubIdentitySession();
+		setGithubIdentityState(snapshot);
+	}, []);
+
 	useEffect(() => {
 		let disposed = false;
 		let unlistenIdentity: (() => void) | undefined;
@@ -119,6 +124,7 @@ export function useGithubIdentity(pushWorkspaceToast: WorkspaceToastFn) {
 		handleCopyGithubDeviceCode,
 		handleDisconnectGithubIdentity,
 		handleStartGithubIdentityConnect,
+		refreshGithubIdentityState,
 		isIdentityConnected: githubIdentityState.status === "connected",
 	};
 }

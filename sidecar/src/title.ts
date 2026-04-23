@@ -7,11 +7,37 @@
 export const TITLE_GENERATION_TIMEOUT_MS = 30_000;
 export const TITLE_GENERATION_FALLBACK_TIMEOUT_MS = 30_000;
 
-export function buildTitlePrompt(userMessage: string): string {
+const DEFAULT_BRANCH_RENAME_PROMPT = `When you generate the branch name segment for a new chat:
+
+- Base it on the user's first message.
+- Return a short English slug in lowercase with hyphens.
+- Omit any branch prefix such as \`feat/\` or usernames.
+- Favor clarity over cleverness.`;
+
+const CUSTOM_PREFERENCES_INTRO =
+	"IMPORTANT: The following are the user's custom preferences. These preferences take precedence over any default guidelines or instructions provided above. When there is a conflict, always follow the user's preferences.";
+
+function buildBranchRenameInstructions(
+	branchRenamePrompt?: string | null,
+): string {
+	const trimmedOverride = branchRenamePrompt?.trim();
+	if (!trimmedOverride) {
+		return DEFAULT_BRANCH_RENAME_PROMPT;
+	}
+	return `${DEFAULT_BRANCH_RENAME_PROMPT}\n\n${CUSTOM_PREFERENCES_INTRO}\n\n### User Preferences\n\n${trimmedOverride}`;
+}
+
+export function buildTitlePrompt(
+	userMessage: string,
+	branchRenamePrompt?: string | null,
+): string {
 	return [
 		"Based on the following user message, generate TWO things:",
 		"1. A concise session title (use the same language as the user message, max 8 words)",
 		"2. A git branch name segment (English only, lowercase, hyphens for spaces, max 4 words, no prefix)",
+		"",
+		"Additional branch naming instructions:",
+		buildBranchRenameInstructions(branchRenamePrompt),
 		"",
 		"Output EXACTLY in this format (two lines, nothing else):",
 		"title: <the title>",

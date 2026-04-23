@@ -106,7 +106,7 @@ pub fn rename_workspace_branch(workspace_id: &str, new_branch: &str) -> Result<(
 
     git_ops::rename_branch(repo_root_path, old_branch, new_branch)?;
 
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     if let Err(db_err) = connection.execute(
         "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
         (new_branch, workspace_id),
@@ -159,7 +159,7 @@ pub fn update_intended_target_branch_local(
     target_branch: &str,
 ) -> Result<UpdateIntendedTargetBranchInternal> {
     {
-        let connection = db::open_connection(true)?;
+        let connection = db::write_conn()?;
         let updated_rows = connection
             .execute(
                 &format!(
@@ -181,7 +181,7 @@ pub fn update_intended_target_branch_local(
     let post_reset_sha = try_realign_local_branch(&record, target_branch)?;
 
     if post_reset_sha.is_some() {
-        let connection = db::open_connection(true)?;
+        let connection = db::write_conn()?;
         connection
             .execute(
                 "UPDATE workspaces SET initialization_parent_branch = ?2 WHERE id = ?1",
@@ -269,7 +269,7 @@ pub fn refresh_remote_and_realign(
         return Ok(false);
     }
 
-    let ws_lock = db::workspace_mutation_lock(workspace_id);
+    let ws_lock = db::workspace_fs_mutation_lock(workspace_id);
     let _lock = ws_lock.blocking_lock();
 
     let Some(fresh_record) = workspace_models::load_workspace_record_by_id(workspace_id)? else {

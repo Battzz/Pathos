@@ -18,13 +18,27 @@ const apiMocks = vi.hoisted(() => ({
 	loadWorkspaceDetail: vi.fn(),
 	loadWorkspaceSessions: vi.fn(),
 	loadSessionThreadMessages: vi.fn(),
+	stopAgentStream: vi.fn(),
+	requestQuit: vi.fn(),
 }));
 
-const windowApiMocks = vi.hoisted(() => ({
-	onCloseRequested: vi.fn(),
-	closeRequestedHandler: null as
-		| ((event: { preventDefault: () => void }) => void | Promise<void>)
-		| null,
+const eventApiMocks = vi.hoisted(() => ({
+	handlers: new Map<string, Set<() => void>>(),
+	listen: vi.fn(async (eventName: string, handler: () => void) => {
+		let handlers = eventApiMocks.handlers.get(eventName);
+		if (!handlers) {
+			handlers = new Set();
+			eventApiMocks.handlers.set(eventName, handlers);
+		}
+		handlers.add(handler);
+		return () => {
+			const currentHandlers = eventApiMocks.handlers.get(eventName);
+			currentHandlers?.delete(handler);
+			if (currentHandlers?.size === 0) {
+				eventApiMocks.handlers.delete(eventName);
+			}
+		};
+	}),
 }));
 
 vi.mock("./App.css", () => ({}));
@@ -39,18 +53,11 @@ vi.mock("./lib/platform", () => ({
 }));
 vi.mock("@tauri-apps/api/window", () => ({
 	getCurrentWindow: () => ({
-		onCloseRequested: windowApiMocks.onCloseRequested.mockImplementation(
-			async (handler: typeof windowApiMocks.closeRequestedHandler) => {
-				windowApiMocks.closeRequestedHandler = handler;
-				return () => {
-					if (windowApiMocks.closeRequestedHandler === handler) {
-						windowApiMocks.closeRequestedHandler = null;
-					}
-				};
-			},
-		),
 		setBadgeCount: vi.fn(async () => {}),
 	}),
+}));
+vi.mock("@tauri-apps/api/event", () => ({
+	listen: eventApiMocks.listen,
 }));
 
 vi.mock("./lib/api", async (importOriginal) => {
@@ -68,7 +75,8 @@ vi.mock("./lib/api", async (importOriginal) => {
 		loadWorkspaceSessions: apiMocks.loadWorkspaceSessions,
 		loadSessionMessages: apiMocks.loadSessionThreadMessages,
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
-		requestQuit: vi.fn(),
+		requestQuit: apiMocks.requestQuit,
+		stopAgentStream: apiMocks.stopAgentStream,
 	};
 });
 
@@ -222,7 +230,6 @@ function createWorkspaceDetail(workspaceId: WorkspaceFixtureId) {
 		state: archived ? "archived" : "ready",
 		hasUnread: false,
 		workspaceUnread: 0,
-		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 		derivedStatus: archived ? "archived" : "progress",
 		manualStatus: null,
@@ -233,14 +240,11 @@ function createWorkspaceDetail(workspaceId: WorkspaceFixtureId) {
 		branch: archived ? "archive/main" : "main",
 		initializationParentBranch: "main",
 		intendedTargetBranch: "main",
-		notes: null,
 		pinnedAt: null,
 		prTitle: null,
-		prDescription: null,
 		archiveCommit: null,
 		sessionCount: sessions.length,
 		messageCount: 0,
-		attachmentCount: 0,
 	};
 }
 
@@ -255,18 +259,12 @@ function createWorkspaceSessions(workspaceId: WorkspaceFixtureId) {
 		permissionMode: "default",
 		providerSessionId: null,
 		unreadCount: session.unreadCount ?? 0,
-		contextTokenCount: 0,
-		contextUsedPercent: null,
-		thinkingEnabled: true,
 		codexThinkingLevel: null,
 		fastMode: false,
-		agentPersonality: null,
 		createdAt: "2026-04-05T00:00:00Z",
 		updatedAt: session.updatedAt ?? "2026-04-05T00:00:00Z",
 		lastUserMessageAt: null,
-		resumeSessionAt: null,
 		isHidden: false,
-		isCompacting: false,
 		actionKind: session.actionKind ?? null,
 		active: session.active,
 	}));
@@ -287,7 +285,9 @@ function expectSelectedSession(title: string) {
 }
 
 function expectSelectedWorkspace(title: string) {
-	expect(screen.getByRole("button", { name: title })).toHaveClass("bg-accent");
+	expect(screen.getByRole("button", { name: title })).toHaveClass(
+		"workspace-row-selected",
+	);
 }
 
 function pressGlobalShortcut(
@@ -312,6 +312,17 @@ function pressCreateSessionShortcut(
 	});
 }
 
+function emitTauriEvent(eventName: string) {
+	const handlers = eventApiMocks.handlers.get(eventName);
+	if (!handlers) {
+		return;
+	}
+
+	for (const handler of handlers) {
+		handler();
+	}
+}
+
 async function renderAppReady() {
 	render(<App />);
 
@@ -333,8 +344,9 @@ describe("App global navigation shortcuts", () => {
 		apiMocks.loadWorkspaceDetail.mockReset();
 		apiMocks.loadWorkspaceSessions.mockReset();
 		apiMocks.loadSessionThreadMessages.mockReset();
-		windowApiMocks.onCloseRequested.mockClear();
-		windowApiMocks.closeRequestedHandler = null;
+		apiMocks.stopAgentStream.mockReset();
+		eventApiMocks.listen.mockClear();
+		eventApiMocks.handlers.clear();
 		apiMocks.createSession.mockImplementation(async (workspaceId: string) => {
 			const nextSessionId = `${workspaceId}-session-new`;
 			addSessionFixture(workspaceId as WorkspaceFixtureId, nextSessionId);
@@ -411,7 +423,6 @@ describe("App global navigation shortcuts", () => {
 				state: "archived",
 				hasUnread: false,
 				workspaceUnread: 0,
-				sessionUnreadTotal: 0,
 				unreadSessionCount: 0,
 				derivedStatus: "archived",
 				manualStatus: null,
@@ -423,7 +434,6 @@ describe("App global navigation shortcuts", () => {
 				prTitle: null,
 				sessionCount: 1,
 				messageCount: 0,
-				attachmentCount: 0,
 			},
 			{
 				id: WORKSPACE_IDS.archived2,
@@ -435,7 +445,6 @@ describe("App global navigation shortcuts", () => {
 				state: "archived",
 				hasUnread: false,
 				workspaceUnread: 0,
-				sessionUnreadTotal: 0,
 				unreadSessionCount: 0,
 				derivedStatus: "archived",
 				manualStatus: null,
@@ -447,7 +456,6 @@ describe("App global navigation shortcuts", () => {
 				prTitle: null,
 				sessionCount: 1,
 				messageCount: 0,
-				attachmentCount: 0,
 			},
 		]);
 		apiMocks.loadAgentModelSections.mockResolvedValue([]);
@@ -460,6 +468,7 @@ describe("App global navigation shortcuts", () => {
 				createWorkspaceSessions(workspaceId as WorkspaceFixtureId),
 		);
 		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
+		apiMocks.stopAgentStream.mockResolvedValue(undefined);
 	});
 
 	afterEach(() => {
@@ -583,7 +592,7 @@ describe("App global navigation shortcuts", () => {
 		// assertion we actually care about.
 		expect(
 			screen.getByRole("button", { name: "Review workspace" }),
-		).not.toHaveClass("bg-accent");
+		).not.toHaveClass("workspace-row-selected");
 	});
 
 	it("navigates through archived workspaces after the active workspace list even while Archived stays collapsed", async () => {
@@ -696,12 +705,8 @@ describe("App global navigation shortcuts", () => {
 		);
 	});
 
-	it("closes the current session on Command+W and swallows the follow-up window close", async () => {
+	it("closes the current session on Command+W", async () => {
 		await renderAppReady();
-
-		await waitFor(() => {
-			expect(windowApiMocks.closeRequestedHandler).not.toBeNull();
-		});
 
 		fireEvent.keyDown(window, {
 			key: "w",
@@ -713,11 +718,71 @@ describe("App global navigation shortcuts", () => {
 		});
 		expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-1");
 		expect(apiMocks.deleteSession).not.toHaveBeenCalled();
+	});
 
-		// QuitConfirmDialog always prevents the JS-layer close.
-		const preventDefault = vi.fn();
-		await windowApiMocks.closeRequestedHandler?.({ preventDefault });
+	it("quits silently on a Rust-emitted quit-requested event when nothing is in flight", async () => {
+		apiMocks.requestQuit.mockReset();
+		await renderAppReady();
 
-		expect(preventDefault).toHaveBeenCalledTimes(1);
+		emitTauriEvent("helmor://quit-requested");
+
+		await waitFor(() => {
+			expect(apiMocks.requestQuit).toHaveBeenCalledWith(false);
+		});
+	});
+
+	it("closes the current session when macOS emits the close-current-session event", async () => {
+		await renderAppReady();
+
+		emitTauriEvent("helmor://close-current-session");
+
+		await waitFor(() => {
+			expectSelectedSession("Done session 2");
+		});
+		expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-1");
+		expect(apiMocks.deleteSession).not.toHaveBeenCalled();
+	});
+
+	it("prompts before closing a running session on Command+W", async () => {
+		runtimeSessionFixtures[WORKSPACE_IDS.done] = [
+			{
+				id: "session-done-1",
+				title: "Done session 1",
+				active: true,
+				status: "running",
+			},
+			{
+				id: "session-done-2",
+				title: "Done session 2",
+				active: false,
+			},
+		];
+
+		render(<App />);
+		await waitFor(() => {
+			expectSelectedWorkspace("Done workspace");
+		});
+		await userEvent.click(getSessionTab("Done session 1"));
+		await waitFor(() => {
+			expectSelectedSession("Done session 1");
+		});
+
+		fireEvent.keyDown(window, {
+			key: "w",
+			metaKey: true,
+		});
+
+		expect(await screen.findByText("Close running chat?")).toBeInTheDocument();
+		expect(apiMocks.hideSession).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "Close anyway" }));
+
+		await waitFor(() => {
+			expect(apiMocks.stopAgentStream).toHaveBeenCalledWith(
+				"session-done-1",
+				"claude",
+			);
+			expect(apiMocks.hideSession).toHaveBeenCalledWith("session-done-1");
+		});
 	});
 });

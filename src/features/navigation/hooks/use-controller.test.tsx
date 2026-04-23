@@ -35,7 +35,6 @@ const apiMocks = vi.hoisted(() => {
 		loadWorkspaceDetail: vi.fn(),
 		loadWorkspaceGroups: vi.fn(),
 		loadWorkspaceSessions: vi.fn(),
-		markWorkspaceRead: vi.fn(),
 		markWorkspaceUnread: vi.fn(),
 		permanentlyDeleteWorkspace: vi.fn(),
 		pinWorkspace: vi.fn(),
@@ -88,7 +87,6 @@ vi.mock("@/lib/api", async (importOriginal) => {
 		loadWorkspaceSessions: apiMocks.loadWorkspaceSessions,
 		listenArchiveExecutionFailed: apiMocks.listenArchiveExecutionFailed,
 		listenArchiveExecutionSucceeded: apiMocks.listenArchiveExecutionSucceeded,
-		markWorkspaceRead: apiMocks.markWorkspaceRead,
 		markWorkspaceUnread: apiMocks.markWorkspaceUnread,
 		permanentlyDeleteWorkspace: apiMocks.permanentlyDeleteWorkspace,
 		pinWorkspace: apiMocks.pinWorkspace,
@@ -117,7 +115,6 @@ const workspaceGroups: WorkspaceGroup[] = [
 				derivedStatus: "in-progress",
 				hasUnread: false,
 				workspaceUnread: 0,
-				sessionUnreadTotal: 0,
 				unreadSessionCount: 0,
 				activeSessionId: null,
 				activeSessionTitle: null,
@@ -128,7 +125,6 @@ const workspaceGroups: WorkspaceGroup[] = [
 				pinnedAt: null,
 				sessionCount: 0,
 				messageCount: 0,
-				attachmentCount: 0,
 			},
 			{
 				id: "ws-2",
@@ -140,7 +136,6 @@ const workspaceGroups: WorkspaceGroup[] = [
 				derivedStatus: "in-progress",
 				hasUnread: false,
 				workspaceUnread: 0,
-				sessionUnreadTotal: 0,
 				unreadSessionCount: 0,
 				activeSessionId: null,
 				activeSessionTitle: null,
@@ -151,7 +146,6 @@ const workspaceGroups: WorkspaceGroup[] = [
 				pinnedAt: null,
 				sessionCount: 0,
 				messageCount: 0,
-				attachmentCount: 0,
 			},
 		],
 	},
@@ -167,7 +161,6 @@ function makeArchivedSummary(id: string): WorkspaceSummary {
 		state: "archived",
 		hasUnread: false,
 		workspaceUnread: 0,
-		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 		derivedStatus: "in-progress",
 		manualStatus: null,
@@ -179,7 +172,6 @@ function makeArchivedSummary(id: string): WorkspaceSummary {
 		prTitle: null,
 		sessionCount: 0,
 		messageCount: 0,
-		attachmentCount: 0,
 	};
 }
 
@@ -199,7 +191,6 @@ function makeWorkspaceDetail(id: string): WorkspaceDetail {
 		state: "ready",
 		hasUnread: false,
 		workspaceUnread: 0,
-		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 		derivedStatus: "in-progress",
 		manualStatus: null,
@@ -210,14 +201,11 @@ function makeWorkspaceDetail(id: string): WorkspaceDetail {
 		branch: `feature/${id}`,
 		initializationParentBranch: "main",
 		intendedTargetBranch: "main",
-		notes: null,
 		pinnedAt: null,
 		prTitle: null,
-		prDescription: null,
 		archiveCommit: null,
 		sessionCount: 0,
 		messageCount: 0,
-		attachmentCount: 0,
 	};
 }
 
@@ -432,6 +420,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				setupFromProject: false,
 				runFromProject: false,
 				archiveFromProject: false,
+				autoRunSetup: true,
 			},
 		});
 		apiMocks.finalizeWorkspaceFromRepo.mockImplementation(
@@ -531,6 +520,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				setupFromProject: false,
 				runFromProject: false,
 				archiveFromProject: false,
+				autoRunSetup: true,
 			},
 		});
 		// Keep Phase 2 suspended so we can assert the Phase 1 painted state
@@ -709,6 +699,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				setupFromProject: false,
 				runFromProject: false,
 				archiveFromProject: false,
+				autoRunSetup: true,
 			},
 		});
 		apiMocks.finalizeWorkspaceFromRepo.mockImplementation(
@@ -819,6 +810,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				setupFromProject: false,
 				runFromProject: false,
 				archiveFromProject: false,
+				autoRunSetup: true,
 			},
 		});
 		apiMocks.finalizeWorkspaceFromRepo.mockRejectedValue(

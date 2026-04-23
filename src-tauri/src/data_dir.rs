@@ -70,6 +70,15 @@ pub fn logs_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
+/// Returns the runtime state directory inside the data dir.
+pub fn run_dir() -> Result<PathBuf> {
+    let dir = data_dir()?.join("run");
+    if !dir.exists() {
+        fs::create_dir_all(&dir).context("Failed to create run directory")?;
+    }
+    Ok(dir)
+}
+
 /// Returns the Conductor source database path for import.
 /// This is the real Conductor database on the local machine.
 pub fn conductor_source_db_path() -> Option<PathBuf> {
@@ -142,6 +151,7 @@ pub fn ensure_directory_structure() -> Result<()> {
     workspaces_dir()?;
     archived_contexts_dir()?;
     logs_dir()?;
+    run_dir()?;
     Ok(())
 }
 

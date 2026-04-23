@@ -132,6 +132,7 @@ When a snapshot drifts: look at the diff first. Only accept after confirming the
 - **Data dir**: `~/helmor/` (release) or `~/helmor-dev/` (debug). Override: `HELMOR_DATA_DIR`.
 - **macOS chrome**: Overlay title bar, traffic lights at (16, 24). Drag via `data-tauri-drag-region`.
 - **Serde**: `#[serde(rename_all = "camelCase")]` -- JSON fields match TypeScript directly.
+- **Backend → frontend notifications**: Always go through `UiMutationEvent` (`src-tauri/src/ui_sync/events.rs`). Add a typed variant, broadcast with `crate::ui_sync::publish(&app, ...)`, mirror the variant in `UiMutationEvent` in `src/lib/api.ts`, and handle it in `src/shell/hooks/use-ui-sync-bridge.ts` to invalidate the right React Query keys. Do NOT add ad-hoc `app.emit("custom-event", ...)` channels with their own component-level `listen(...)` -- they fragment cache invalidation, skip the global bridge, and are easy to leak.
 - **Clippy**: Must pass `cargo clippy --all-targets -- -D warnings` with zero warnings.
 - **Perf**: `VITE_HELMOR_PERF_HUD=1` enables HUD + react-scan + long-frame tracker.
 - **Logging**: Dev defaults to `debug`. Override: `HELMOR_LOG=info|debug|error`. JSONL logs in `{data_dir}/logs/`.

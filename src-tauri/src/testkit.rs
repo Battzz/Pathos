@@ -35,7 +35,14 @@ impl TestEnv {
         crate::data_dir::ensure_directory_structure().expect("failed to create test dirs");
 
         let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
+        crate::models::db::init_connection(&connection, true)
+            .expect("failed to apply PRAGMA init in test env");
         crate::schema::ensure_schema(&connection).expect("failed to init test DB schema");
+        drop(connection);
+
+        // Rebuild pools against the fresh tempdir. `init_pools` is re-entrant
+        // so back-to-back tests each get their own isolated pools.
+        crate::models::db::init_pools().expect("failed to init test DB pools");
 
         Self { root, _lock: lock }
     }
@@ -43,8 +50,8 @@ impl TestEnv {
     pub fn db_connection(&self) -> Connection {
         let path = crate::data_dir::db_path().unwrap();
         let conn = Connection::open(&path).unwrap();
-        conn.busy_timeout(std::time::Duration::from_secs(3))
-            .unwrap();
+        crate::models::db::init_connection(&conn, true)
+            .expect("failed to apply PRAGMA init on test connection");
         conn
     }
 }

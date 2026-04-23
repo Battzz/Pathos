@@ -7,6 +7,8 @@ export function CliInstallPanel() {
 	const [status, setStatus] = useState<CliStatus | null>(null);
 	const [installing, setInstalling] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const commandName =
+		status?.buildMode === "development" ? "helmor-dev" : "helmor";
 
 	useEffect(() => {
 		void getCliStatus().then(setStatus);
@@ -35,13 +37,16 @@ export function CliInstallPanel() {
 			</div>
 			<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
 				Install the{" "}
-				<code className="rounded bg-muted px-1 py-0.5 text-[11px]">helmor</code>{" "}
-				command to manage workspaces and sessions from the terminal.{" "}
+				<code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+					{commandName}
+				</code>{" "}
+				command as a symlink to this app&apos;s bundled CLI so terminal usage
+				tracks desktop updates automatically.{" "}
 				{status?.buildMode === "development" ? "Debug" : "Release"} build.
 			</div>
 
 			<div className="mt-4">
-				{status?.installed ? (
+				{status?.installState === "managed" ? (
 					<div className="space-y-3">
 						<div className="flex items-center gap-2 text-[12px] text-green-400/90">
 							<Check className="size-3.5" strokeWidth={2} />
@@ -52,6 +57,30 @@ export function CliInstallPanel() {
 								</code>
 							</span>
 						</div>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleInstall}
+							disabled={installing}
+						>
+							{installing ? (
+								<Loader2 className="size-3.5 animate-spin" />
+							) : (
+								<Download className="size-3.5" strokeWidth={1.8} />
+							)}
+							Reinstall
+						</Button>
+					</div>
+				) : status?.installState === "stale" ? (
+					<div className="space-y-3">
+						<p className="text-[12px] leading-snug text-amber-400/90">
+							Existing CLI install at{" "}
+							<code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">
+								{status.installPath}
+							</code>{" "}
+							is not managed by this app. Reinstall to point it at the bundled
+							CLI.
+						</p>
 						<Button
 							variant="outline"
 							size="sm"

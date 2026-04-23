@@ -61,7 +61,6 @@ export type WorkspaceRow = {
 	state?: WorkspaceState;
 	hasUnread?: boolean;
 	workspaceUnread?: number;
-	sessionUnreadTotal?: number;
 	unreadSessionCount?: number;
 	derivedStatus?: DerivedStatus;
 	manualStatus?: DerivedStatus | null;
@@ -74,7 +73,6 @@ export type WorkspaceRow = {
 	pinnedAt?: string | null;
 	sessionCount?: number;
 	messageCount?: number;
-	attachmentCount?: number;
 };
 
 export type WorkspaceGroup = {
@@ -137,7 +135,6 @@ export type WorkspaceSummary = {
 	state: WorkspaceState;
 	hasUnread: boolean;
 	workspaceUnread: number;
-	sessionUnreadTotal: number;
 	unreadSessionCount: number;
 	derivedStatus: DerivedStatus;
 	manualStatus?: DerivedStatus | null;
@@ -149,7 +146,6 @@ export type WorkspaceSummary = {
 	prTitle?: string | null;
 	sessionCount?: number;
 	messageCount?: number;
-	attachmentCount?: number;
 };
 
 export type RepositoryCreateOption = {
@@ -256,7 +252,6 @@ export type WorkspaceDetail = {
 	state: WorkspaceState;
 	hasUnread: boolean;
 	workspaceUnread: number;
-	sessionUnreadTotal: number;
 	unreadSessionCount: number;
 	derivedStatus: DerivedStatus;
 	manualStatus?: DerivedStatus | null;
@@ -267,14 +262,11 @@ export type WorkspaceDetail = {
 	branch?: string | null;
 	initializationParentBranch?: string | null;
 	intendedTargetBranch?: string | null;
-	notes?: string | null;
 	pinnedAt?: string | null;
 	prTitle?: string | null;
-	prDescription?: string | null;
 	archiveCommit?: string | null;
 	sessionCount: number;
 	messageCount: number;
-	attachmentCount: number;
 };
 
 export type WorkspaceSessionSummary = {
@@ -288,18 +280,11 @@ export type WorkspaceSessionSummary = {
 	providerSessionId?: string | null;
 	effortLevel?: string | null;
 	unreadCount: number;
-	contextTokenCount: number;
-	contextUsedPercent?: number | null;
-	thinkingEnabled: boolean;
-
 	fastMode: boolean;
-	agentPersonality?: string | null;
 	createdAt: string;
 	updatedAt: string;
 	lastUserMessageAt?: string | null;
-	resumeSessionAt?: string | null;
 	isHidden: boolean;
-	isCompacting: boolean;
 	/** Set when the session was created as a one-off dispatch from the
 	 * inspector commit button (e.g. "create-pr", "commit-and-push"). Drives
 	 * post-stream verifiers and auto-close behavior. */
@@ -364,19 +349,6 @@ export type FinalizeWorkspaceResponse = {
 };
 
 export type MarkWorkspaceReadResponse = undefined;
-
-export type SessionAttachmentRecord = {
-	id: string;
-	sessionId: string;
-	sessionMessageId?: string | null;
-	attachmentType?: string | null;
-	originalName?: string | null;
-	path?: string | null;
-	pathExists: boolean;
-	isLoading: boolean;
-	isDraft: boolean;
-	createdAt: string;
-};
 
 export type EditorFileReadResponse = {
 	path: string;
@@ -533,6 +505,7 @@ export type CliStatus = {
 	installed: boolean;
 	installPath: string | null;
 	buildMode: string;
+	installState: "missing" | "managed" | "stale";
 };
 
 export async function getCliStatus(): Promise<CliStatus> {
@@ -570,7 +543,6 @@ export type DevResetResult = {
 	workspacesDeleted: number;
 	sessionsDeleted: number;
 	messagesDeleted: number;
-	attachmentsDeleted: number;
 	directoriesRemoved: string[];
 };
 
@@ -656,7 +628,13 @@ export type SlashCommandEntry = {
 	name: string;
 	description: string;
 	argumentHint?: string | null;
-	source: "builtin" | "skill";
+	/**
+	 * - `builtin` / `skill`: command is forwarded to the agent SDK as text.
+	 * - `client-action`: selecting the entry runs a host-app handler instead
+	 *   of inserting `/<name>` into the prompt (e.g. `/add-dir` opens the
+	 *   link-directories dialog).
+	 */
+	source: "builtin" | "skill" | "client-action";
 };
 
 export type SlashCommandsResponse = {
@@ -674,6 +652,7 @@ export async function listSlashCommands(input: {
 	provider: AgentProvider;
 	workingDirectory?: string | null;
 	repoId?: string | null;
+	workspaceId?: string | null;
 }): Promise<SlashCommandsResponse> {
 	try {
 		return await invoke<SlashCommandsResponse>("list_slash_commands", {
@@ -681,6 +660,7 @@ export async function listSlashCommands(input: {
 				provider: input.provider,
 				workingDirectory: input.workingDirectory ?? null,
 				repoId: input.repoId ?? null,
+				workspaceId: input.workspaceId ?? null,
 			},
 		});
 	} catch (error) {
@@ -745,6 +725,81 @@ export async function updateIntendedTargetBranch(
 	);
 }
 
+// --- Linked directories (/add-dir) ---
+
+/**
+ * Read the workspace's `/add-dir` list. Empty array when the user hasn't
+ * linked anything yet.
+ */
+export async function listWorkspaceLinkedDirectories(
+	workspaceId: string,
+): Promise<string[]> {
+	try {
+		return await invoke<string[]>("list_workspace_linked_directories", {
+			workspaceId,
+		});
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to load linked directories."),
+		);
+	}
+}
+
+/**
+ * Persist the workspace's linked directories. The backend trims + dedupes
+ * and returns the canonical list that was actually written — callers
+ * should prefer the returned list over their local state.
+ */
+export async function setWorkspaceLinkedDirectories(
+	workspaceId: string,
+	directories: string[],
+): Promise<string[]> {
+	try {
+		return await invoke<string[]>("set_workspace_linked_directories", {
+			workspaceId,
+			directories,
+		});
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to save linked directories."),
+		);
+	}
+}
+
+/** Candidate entry shown in the `/add-dir` popup's quick-pick list. */
+export type CandidateDirectory = {
+	workspaceId: string;
+	/** Human-readable workspace title, matches the sidebar row's label. */
+	title: string;
+	repoName: string;
+	/** URL to the repo's icon (same source the sidebar avatar uses). */
+	repoIconSrc: string | null;
+	/** 2-char repo initials fallback when no icon is available. */
+	repoInitials: string;
+	branch: string | null;
+	absolutePath: string;
+};
+
+/**
+ * Every ready workspace (all repos, minus the currently-active one) as
+ * suggestions for `/add-dir`. Empty array is valid — the picker still
+ * offers Browse... as an escape hatch.
+ */
+export async function listWorkspaceCandidateDirectories(input: {
+	excludeWorkspaceId?: string | null;
+}): Promise<CandidateDirectory[]> {
+	try {
+		return await invoke<CandidateDirectory[]>(
+			"list_workspace_candidate_directories",
+			{ excludeWorkspaceId: input.excludeWorkspaceId ?? null },
+		);
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to load workspace suggestions."),
+		);
+	}
+}
+
 // -- Git watcher events --
 
 export type GitBranchChangedPayload = {
@@ -756,6 +811,28 @@ export type GitBranchChangedPayload = {
 export type GitRefsChangedPayload = {
 	workspaceId: string;
 };
+
+export type UiMutationEvent =
+	| { type: "workspaceListChanged" }
+	| { type: "workspaceChanged"; workspaceId: string }
+	| { type: "sessionListChanged"; workspaceId: string }
+	| { type: "contextUsageChanged"; sessionId: string }
+	| { type: "codexRateLimitsChanged" }
+	| { type: "workspaceFilesChanged"; workspaceId: string }
+	| { type: "workspaceGitStateChanged"; workspaceId: string }
+	| { type: "workspacePrChanged"; workspaceId: string }
+	| { type: "repositoryListChanged" }
+	| { type: "repositoryChanged"; repoId: string }
+	| { type: "settingsChanged"; key: string | null }
+	| { type: "githubIdentityChanged" }
+	| {
+			type: "pendingCliSendQueued";
+			workspaceId: string;
+			sessionId: string;
+			prompt: string;
+			modelId: string | null;
+			permissionMode: string | null;
+	  };
 
 export async function listenGitBranchChanged(
 	callback: (payload: GitBranchChangedPayload) => void,
@@ -771,6 +848,15 @@ export async function listenGitRefsChanged(
 	return listen<GitRefsChangedPayload>("git-refs-changed", (event) =>
 		callback(event.payload),
 	);
+}
+
+export async function subscribeUiMutations(
+	callback: (event: UiMutationEvent) => void,
+): Promise<void> {
+	const { Channel } = await import("@tauri-apps/api/core");
+	const onEvent = new Channel<UiMutationEvent>();
+	onEvent.onmessage = callback;
+	await invoke("subscribe_ui_mutations", { onEvent });
 }
 
 export type PrefetchRemoteRefsResponse = {
@@ -813,20 +899,6 @@ export async function loadSessionThreadMessages(
 	} catch (error) {
 		throw new Error(
 			describeInvokeError(error, "Unable to load session thread messages."),
-		);
-	}
-}
-
-export async function loadSessionAttachments(
-	sessionId: string,
-): Promise<SessionAttachmentRecord[]> {
-	try {
-		return await invoke<SessionAttachmentRecord[]>("list_session_attachments", {
-			sessionId,
-		});
-	} catch (error) {
-		throw new Error(
-			describeInvokeError(error, "Unable to load session attachments."),
 		);
 	}
 }
@@ -1431,6 +1503,13 @@ export async function addRepositoryFromLocalPath(
 	});
 }
 
+export async function cloneRepositoryFromUrl(args: {
+	gitUrl: string;
+	cloneDirectory: string;
+}): Promise<AddRepositoryResponse> {
+	return invoke<AddRepositoryResponse>("clone_repository_from_url", args);
+}
+
 export async function markSessionRead(
 	sessionId: string,
 ): Promise<MarkWorkspaceReadResponse> {
@@ -1439,11 +1518,11 @@ export async function markSessionRead(
 	});
 }
 
-export async function markWorkspaceRead(
-	workspaceId: string,
+export async function markSessionUnread(
+	sessionId: string,
 ): Promise<MarkWorkspaceReadResponse> {
-	return invoke<MarkWorkspaceReadResponse>("mark_workspace_read", {
-		workspaceId,
+	return invoke<MarkWorkspaceReadResponse>("mark_session_unread", {
+		sessionId,
 	});
 }
 
@@ -1501,8 +1580,14 @@ export type ReasoningPart = {
 	type: "reasoning";
 	id: string;
 	text: string;
-	/** Per-part streaming state — only the active thinking block is streaming. */
+	/**
+	 * Live-streaming state. `true` = actively generating, `false` = just
+	 * finished in the current live session (pipeline only sets this during
+	 * streaming, never persists it), `undefined` = historical / unknown.
+	 */
 	streaming?: boolean;
+	/** Backend-measured elapsed time for a completed reasoning block. */
+	durationMs?: number;
 };
 export type ToolCallPart = {
 	type: "tool-call";
@@ -1722,6 +1807,37 @@ export async function stopAgentStream(
 	});
 }
 
+export type AgentSteerRequest = {
+	sessionId: string;
+	provider?: string;
+	prompt: string;
+	files?: string[];
+};
+
+export type AgentSteerResponse = {
+	accepted: boolean;
+	reason?: string;
+};
+
+/**
+ * Inject an additional user message into an in-flight agent turn.
+ *
+ * On `{ accepted: true }` the sidecar has confirmed provider acceptance
+ * AND emitted a `user_prompt` passthrough event into the active stream,
+ * which the accumulator places at the current streaming position and
+ * `persist_turn_message` writes to the DB — no separate persistence path.
+ *
+ * On `{ accepted: false }` (turn already completed, provider rejected,
+ * RPC timeout), the pipeline is untouched. Callers should surface the
+ * rejection reason and restore the composer draft so the user can resend
+ * — do NOT silently auto-open a fresh `startAgentMessageStream`.
+ */
+export async function steerAgentStream(
+	request: AgentSteerRequest,
+): Promise<AgentSteerResponse> {
+	return await invoke<AgentSteerResponse>("steer_agent_stream", { request });
+}
+
 export async function respondToPermissionRequest(
 	permissionId: string,
 	behavior: "allow" | "deny",
@@ -1900,6 +2016,22 @@ export async function hideSession(sessionId: string): Promise<void> {
 	await invoke("hide_session", { sessionId });
 }
 
+/** Read the opaque context-usage JSON for one session. Null when nothing
+ *  has been recorded yet (e.g. fresh session pre first turn). */
+export async function getSessionContextUsage(
+	sessionId: string,
+): Promise<string | null> {
+	return await invoke<string | null>("get_session_context_usage", {
+		sessionId,
+	});
+}
+
+/** Read the account-global Codex rate-limit snapshot. Null until Codex has
+ *  emitted at least one `account/rateLimits/updated` notification. */
+export async function getCodexRateLimits(): Promise<string | null> {
+	return await invoke<string | null>("get_codex_rate_limits");
+}
+
 export async function unhideSession(sessionId: string): Promise<void> {
 	await invoke("unhide_session", { sessionId });
 }
@@ -1929,6 +2061,16 @@ export type RepoScripts = {
 	setupFromProject: boolean;
 	runFromProject: boolean;
 	archiveFromProject: boolean;
+	/** Auto-run the setup script on workspace creation. Defaults to true. */
+	autoRunSetup: boolean;
+};
+
+export type RepoPreferences = {
+	createPr?: string | null;
+	fixErrors?: string | null;
+	resolveConflicts?: string | null;
+	branchRename?: string | null;
+	general?: string | null;
 };
 
 export type ScriptEvent =
@@ -1972,6 +2114,31 @@ export async function updateRepoScripts(
 		setupScript,
 		runScript,
 		archiveScript,
+	});
+}
+
+export async function updateRepoAutoRunSetup(
+	repoId: string,
+	enabled: boolean,
+): Promise<void> {
+	await invoke("update_repo_auto_run_setup", { repoId, enabled });
+}
+
+export async function loadRepoPreferences(
+	repoId: string,
+): Promise<RepoPreferences> {
+	return invoke<RepoPreferences>("load_repo_preferences", {
+		repoId,
+	});
+}
+
+export async function updateRepoPreferences(
+	repoId: string,
+	preferences: RepoPreferences,
+): Promise<void> {
+	await invoke("update_repo_preferences", {
+		repoId,
+		preferences,
 	});
 }
 

@@ -6,6 +6,140 @@
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
+/// Identifier sanity check before string-interpolating into SQL. SQLite
+/// `pragma_table_info()` and `DROP TABLE` don't accept bound parameters
+/// for the table/column name, so we must interpolate. All call sites pass
+/// hardcoded identifiers, but the assertion makes that contract explicit.
+fn assert_safe_identifier(value: &str) {
+    debug_assert!(
+        !value.is_empty() && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+        "schema identifier must match [A-Za-z0-9_]+: {value}"
+    );
+}
+
+fn has_column(connection: &Connection, table: &str, column: &str) -> bool {
+    assert_safe_identifier(table);
+    assert_safe_identifier(column);
+    connection
+        .prepare(&format!(
+            "SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"
+        ))
+        .and_then(|mut stmt| stmt.exists([column]))
+        .unwrap_or(false)
+}
+
+fn has_table(connection: &Connection, table: &str) -> bool {
+    connection
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1")
+        .and_then(|mut stmt| stmt.exists([table]))
+        .unwrap_or(false)
+}
+
+/// Columns that legacy installs may still carry but production no longer
+/// reads or writes. Drop on every startup; the migration is idempotent.
+///
+/// Provenance: identified by the `audit-unused-db-schema` cleanup. Each
+/// column was either never written, only written and never read, or only
+/// read into a frontend type that nothing consumes.
+const DEAD_COLUMNS: &[(&str, &str)] = &[
+    // repos: feature stubs that never shipped or were abandoned.
+    ("repos", "conductor_config"),
+    ("repos", "custom_prompt_code_review"),
+    ("repos", "icon"),
+    ("repos", "run_script_mode"),
+    ("repos", "storage_version"),
+    // workspaces: legacy fields with no read path in production.
+    ("workspaces", "big_terminal_mode"),
+    ("workspaces", "initialization_files_copied"),
+    ("workspaces", "linked_workspace_ids"),
+    ("workspaces", "notes"),
+    ("workspaces", "placeholder_branch_name"),
+    ("workspaces", "pr_description"),
+    ("workspaces", "secondary_directory_name"),
+    // sessions: vestigial flags / counters never surfaced after a refactor.
+    ("sessions", "agent_personality"),
+    ("sessions", "context_token_count"),
+    ("sessions", "context_used_percent"),
+    ("sessions", "freshly_compacted"),
+    ("sessions", "is_compacting"),
+    ("sessions", "resume_session_at"),
+    ("sessions", "thinking_enabled"),
+    // session_messages: written by the streaming pipeline but never SELECTed.
+    ("session_messages", "last_assistant_message_id"),
+    ("session_messages", "model"),
+    ("session_messages", "sdk_message_id"),
+    ("session_messages", "is_resumable_message"),
+];
+
+/// Columns whose drop must be preceded by an index drop. Listed
+/// separately so the table above stays a single shape.
+const DEAD_INDEXED_COLUMNS: &[(&str, &str, &str)] = &[
+    (
+        "session_messages",
+        "cancelled_at",
+        "idx_session_messages_cancelled_at",
+    ),
+    (
+        "session_messages",
+        "turn_id",
+        "idx_session_messages_turn_id",
+    ),
+];
+
+/// Whole tables that legacy installs may still have. Dropping cascades
+/// indexes automatically; named indexes are dropped explicitly so we don't
+/// leave stale entries in `sqlite_master` if the table predates them.
+const DEAD_TABLES: &[(&str, &[&str])] = &[
+    (
+        "attachments",
+        &[
+            "idx_attachments_session_id",
+            "idx_attachments_session_message_id",
+            "idx_attachments_is_draft",
+        ],
+    ),
+    ("diff_comments", &["idx_diff_comments_workspace"]),
+];
+
+fn drop_dead_schema(connection: &Connection) -> Result<()> {
+    for &(table, column) in DEAD_COLUMNS {
+        if has_column(connection, table, column) {
+            assert_safe_identifier(table);
+            assert_safe_identifier(column);
+            connection
+                .execute_batch(&format!("ALTER TABLE {table} DROP COLUMN {column}"))
+                .with_context(|| format!("Failed to drop {table}.{column}"))?;
+        }
+    }
+    for &(table, column, index) in DEAD_INDEXED_COLUMNS {
+        if has_column(connection, table, column) {
+            assert_safe_identifier(table);
+            assert_safe_identifier(column);
+            assert_safe_identifier(index);
+            connection
+                .execute_batch(&format!(
+                    "DROP INDEX IF EXISTS {index};\nALTER TABLE {table} DROP COLUMN {column};"
+                ))
+                .with_context(|| format!("Failed to drop {table}.{column}"))?;
+        }
+    }
+    for &(table, indexes) in DEAD_TABLES {
+        if has_table(connection, table) {
+            assert_safe_identifier(table);
+            let mut sql = String::new();
+            for index in indexes {
+                assert_safe_identifier(index);
+                sql.push_str(&format!("DROP INDEX IF EXISTS {index};\n"));
+            }
+            sql.push_str(&format!("DROP TABLE {table};\n"));
+            connection
+                .execute_batch(&sql)
+                .with_context(|| format!("Failed to drop {table} table"))?;
+        }
+    }
+    Ok(())
+}
+
 /// Ensure the database has all required tables and indexes.
 /// Safe to call on every startup — uses IF NOT EXISTS.
 pub fn ensure_schema(connection: &Connection) -> Result<()> {
@@ -208,6 +342,28 @@ fn run_migrations(connection: &Connection) -> Result<()> {
             .execute_batch("ALTER TABLE diff_comments DROP COLUMN DEPRECATED_update_memory")
             .context("Failed to drop deprecated diff_comments column")?;
     }
+
+    // Migration: opaque JSON snapshot for the composer's context-usage ring.
+    if !has_column(connection, "sessions", "context_usage_meta") {
+        connection
+            .execute_batch("ALTER TABLE sessions ADD COLUMN context_usage_meta TEXT")
+            .context("Failed to add context_usage_meta column")?;
+    }
+
+    // Migration: toggle for auto-running the setup script on workspace
+    // creation. Default 1 (on) — preserves the pre-feature behavior for
+    // existing repos and is the most common case. Users opt out per-repo
+    // when they prefer to run setup manually from the inspector.
+    // Nullable so the conductor-import path (which copies rows without
+    // specifying this column) can leave it NULL; reads treat NULL as on.
+    if has_table(connection, "repos") && !has_column(connection, "repos", "auto_run_setup") {
+        connection
+            .execute_batch("ALTER TABLE repos ADD COLUMN auto_run_setup INTEGER DEFAULT 1")
+            .context("Failed to add auto_run_setup column")?;
+    }
+
+    drop_dead_schema(connection)?;
+
     // Migration: remap legacy "opus-1m" model ID — the CLI no longer accepts it.
     // "opus" still works as an alias, so only "opus-1m" needs remapping.
     connection
@@ -228,18 +384,14 @@ CREATE TABLE IF NOT EXISTS repos (
     archive_script TEXT,
     display_order INTEGER DEFAULT 0,
     run_script TEXT,
-    run_script_mode TEXT DEFAULT 'concurrent',
     remote TEXT,
-    custom_prompt_code_review TEXT,
     custom_prompt_create_pr TEXT,
     custom_prompt_rename_branch TEXT,
-    conductor_config TEXT,
     custom_prompt_general TEXT,
-    icon TEXT,
     hidden INTEGER DEFAULT 0,
     custom_prompt_fix_errors TEXT,
     custom_prompt_resolve_merge_conflicts TEXT,
-    storage_version INTEGER DEFAULT 1,
+    auto_run_setup INTEGER DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -271,18 +423,11 @@ CREATE TABLE IF NOT EXISTS workspaces (
     derived_status TEXT DEFAULT 'in-progress',
     manual_status TEXT,
     unread INTEGER DEFAULT 0,
-    placeholder_branch_name TEXT,
     initialization_parent_branch TEXT,
-    big_terminal_mode INTEGER DEFAULT 0,
-    initialization_files_copied INTEGER,
     pinned_at TEXT,
-    linked_workspace_ids TEXT,
-    notes TEXT,
     intended_target_branch TEXT,
     pr_title TEXT,
-    pr_description TEXT,
     archive_commit TEXT,
-    secondary_directory_name TEXT,
     linked_directory_paths TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -294,22 +439,16 @@ CREATE TABLE IF NOT EXISTS sessions (
     status TEXT DEFAULT 'idle',
     provider_session_id TEXT,
     unread_count INTEGER DEFAULT 0,
-    freshly_compacted INTEGER DEFAULT 0,
-    context_token_count INTEGER DEFAULT 0,
-    is_compacting INTEGER DEFAULT 0,
     model TEXT,
     permission_mode TEXT DEFAULT 'default',
     last_user_message_at TEXT,
-    resume_session_at TEXT,
     is_hidden INTEGER DEFAULT 0,
     agent_type TEXT,
     title TEXT DEFAULT 'Untitled',
-    context_used_percent REAL,
     effort_level TEXT DEFAULT 'high',
-    thinking_enabled INTEGER DEFAULT 1,
     fast_mode INTEGER DEFAULT 0,
-    agent_personality TEXT,
     action_kind TEXT,
+    context_usage_meta TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -320,56 +459,12 @@ CREATE TABLE IF NOT EXISTS session_messages (
     role TEXT,
     content TEXT,
     sent_at TEXT,
-    cancelled_at TEXT,
-    model TEXT,
-    sdk_message_id TEXT,
-    last_assistant_message_id TEXT,
-    turn_id TEXT,
-    is_resumable_message INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS attachments (
-    id TEXT PRIMARY KEY,
-    session_id TEXT,
-    session_message_id TEXT,
-    type TEXT,
-    original_name TEXT,
-    path TEXT,
-    is_loading INTEGER DEFAULT 0,
-    is_draft INTEGER DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS diff_comments (
-    id TEXT PRIMARY KEY,
-    workspace_id TEXT,
-    file_path TEXT,
-    line_number INTEGER,
-    body TEXT,
-    state TEXT,
-    location TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER,
-    remote_url TEXT,
-    author TEXT,
-    author_avatar_url TEXT,
-    thread_id TEXT,
-    reply_to_comment_id TEXT,
-    is_outdated INTEGER,
-    is_resolved INTEGER,
-    end_line_number INTEGER
 );
 
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_attachments_session_id ON attachments(session_id);
-CREATE INDEX IF NOT EXISTS idx_attachments_session_message_id ON attachments(session_message_id);
-CREATE INDEX IF NOT EXISTS idx_attachments_is_draft ON attachments(is_draft);
 CREATE INDEX IF NOT EXISTS idx_session_messages_sent_at ON session_messages(session_id, sent_at);
-CREATE INDEX IF NOT EXISTS idx_session_messages_cancelled_at ON session_messages(session_id, cancelled_at);
-CREATE INDEX IF NOT EXISTS idx_session_messages_turn_id ON session_messages(turn_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_workspace_id ON sessions(workspace_id);
-CREATE INDEX IF NOT EXISTS idx_diff_comments_workspace ON diff_comments(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_workspaces_repository_id ON workspaces(repository_id);
 
 -- Triggers (use CREATE TRIGGER IF NOT EXISTS where supported, otherwise wrapped)
@@ -425,7 +520,6 @@ mod tests {
         assert!(tables.contains(&"workspaces".to_string()));
         assert!(tables.contains(&"sessions".to_string()));
         assert!(tables.contains(&"session_messages".to_string()));
-        assert!(tables.contains(&"attachments".to_string()));
         assert!(tables.contains(&"settings".to_string()));
     }
 
@@ -670,5 +764,275 @@ mod tests {
 
         // Idempotent on second run
         run_migrations(&connection).unwrap();
+    }
+
+    /// Construct the full pre-drop legacy DDL once. Each migration test
+    /// below seeds against this so we exercise the production drop path
+    /// against schemas that actually carry every dead column we care about.
+    fn create_legacy_schema(connection: &Connection) {
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE repos (
+                    id TEXT PRIMARY KEY,
+                    name TEXT,
+                    root_path TEXT,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    storage_version INTEGER DEFAULT 1,
+                    run_script_mode TEXT DEFAULT 'concurrent',
+                    custom_prompt_code_review TEXT,
+                    conductor_config TEXT,
+                    icon TEXT
+                );
+                CREATE TABLE workspaces (
+                    id TEXT PRIMARY KEY,
+                    repository_id TEXT,
+                    placeholder_branch_name TEXT,
+                    big_terminal_mode INTEGER DEFAULT 0,
+                    initialization_files_copied INTEGER,
+                    linked_workspace_ids TEXT,
+                    notes TEXT,
+                    pr_description TEXT,
+                    secondary_directory_name TEXT
+                );
+                CREATE TABLE sessions (
+                    id TEXT PRIMARY KEY,
+                    effort_level TEXT,
+                    freshly_compacted INTEGER DEFAULT 0,
+                    context_token_count INTEGER DEFAULT 0,
+                    is_compacting INTEGER DEFAULT 0,
+                    context_used_percent REAL,
+                    thinking_enabled INTEGER DEFAULT 1,
+                    agent_personality TEXT,
+                    resume_session_at TEXT
+                );
+                CREATE TABLE session_messages (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT,
+                    role TEXT,
+                    content TEXT,
+                    sent_at TEXT,
+                    cancelled_at TEXT,
+                    model TEXT,
+                    sdk_message_id TEXT,
+                    last_assistant_message_id TEXT,
+                    turn_id TEXT,
+                    is_resumable_message INTEGER
+                );
+                CREATE INDEX idx_session_messages_cancelled_at
+                    ON session_messages(session_id, cancelled_at);
+                CREATE INDEX idx_session_messages_turn_id
+                    ON session_messages(turn_id);
+                CREATE TABLE attachments (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT
+                );
+                CREATE INDEX idx_attachments_session_id ON attachments(session_id);
+                CREATE TABLE diff_comments (
+                    id TEXT PRIMARY KEY,
+                    workspace_id TEXT
+                );
+                CREATE INDEX idx_diff_comments_workspace ON diff_comments(workspace_id);
+                "#,
+            )
+            .unwrap();
+    }
+
+    fn column_exists(connection: &Connection, table: &str, column: &str) -> bool {
+        connection
+            .prepare(&format!(
+                "SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"
+            ))
+            .unwrap()
+            .exists([column])
+            .unwrap()
+    }
+
+    fn table_exists(connection: &Connection, table: &str) -> bool {
+        connection
+            .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1")
+            .unwrap()
+            .exists([table])
+            .unwrap()
+    }
+
+    fn index_exists(connection: &Connection, index: &str) -> bool {
+        connection
+            .prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1")
+            .unwrap()
+            .exists([index])
+            .unwrap()
+    }
+
+    #[test]
+    fn migration_drops_dead_columns_across_all_tables() {
+        let (connection, _dir) = open_test_db();
+        create_legacy_schema(&connection);
+        // Seed live (kept) columns so we can prove the drops don't take
+        // them down with the dead ones.
+        connection
+            .execute(
+                "INSERT INTO sessions (id, effort_level) VALUES ('s1', 'high')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO session_messages (id, session_id, role, content) \
+                 VALUES ('m1', 's1', 'user', '{\"type\":\"user_prompt\",\"text\":\"hi\"}')",
+                [],
+            )
+            .unwrap();
+
+        run_migrations(&connection).unwrap();
+
+        for &(table, column) in DEAD_COLUMNS {
+            assert!(
+                !column_exists(&connection, table, column),
+                "{table}.{column} should be dropped"
+            );
+        }
+        for &(table, column, _index) in DEAD_INDEXED_COLUMNS {
+            assert!(
+                !column_exists(&connection, table, column),
+                "{table}.{column} should be dropped"
+            );
+        }
+
+        // Live columns survived.
+        assert!(column_exists(&connection, "sessions", "effort_level"));
+        assert!(column_exists(&connection, "session_messages", "content"));
+
+        // Live data survived.
+        let effort: String = connection
+            .query_row(
+                "SELECT effort_level FROM sessions WHERE id = 's1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(effort, "high");
+
+        // Idempotent on second run.
+        run_migrations(&connection).unwrap();
+    }
+
+    #[test]
+    fn migration_drops_indexes_alongside_columns() {
+        let (connection, _dir) = open_test_db();
+        create_legacy_schema(&connection);
+
+        // Pre-condition: indexes exist before migration.
+        assert!(index_exists(
+            &connection,
+            "idx_session_messages_cancelled_at"
+        ));
+        assert!(index_exists(&connection, "idx_session_messages_turn_id"));
+        assert!(index_exists(&connection, "idx_attachments_session_id"));
+        assert!(index_exists(&connection, "idx_diff_comments_workspace"));
+
+        run_migrations(&connection).unwrap();
+
+        // Post-condition: indexes are gone (otherwise sqlite_master would
+        // still reference them and the next CREATE INDEX with the same name
+        // would conflict).
+        assert!(!index_exists(
+            &connection,
+            "idx_session_messages_cancelled_at"
+        ));
+        assert!(!index_exists(&connection, "idx_session_messages_turn_id"));
+        assert!(!index_exists(&connection, "idx_attachments_session_id"));
+        assert!(!index_exists(&connection, "idx_diff_comments_workspace"));
+    }
+
+    #[test]
+    fn migration_drops_attachments_and_diff_comments_tables() {
+        let (connection, _dir) = open_test_db();
+        create_legacy_schema(&connection);
+        // Non-empty rows: catch any bug that makes us bail when the table
+        // has data instead of executing the DROP.
+        connection
+            .execute(
+                "INSERT INTO attachments (id, session_id) VALUES ('a1', 's1')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO diff_comments (id, workspace_id) VALUES ('dc1', 'w1')",
+                [],
+            )
+            .unwrap();
+
+        run_migrations(&connection).unwrap();
+
+        assert!(!table_exists(&connection, "attachments"));
+        assert!(!table_exists(&connection, "diff_comments"));
+
+        // Idempotent: second run on a schema that no longer has the tables.
+        run_migrations(&connection).unwrap();
+    }
+
+    #[test]
+    fn drop_dead_schema_is_idempotent_on_fresh_install() {
+        // After ensure_schema runs against an empty DB, none of the dead
+        // columns/tables exist. drop_dead_schema must be a clean no-op.
+        let (connection, _dir) = open_test_db();
+        ensure_schema(&connection).unwrap();
+        drop_dead_schema(&connection).unwrap();
+        drop_dead_schema(&connection).unwrap();
+    }
+
+    #[test]
+    fn context_usage_meta_added_to_legacy_and_idempotent() {
+        // Legacy schema (pre-feature) has no context_usage_meta column.
+        // The migration must add it, preserve existing rows, and survive
+        // a second run.
+        let (connection, _dir) = open_test_db();
+        create_legacy_schema(&connection);
+        assert!(!column_exists(
+            &connection,
+            "sessions",
+            "context_usage_meta"
+        ));
+
+        run_migrations(&connection).unwrap();
+        assert!(column_exists(&connection, "sessions", "context_usage_meta"));
+
+        // Re-run is a no-op (no error, column still there).
+        run_migrations(&connection).unwrap();
+        assert!(column_exists(&connection, "sessions", "context_usage_meta"));
+    }
+
+    #[test]
+    fn context_usage_meta_present_on_fresh_install() {
+        // Fresh DB created via ensure_schema includes the column without
+        // needing a separate migration pass.
+        let (connection, _dir) = open_test_db();
+        ensure_schema(&connection).unwrap();
+        assert!(column_exists(&connection, "sessions", "context_usage_meta"));
+    }
+
+    #[test]
+    fn context_usage_meta_round_trips_opaque_json() {
+        let (connection, _dir) = open_test_db();
+        ensure_schema(&connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO sessions (id, context_usage_meta) VALUES ('s1', ?1)",
+                [r#"{"totalTokens":12,"maxTokens":100}"#],
+            )
+            .unwrap();
+        let stored: Option<String> = connection
+            .query_row(
+                "SELECT context_usage_meta FROM sessions WHERE id = 's1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            stored.as_deref(),
+            Some(r#"{"totalTokens":12,"maxTokens":100}"#)
+        );
     }
 }

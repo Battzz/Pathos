@@ -158,7 +158,35 @@ pub struct StreamAccumulator {
 /// label. Both Claude `assistant.error` and (in the future) any other
 /// turn-level failure surface route through this — the rendered SystemNotice
 /// is the same shape across providers, so the frontend never branches.
-fn assistant_error_message(category: &str) -> String {
+fn assistant_error_fallback_text(value: &Value) -> Option<String> {
+    value
+        .get("message")
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_array)
+        .and_then(|blocks| {
+            blocks.iter().find_map(|block| {
+                block
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .filter(|ty| *ty == "text")
+                    .and_then(|_| block.get("text"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_string)
+            })
+        })
+        .or_else(|| {
+            value
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string)
+        })
+}
+
+fn assistant_error_message(category: &str, value: &Value) -> String {
     match category {
         "rate_limit" => "Rate limited by Anthropic API",
         "max_output_tokens" => "Output truncated: max output tokens reached",
@@ -166,7 +194,12 @@ fn assistant_error_message(category: &str) -> String {
         "authentication_failed" => "Authentication failed: please re-authenticate",
         "invalid_request" => "Invalid request: malformed payload",
         "server_error" => "Anthropic API server error (5xx)",
-        "unknown" => "Assistant turn ended in an unknown error state",
+        "unknown" => {
+            if let Some(message) = assistant_error_fallback_text(value) {
+                return message;
+            }
+            "Assistant turn ended in an unknown error state"
+        }
         other => return format!("Assistant error: {other}"),
     }
     .to_string()
@@ -198,6 +231,34 @@ fn patch_tool_use_block(block: &mut Value, resolved: &HashSet<String>) -> bool {
         Value::String("error".to_string()),
     );
     true
+}
+
+fn assistant_block_type(block: &Value) -> Option<&str> {
+    block.get("type").and_then(Value::as_str)
+}
+
+/// `__is_streaming` is a live-only marker consumed by the frontend to keep
+/// finalized reasoning blocks expanded in the current session. Persistence
+/// paths (`flush_assistant`, `materialize_partial`) strip it so historical
+/// reloads don't resurrect every old thinking block as "just completed".
+fn strip_is_streaming_markers(blocks: &mut [Value]) {
+    for block in blocks.iter_mut() {
+        if let Some(obj) = block.as_object_mut() {
+            obj.remove("__is_streaming");
+        }
+    }
+}
+
+fn cumulative_assistant_snapshot_prefix_matches(prev: &[Value], next: &[Value]) -> bool {
+    if next.len() < prev.len() {
+        return false;
+    }
+
+    prev.iter()
+        .zip(next.iter())
+        .all(|(prev_block, next_block)| {
+            assistant_block_type(prev_block) == assistant_block_type(next_block)
+        })
 }
 
 fn collect_resolved_id(block: &Value, resolved: &mut HashSet<String>) {
@@ -303,6 +364,17 @@ impl StreamAccumulator {
                 PushOutcome::Finalized
             }
             Some("user") => {
+                self.handle_user(raw_line, value);
+                PushOutcome::Finalized
+            }
+            // Mid-turn steer injection — same semantics as a regular user
+            // turn boundary (flush in-flight assistant, push a user turn,
+            // subsequent assistant events start a fresh message). The
+            // inner JSON shape matches what `persist_user_message` writes
+            // for initial prompts, so streaming persistence and reload
+            // both go through the adapter's existing `user_prompt` branch
+            // without any special-case handling.
+            Some("user_prompt") => {
                 self.handle_user(raw_line, value);
                 PushOutcome::Finalized
             }
@@ -653,10 +725,27 @@ impl StreamAccumulator {
         };
 
         if let Some(message) = partial {
+            // The live copy keeps `__is_streaming: false` so the aborted
+            // reasoning block still renders open. The persisted copy has
+            // it stripped — mirror of what `flush_assistant` does on the
+            // happy path.
+            let content_json_for_persist = match serde_json::from_str::<Value>(&message.raw_json) {
+                Ok(mut parsed) => {
+                    if let Some(blocks) = parsed
+                        .get_mut("message")
+                        .and_then(|m| m.get_mut("content"))
+                        .and_then(Value::as_array_mut)
+                    {
+                        strip_is_streaming_markers(blocks);
+                    }
+                    serde_json::to_string(&parsed).unwrap_or_else(|_| message.raw_json.clone())
+                }
+                Err(_) => message.raw_json.clone(),
+            };
             self.turns.push(CollectedTurn {
                 id: message.id.clone(),
                 role: MessageRole::Assistant,
-                content_json: message.raw_json.clone(),
+                content_json: content_json_for_persist,
             });
             self.collected.push(message);
         }
@@ -764,6 +853,25 @@ impl StreamAccumulator {
         self.cur_asst_id = msg_id.map(str::to_string);
         self.cur_asst_template = Some(value.clone());
 
+        // Snapshot the per-block start times of any in-flight thinking
+        // blocks BEFORE finalize_blocks clears `self.blocks`. Keyed by
+        // part_id (the SDK's block.index-derived id) so the stamping pass
+        // below can line each assistant thinking block up with the
+        // streaming block it came from and compute the live duration.
+        let thinking_durations: HashMap<String, u64> = self
+            .blocks
+            .values()
+            .filter_map(|block| match block {
+                streaming::StreamingBlock::Thinking {
+                    id, started_at_ms, ..
+                } => {
+                    let elapsed = streaming::now_ms().saturating_sub(*started_at_ms);
+                    Some((id.clone(), elapsed))
+                }
+                _ => None,
+            })
+            .collect();
+
         // The Claude SDK sends each finalized content block as its own
         // `assistant` event with the SAME msg_id — i.e., delta-style,
         // not cumulative snapshot. Stamp every block with a globally-
@@ -776,19 +884,70 @@ impl StreamAccumulator {
             .and_then(|m| m.get("content"))
             .and_then(Value::as_array)
         {
-            if !same_msg_id {
-                self.cur_asst_blocks.clear();
+            let cumulative_snapshot = same_msg_id
+                && cumulative_assistant_snapshot_prefix_matches(&self.cur_asst_blocks, blocks);
+
+            // Snapshot the previous blocks BEFORE clearing so the stamping
+            // loop below can reach back to the prior cumulative snapshot
+            // (thinking duration carry-over, stable `__part_id` reuse).
+            let prev_blocks: Vec<Value> = if cumulative_snapshot {
+                std::mem::take(&mut self.cur_asst_blocks)
+            } else {
+                Vec::new()
+            };
+
+            // Cumulative: reset count so reused indices produce stable part_ids.
+            // Non-cumulative new-msg: clear buffer but keep count monotonic so
+            // part_ids don't collide with the previous message when two events
+            // share the same active turn_id (e.g. no explicit `message.id`).
+            if cumulative_snapshot {
                 self.cur_asst_block_count = 0;
+            } else if !same_msg_id {
+                self.cur_asst_blocks.clear();
             }
             let mut stamped_blocks = blocks.clone();
             for (i, block) in stamped_blocks.iter_mut().enumerate() {
+                let is_thinking = block.get("type").and_then(Value::as_str) == Some("thinking");
+                let prev_block = if cumulative_snapshot {
+                    prev_blocks.get(i).and_then(Value::as_object)
+                } else {
+                    None
+                };
                 if let Some(obj) = block.as_object_mut() {
-                    let part_id = format!("{turn_id}:blk:{}", self.cur_asst_block_count + i);
-                    obj.insert("__part_id".to_string(), Value::String(part_id));
+                    let part_id = if cumulative_snapshot {
+                        prev_block
+                            .and_then(|prev| prev.get("__part_id"))
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                            .unwrap_or_else(|| format!("{turn_id}:blk:{i}"))
+                    } else {
+                        format!("{turn_id}:blk:{}", self.cur_asst_block_count + i)
+                    };
+                    obj.insert("__part_id".to_string(), Value::String(part_id.clone()));
+                    if is_thinking {
+                        // Mark finalized live thinking blocks so the
+                        // frontend keeps them open + shows "Thought for Ns"
+                        // even when the streaming partial window was too
+                        // narrow for React to ever observe streaming=true.
+                        obj.insert("__is_streaming".to_string(), Value::Bool(false));
+                        let duration = thinking_durations.get(&part_id).copied().or_else(|| {
+                            prev_block
+                                .and_then(|prev| prev.get("__duration_ms"))
+                                .and_then(Value::as_u64)
+                        });
+                        if let Some(ms) = duration {
+                            obj.insert("__duration_ms".to_string(), Value::from(ms));
+                        }
+                    }
                 }
             }
-            self.cur_asst_block_count += stamped_blocks.len();
-            self.cur_asst_blocks.extend(stamped_blocks.iter().cloned());
+            if cumulative_snapshot {
+                self.cur_asst_block_count = stamped_blocks.len();
+                self.cur_asst_blocks = stamped_blocks.clone();
+            } else {
+                self.cur_asst_block_count += stamped_blocks.len();
+                self.cur_asst_blocks.extend(stamped_blocks.iter().cloned());
+            }
 
             // Also patch the value that goes into collected[] for rendering.
             if let Some(msg) = stamped_value.get_mut("message") {
@@ -812,7 +971,7 @@ impl StreamAccumulator {
 
         // Turn-level failure category → error envelope.
         if let Some(category) = value.get("error").and_then(Value::as_str) {
-            let label = assistant_error_message(category);
+            let label = assistant_error_message(category, value);
             let synthetic = serde_json::json!({
                 "type": "error",
                 "message": label,
@@ -950,8 +1109,10 @@ impl StreamAccumulator {
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
         if let Some(mut template) = self.cur_asst_template.take() {
+            let mut blocks_for_persist = std::mem::take(&mut self.cur_asst_blocks);
+            strip_is_streaming_markers(&mut blocks_for_persist);
             if let Some(message) = template.get_mut("message") {
-                message["content"] = Value::Array(std::mem::take(&mut self.cur_asst_blocks));
+                message["content"] = Value::Array(blocks_for_persist);
             }
             self.turns.push(CollectedTurn {
                 id: turn_id,

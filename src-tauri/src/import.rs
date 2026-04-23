@@ -177,9 +177,8 @@ pub fn list_conductor_workspaces(repo_id: &str) -> Result<Vec<ConductorWorkspace
 /// Import selected workspaces from Conductor into Helmor.
 ///
 /// For each workspace:
-/// 1. Copies database records (repo, workspace, sessions, messages, attachments, diff_comments)
-/// 2. Copies filesystem context files (notes, todos, plans, attachments)
-/// 3. Rewrites attachment paths to Helmor's data directory
+/// 1. Copies database records (repo, workspace, sessions, messages)
+/// 2. Copies filesystem context files (notes, todos, plans)
 pub fn import_conductor_workspaces(workspace_ids: &[String]) -> Result<ImportWorkspacesResult> {
     if workspace_ids.is_empty() {
         return Ok(ImportWorkspacesResult {
@@ -433,29 +432,6 @@ fn import_workspace_db_records(conn: &Connection, workspace_id: &str) -> Result<
     )
     .context("Failed to import messages")?;
 
-    // 5. Insert attachments
-    let (att_main, att_src) = import_column_lists(conn, "attachments")?;
-    conn.execute(
-        &format!(
-            "INSERT OR IGNORE INTO main.attachments ({att_main}) \
-             SELECT {att_src} FROM source.attachments \
-             WHERE session_id IN (SELECT id FROM source.sessions WHERE workspace_id = ?1)"
-        ),
-        [workspace_id],
-    )
-    .context("Failed to import attachments")?;
-
-    // 6. Insert diff_comments
-    let (dc_main, dc_src) = import_column_lists(conn, "diff_comments")?;
-    conn.execute(
-        &format!(
-            "INSERT OR IGNORE INTO main.diff_comments ({dc_main}) \
-             SELECT {dc_src} FROM source.diff_comments WHERE workspace_id = ?1"
-        ),
-        [workspace_id],
-    )
-    .context("Failed to import diff_comments")?;
-
     Ok(ImportDbResult::Imported(ImportedWorkspaceMeta {
         workspace_id: workspace_id.to_string(),
         repo_name: canonical_repo.name,
@@ -513,7 +489,7 @@ fn setup_workspace_filesystem(
                 })?;
 
             // Update branch in DB (best-effort, DB is already committed)
-            match crate::models::db::open_connection(true) {
+            match crate::models::db::write_conn() {
                 Ok(conn) => {
                     if let Err(e) = conn.execute(
                         "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
@@ -576,20 +552,6 @@ fn setup_workspace_filesystem(
         }
     }
 
-    // Rewrite attachment paths
-    if let Some(root) = conductor_root {
-        let conn = crate::models::db::open_connection(true)?;
-        rewrite_attachment_paths(
-            &conn,
-            workspace_id,
-            root,
-            helmor_data_dir,
-            repo_name,
-            directory_name,
-            state,
-        )?;
-    }
-
     // Copy Claude Code session files from Conductor's project dir to Helmor's.
     // Claude Code stores sessions under ~/.claude/projects/{encoded-cwd}/ and
     // the cwd changed from Conductor's worktree to Helmor's worktree, so
@@ -602,16 +564,11 @@ fn setup_workspace_filesystem(
 }
 
 fn delete_imported_workspace_records(workspace_id: &str) -> Result<()> {
-    let conn = crate::models::db::open_connection(true)?;
+    let conn = crate::models::db::write_conn()?;
     conn.execute_batch("BEGIN IMMEDIATE")
         .context("Failed to start cleanup transaction")?;
 
     let cleanup_result = (|| -> Result<()> {
-        conn.execute(
-            "DELETE FROM attachments WHERE session_id IN (SELECT id FROM sessions WHERE workspace_id = ?1)",
-            [workspace_id],
-        )
-        .context("Failed to delete imported attachments")?;
         conn.execute(
             "DELETE FROM session_messages WHERE session_id IN (SELECT id FROM sessions WHERE workspace_id = ?1)",
             [workspace_id],
@@ -622,11 +579,6 @@ fn delete_imported_workspace_records(workspace_id: &str) -> Result<()> {
             [workspace_id],
         )
         .context("Failed to delete imported sessions")?;
-        conn.execute(
-            "DELETE FROM diff_comments WHERE workspace_id = ?1",
-            [workspace_id],
-        )
-        .context("Failed to delete imported diff comments")?;
         conn.execute("DELETE FROM workspaces WHERE id = ?1", [workspace_id])
             .context("Failed to delete imported workspace")?;
         Ok(())
@@ -792,87 +744,6 @@ fn setup_imported_worktree(
     let start_ref = format!("refs/heads/{source_branch}");
     git_ops::create_worktree_from_start_point(repo_root, workspace_dir, new_branch, &start_ref)
         .with_context(|| format!("Failed to create worktree for {new_branch} from {start_ref}"))?;
-
-    Ok(())
-}
-
-/// Rewrite attachment paths from Conductor locations to Helmor locations.
-fn rewrite_attachment_paths(
-    conn: &Connection,
-    workspace_id: &str,
-    conductor_root: &Path,
-    helmor_data_dir: &Path,
-    repo_name: &str,
-    directory_name: &str,
-    state: &str,
-) -> Result<()> {
-    // Conductor attachment paths may point to:
-    //   {root}/workspaces/{repo}/{ws}/.context/attachments/...
-    // Even for archived workspaces (paths are not rewritten on archive).
-    // We also handle the case where they were rewritten to archived-contexts.
-
-    let conductor_ws_prefix = conductor_root
-        .join("workspaces")
-        .join(repo_name)
-        .join(directory_name)
-        .join(".context");
-    let conductor_archive_prefix = conductor_root
-        .join("archived-contexts")
-        .join(repo_name)
-        .join(directory_name);
-
-    let helmor_prefix = if state == "archived" {
-        helmor_data_dir
-            .join("archived-contexts")
-            .join(repo_name)
-            .join(directory_name)
-    } else {
-        helmor_data_dir
-            .join("workspaces")
-            .join(repo_name)
-            .join(directory_name)
-            .join(".context")
-    };
-
-    let helmor_prefix_str = helmor_prefix.to_string_lossy();
-    let conductor_ws_str = conductor_ws_prefix.to_string_lossy();
-    let conductor_archive_str = conductor_archive_prefix.to_string_lossy();
-
-    // Rewrite active-workspace paths
-    conn.execute(
-        r#"
-        UPDATE main.attachments
-        SET path = REPLACE(path, ?1, ?2)
-        WHERE session_id IN (
-            SELECT id FROM main.sessions WHERE workspace_id = ?3
-        ) AND path LIKE ?4
-        "#,
-        rusqlite::params![
-            conductor_ws_str.as_ref(),
-            helmor_prefix_str.as_ref(),
-            workspace_id,
-            format!("{}%", conductor_ws_str),
-        ],
-    )
-    .context("Failed to rewrite workspace attachment paths")?;
-
-    // Rewrite archived-context paths
-    conn.execute(
-        r#"
-        UPDATE main.attachments
-        SET path = REPLACE(path, ?1, ?2)
-        WHERE session_id IN (
-            SELECT id FROM main.sessions WHERE workspace_id = ?3
-        ) AND path LIKE ?4
-        "#,
-        rusqlite::params![
-            conductor_archive_str.as_ref(),
-            helmor_prefix_str.as_ref(),
-            workspace_id,
-            format!("{}%", conductor_archive_str),
-        ],
-    )
-    .context("Failed to rewrite archived attachment paths")?;
 
     Ok(())
 }
@@ -1124,8 +995,6 @@ mod tests {
             CREATE TABLE source.workspaces AS SELECT * FROM main.workspaces WHERE 0;
             CREATE TABLE source.sessions AS SELECT * FROM main.sessions WHERE 0;
             CREATE TABLE source.session_messages AS SELECT * FROM main.session_messages WHERE 0;
-            CREATE TABLE source.attachments AS SELECT * FROM main.attachments WHERE 0;
-            CREATE TABLE source.diff_comments AS SELECT * FROM main.diff_comments WHERE 0;
 
             INSERT INTO source.repos (id, name, created_at, updated_at) VALUES ('r1', 'my-repo', datetime('now'), datetime('now'));
             INSERT INTO source.workspaces (id, repository_id, directory_name, state, created_at, updated_at) VALUES ('w1', 'r1', 'boston', 'ready', datetime('now'), datetime('now'));
@@ -1133,8 +1002,6 @@ mod tests {
             INSERT INTO source.sessions (id, workspace_id, created_at, updated_at) VALUES ('s2', 'w1', datetime('now'), datetime('now'));
             INSERT INTO source.session_messages (id, session_id, role, content, created_at) VALUES ('m1', 's1', 'user', 'hello', datetime('now'));
             INSERT INTO source.session_messages (id, session_id, role, content, created_at) VALUES ('m2', 's2', 'user', 'world', datetime('now'));
-            INSERT INTO source.attachments (id, session_id, type, path, created_at) VALUES ('a1', 's1', 'image', '/old/path/img.png', datetime('now'));
-            INSERT INTO source.diff_comments (id, workspace_id, body, created_at) VALUES ('dc1', 'w1', 'comment', 1000);
             "#,
         )
         .unwrap();
@@ -1157,19 +1024,10 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        let att_count: i64 = conn
-            .query_row("SELECT count(*) FROM main.attachments", [], |r| r.get(0))
-            .unwrap();
-        let dc_count: i64 = conn
-            .query_row("SELECT count(*) FROM main.diff_comments", [], |r| r.get(0))
-            .unwrap();
-
         assert_eq!(repo_count, 1);
         assert_eq!(ws_count, 1);
         assert_eq!(sess_count, 2);
         assert_eq!(msg_count, 2);
-        assert_eq!(att_count, 1);
-        assert_eq!(dc_count, 1);
     }
 
     #[test]
@@ -1186,8 +1044,6 @@ mod tests {
             CREATE TABLE source.workspaces AS SELECT * FROM main.workspaces WHERE 0;
             CREATE TABLE source.sessions AS SELECT * FROM main.sessions WHERE 0;
             CREATE TABLE source.session_messages AS SELECT * FROM main.session_messages WHERE 0;
-            CREATE TABLE source.attachments AS SELECT * FROM main.attachments WHERE 0;
-            CREATE TABLE source.diff_comments AS SELECT * FROM main.diff_comments WHERE 0;
 
             INSERT INTO source.repos (id, name, created_at, updated_at) VALUES ('r1', 'my-repo', datetime('now'), datetime('now'));
             INSERT INTO source.workspaces (id, repository_id, directory_name, state, created_at, updated_at) VALUES ('w1', 'r1', 'boston', 'ready', datetime('now'), datetime('now'));
@@ -1229,8 +1085,6 @@ mod tests {
             CREATE TABLE source.workspaces AS SELECT * FROM main.workspaces WHERE 0;
             CREATE TABLE source.sessions AS SELECT * FROM main.sessions WHERE 0;
             CREATE TABLE source.session_messages AS SELECT * FROM main.session_messages WHERE 0;
-            CREATE TABLE source.attachments AS SELECT * FROM main.attachments WHERE 0;
-            CREATE TABLE source.diff_comments AS SELECT * FROM main.diff_comments WHERE 0;
 
             INSERT INTO source.repos (id, name, root_path, created_at, updated_at)
             VALUES ('r-source', 'conductor-helmor', '/tmp/helmor', datetime('now'), datetime('now'));
@@ -1373,8 +1227,6 @@ mod tests {
                 updated_at TEXT DEFAULT (datetime('now'))
             );
             CREATE TABLE source.session_messages AS SELECT * FROM main.session_messages WHERE 0;
-            CREATE TABLE source.attachments AS SELECT * FROM main.attachments WHERE 0;
-            CREATE TABLE source.diff_comments AS SELECT * FROM main.diff_comments WHERE 0;
 
             INSERT INTO source.repos (id, name, created_at, updated_at) VALUES ('r1', 'my-repo', datetime('now'), datetime('now'));
             INSERT INTO source.workspaces (id, repository_id, directory_name, state, created_at, updated_at) VALUES ('w1', 'r1', 'boston', 'ready', datetime('now'), datetime('now'));
@@ -1474,7 +1326,7 @@ mod tests {
             "expected source branch resolution failure, got {:?}",
             result.errors
         );
-        let conn = crate::models::db::open_connection(true).unwrap();
+        let conn = crate::models::db::write_conn().unwrap();
         let workspace_count: i64 = conn
             .query_row("SELECT count(*) FROM workspaces WHERE id = 'w1'", [], |r| {
                 r.get(0)

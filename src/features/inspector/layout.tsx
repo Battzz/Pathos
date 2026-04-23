@@ -1,5 +1,12 @@
 import { ChevronDown } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	createContext,
+	useCallback,
+	useContext,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { suspendTerminalFit } from "@/components/terminal-output";
 import { Button } from "@/components/ui/button";
 import type { WorkspaceCommitButtonMode } from "@/features/commit/button";
@@ -46,7 +53,7 @@ const TABS_BLUR_PEAK_PX = 6;
 const TABS_BLUR_FADE_MS = 120;
 // Hold blur past the end of the transition so the xterm re-fit (which
 // runs ~50ms after the main transition finishes) is still hidden.
-const TABS_BLUR_HOLD_UNTIL_MS = TABS_HOVER_TRANSITION_MS - 50;
+export const TABS_BLUR_HOLD_UNTIL_MS = TABS_HOVER_TRANSITION_MS - 50;
 // Minimum layout height of the collapsed wrapper. The real content lives
 // inside an absolutely-positioned child, so we need to reserve this
 // space explicitly to keep the header row visible when the panel is
@@ -59,6 +66,28 @@ export const INSPECTOR_SECTION_TITLE_CLASS =
 	"text-[13px] leading-8 font-medium tracking-[-0.01em] text-muted-foreground";
 const INSPECTOR_TAB_BUTTON_CLASS =
 	"relative inline-flex h-full cursor-pointer items-center justify-center gap-1.5 px-0 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-0";
+
+// Zoom state published to descendants of InspectorTabsSection so tab bodies
+// can key UI off the hover-zoom state (e.g. the absolute-positioned corner
+// Stop/Rerun button, which is only reachable once the panel has grown).
+type TabsZoomState = {
+	/** True for the full duration of both the expand and collapse animations. */
+	isZoomPresented: boolean;
+	/** Target of the CSS transition — true while zoomed in, false while resting. */
+	isHoverExpanded: boolean;
+};
+
+// Exported so tests (and any future consumer that renders a tab outside of
+// InspectorTabsSection) can simulate the zoomed state by wrapping children in
+// `<TabsZoomContext.Provider value={{ isZoomPresented: true, isHoverExpanded: true }}>`.
+export const TabsZoomContext = createContext<TabsZoomState>({
+	isZoomPresented: false,
+	isHoverExpanded: false,
+});
+
+export function useTabsZoom(): TabsZoomState {
+	return useContext(TabsZoomContext);
+}
 
 export function getGitSectionHeaderHighlightClass(
 	mode: WorkspaceCommitButtonMode,
@@ -95,6 +124,12 @@ type InspectorTabsSectionProps = {
 	tabActions?: React.ReactNode;
 	setupScriptState: ScriptIconState;
 	runScriptState: ScriptIconState;
+	/**
+	 * Gate for the hover-to-zoom effect. When false, hovering the body does
+	 * nothing — used so we only zoom when there's actual terminal output worth
+	 * enlarging (and not on the empty "Run setup" / "Open settings" placeholders).
+	 */
+	canHoverExpand: boolean;
 	children?: React.ReactNode;
 };
 
@@ -107,6 +142,7 @@ export function InspectorTabsSection({
 	tabActions,
 	setupScriptState,
 	runScriptState,
+	canHoverExpand,
 	children,
 }: InspectorTabsSectionProps) {
 	// `isHoverExpanded` drives the CSS transitions we CAN interpolate
@@ -128,6 +164,7 @@ export function InspectorTabsSection({
 	const hoverTimerRef = useRef<number | null>(null);
 	const presentationClearTimerRef = useRef<number | null>(null);
 	const blurClearTimerRef = useRef<number | null>(null);
+	const pointerInsideContainerRef = useRef(false);
 	// Holds the outstanding `suspendTerminalFit()` release while the CSS
 	// width/height transition is running, plus the timer that will release it
 	// and trigger the final fit.
@@ -231,21 +268,47 @@ export function InspectorTabsSection({
 		[clearPresentationClearTimer, triggerContentBlurPulse],
 	);
 
-	const handleMouseEnter = useCallback(() => {
-		if (!open) return;
+	// Hover trigger is bound to the BODY only (not the header) so moving the
+	// cursor across the Setup/Run tabs or the chevron doesn't start a zoom.
+	// The 300ms "hover intent" timer still gives us the linger-to-engage feel,
+	// but the intent signal now requires engaging with the actual output area.
+	const handleBodyMouseEnter = useCallback(() => {
+		if (!open || !canHoverExpand) return;
+		if (isHoverExpanded) return;
 		clearHoverTimer();
 		hoverTimerRef.current = window.setTimeout(() => {
 			beginZoomAnimation();
 			setZoomTarget(true);
 			hoverTimerRef.current = null;
 		}, TABS_HOVER_ACTIVATION_MS);
-	}, [open, clearHoverTimer, beginZoomAnimation, setZoomTarget]);
+	}, [
+		open,
+		canHoverExpand,
+		isHoverExpanded,
+		clearHoverTimer,
+		beginZoomAnimation,
+		setZoomTarget,
+	]);
 
-	const handleMouseLeave = useCallback(() => {
+	// Un-zoom fires only when the cursor leaves the whole panel (header +
+	// body). Moving from body up into the header keeps the zoom alive so the
+	// Stop/Rerun action and the tab switcher stay reachable while zoomed.
+	const handleContainerMouseLeave = useCallback(() => {
+		pointerInsideContainerRef.current = false;
+		const hadPendingHoverIntent = hoverTimerRef.current !== null;
 		clearHoverTimer();
+		if (hadPendingHoverIntent || (!isHoverExpanded && !isZoomPresented)) {
+			return;
+		}
 		beginZoomAnimation();
 		setZoomTarget(false);
-	}, [clearHoverTimer, beginZoomAnimation, setZoomTarget]);
+	}, [
+		clearHoverTimer,
+		isHoverExpanded,
+		isZoomPresented,
+		beginZoomAnimation,
+		setZoomTarget,
+	]);
 
 	// When the panel collapses we must drop any pending/active zoom so it
 	// doesn't linger over the neighbouring sections. Also release any
@@ -267,6 +330,25 @@ export function InspectorTabsSection({
 		clearPresentationClearTimer,
 		clearBlurTimer,
 		releaseTerminalFitLock,
+	]);
+
+	// If the active tab no longer has output worth zooming (e.g. user switched
+	// from Run — with a live dev server — to Setup — never run), force the
+	// panel back to its resting size through the normal collapse transition.
+	useEffect(() => {
+		if (canHoverExpand) return;
+		clearHoverTimer();
+		if (pointerInsideContainerRef.current) return;
+		if (!isHoverExpanded && !isZoomPresented) return;
+		beginZoomAnimation();
+		setZoomTarget(false);
+	}, [
+		canHoverExpand,
+		isHoverExpanded,
+		isZoomPresented,
+		clearHoverTimer,
+		beginZoomAnimation,
+		setZoomTarget,
 	]);
 
 	// Clean up any pending timer on unmount.
@@ -305,8 +387,10 @@ export function InspectorTabsSection({
 		>
 			<div
 				data-tabs-zoomed={isZoomPresented ? "true" : undefined}
-				onMouseEnter={handleMouseEnter}
-				onMouseLeave={handleMouseLeave}
+				onMouseEnter={() => {
+					pointerInsideContainerRef.current = true;
+				}}
+				onMouseLeave={handleContainerMouseLeave}
 				className={cn(
 					// `bg-sidebar` is the safety floor — it guarantees the zoomed
 					// area never shows through to the content underneath even if
@@ -457,9 +541,14 @@ export function InspectorTabsSection({
 						{open && (
 							<div
 								aria-label="Inspector tabs body"
+								onMouseEnter={handleBodyMouseEnter}
 								className="relative flex min-h-0 flex-1 flex-col bg-sidebar"
 							>
-								{children}
+								<TabsZoomContext.Provider
+									value={{ isZoomPresented, isHoverExpanded }}
+								>
+									{children}
+								</TabsZoomContext.Provider>
 							</div>
 						)}
 					</div>

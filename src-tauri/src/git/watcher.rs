@@ -19,6 +19,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use crate::{
     git_ops,
     models::db,
+    ui_sync,
     workspace_state::{self, WorkspaceState},
 };
 
@@ -383,6 +384,12 @@ fn start_watcher<R: Runtime>(
                 );
             }
             if refs_changed {
+                ui_sync::publish(
+                    &app_handle,
+                    ui_sync::UiMutationEvent::WorkspaceGitStateChanged {
+                        workspace_id: workspace_id.clone(),
+                    },
+                );
                 if let Err(e) = app_handle.emit(
                     GIT_REFS_CHANGED_EVENT,
                     GitRefsChangedPayload {
@@ -542,7 +549,7 @@ fn do_triggered_fetch(workspace_id: &str) -> Result<()> {
 
 /// Returns (workspace_dir, remote, branch, repo_id).
 fn lookup_fetch_target(workspace_id: &str) -> Result<(PathBuf, String, String, String)> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let sql = format!(
         "SELECT r.name, w.directory_name, r.remote,
                 COALESCE(w.intended_target_branch, r.default_branch), r.id
@@ -619,6 +626,12 @@ fn handle_head_change(
         }
     }
 
+    ui_sync::publish(
+        app,
+        ui_sync::UiMutationEvent::WorkspaceGitStateChanged {
+            workspace_id: workspace_id.to_string(),
+        },
+    );
     if let Err(e) = app.emit(
         GIT_BRANCH_CHANGED_EVENT,
         GitBranchChangedPayload {
@@ -638,7 +651,7 @@ fn update_branch_in_db(
     old_branch: Option<&str>,
     new_branch: &str,
 ) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let rows = match old_branch {
         Some(old) => connection.execute(
             &format!(
@@ -668,7 +681,7 @@ fn update_branch_in_db(
 // -- DB helper --
 
 fn load_watchable_workspaces() -> Result<Vec<WatchableWorkspace>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut stmt = connection.prepare(
         "SELECT w.id, r.name, w.directory_name, w.branch, w.state,
                 r.remote, COALESCE(w.intended_target_branch, r.default_branch), r.id
@@ -722,6 +735,7 @@ mod tests {
         git(dir.path(), &["checkout", "-b", "main"]);
         git(dir.path(), &["config", "user.email", "test@helmor.dev"]);
         git(dir.path(), &["config", "user.name", "Test"]);
+        git(dir.path(), &["config", "commit.gpgsign", "false"]);
         std::fs::write(dir.path().join("f.txt"), "init\n").unwrap();
         git(dir.path(), &["add", "."]);
         git(dir.path(), &["commit", "-m", "init"]);

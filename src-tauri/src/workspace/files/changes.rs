@@ -288,7 +288,7 @@ pub(super) fn query_workspace_target(
 
 fn lookup_workspace_target(workspace_root: &Path) -> Option<(String, String)> {
     let (repo_name, dir_name) = parse_workspace_path(workspace_root)?;
-    let conn = db::open_connection(false).ok()?;
+    let conn = db::read_conn().ok()?;
     query_workspace_target(&conn, repo_name, dir_name)
 }
 

@@ -93,14 +93,16 @@ pub(super) fn parse_assistant_parts(parsed: Option<&Value>, msg_id: &str) -> Vec
         match block_type {
             "thinking" => {
                 if let Some(text) = obj.get("thinking").and_then(Value::as_str) {
-                    let is_streaming = obj
-                        .get("__is_streaming")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false);
+                    // Tri-state: true = still streaming, false = live-just-
+                    // finished (present on partials + `handle_assistant`
+                    // output), missing = historical / unknown.
+                    let streaming = obj.get("__is_streaming").and_then(Value::as_bool);
+                    let duration_ms = obj.get("__duration_ms").and_then(Value::as_u64);
                     parts.push(MessagePart::Reasoning {
                         id: resolve_part_id(obj, msg_id, idx),
                         text: text.to_string(),
-                        streaming: if is_streaming { Some(true) } else { None },
+                        streaming,
+                        duration_ms,
                     });
                 }
             }
@@ -109,6 +111,7 @@ pub(super) fn parse_assistant_parts(parsed: Option<&Value>, msg_id: &str) -> Vec
                     id: resolve_part_id(obj, msg_id, idx),
                     text: "[Thinking redacted]".to_string(),
                     streaming: None,
+                    duration_ms: None,
                 });
             }
             "text" => {

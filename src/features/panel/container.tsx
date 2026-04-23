@@ -23,6 +23,7 @@ import {
 	type WorkspaceScriptType,
 } from "@/lib/workspace-script-actions";
 import { WorkspacePanel } from "./index";
+import type { SessionCloseRequest } from "./use-confirm-session-close";
 
 const EMPTY_MESSAGES: ThreadMessageLike[] = [];
 
@@ -34,7 +35,6 @@ type WorkspacePanelContainerProps = {
 	sessionSelectionHistory?: string[];
 	sending: boolean;
 	sendingSessionIds?: Set<string>;
-	completedSessionIds?: Set<string>;
 	interactionRequiredSessionIds?: Set<string>;
 	modelSelections?: Record<string, string>;
 	workspacePrInfo?: PullRequestInfo | null;
@@ -46,6 +46,7 @@ type WorkspacePanelContainerProps = {
 		modelId?: string | null;
 		permissionMode?: string | null;
 	}) => void;
+	onRequestCloseSession?: (request: SessionCloseRequest) => void;
 	headerActions?: React.ReactNode;
 	headerLeading?: React.ReactNode;
 };
@@ -58,13 +59,13 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 	sessionSelectionHistory = [],
 	sending,
 	sendingSessionIds,
-	completedSessionIds,
 	interactionRequiredSessionIds,
 	modelSelections = {},
 	workspacePrInfo = null,
 	onSelectSession,
 	onResolveDisplayedSession,
 	onQueuePendingPromptForSession,
+	onRequestCloseSession,
 	headerActions,
 	headerLeading,
 }: WorkspacePanelContainerProps) {
@@ -183,17 +184,11 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 								providerSessionId: null,
 								effortLevel: null,
 								unreadCount: 0,
-								contextTokenCount: 0,
-								contextUsedPercent: null,
-								thinkingEnabled: true,
 								fastMode: false,
-								agentPersonality: null,
 								createdAt: now,
 								updatedAt: now,
 								lastUserMessageAt: null,
-								resumeSessionAt: null,
 								isHidden: false,
-								isCompacting: false,
 								actionKind: null,
 								active: true,
 							},
@@ -531,13 +526,13 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			refreshingSession={refreshingSession}
 			sending={sending}
 			sendingSessionIds={sendingSessionIds}
-			completedSessionIds={completedSessionIds}
 			interactionRequiredSessionIds={interactionRequiredSessionIds}
 			onSelectSession={handleSelectSession}
 			onPrefetchSession={handlePrefetchSession}
 			onSessionsChanged={handleSessionsChanged}
 			onSessionRenamed={handleSessionRenamed}
 			onWorkspaceChanged={handleWorkspaceChanged}
+			onRequestCloseSession={onRequestCloseSession}
 			headerActions={headerActions}
 			headerLeading={headerLeading}
 			missingScriptTypes={missingScriptTypes}

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
 import { extractPort } from "../detect-urls";
+import { TABS_EASING, TABS_HOVER_TRANSITION_MS, useTabsZoom } from "../layout";
 import {
 	attach,
 	detach,
@@ -144,6 +145,7 @@ export function RunTab({
 	const termRef = useRef<TerminalHandle | null>(null);
 	const [status, setStatus] = useState<ScriptStatus>("idle");
 	const [hasRun, setHasRun] = useState(false);
+	const { isZoomPresented, isHoverExpanded } = useTabsZoom();
 
 	// Notify parent whenever the run-script status transitions so the tab
 	// header can conditionally show controls like the Open-dev-server button.
@@ -250,8 +252,15 @@ export function RunTab({
 						/>
 					</div>
 
-					{(status === "running" || status === "exited") && (
-						<div className="absolute bottom-3 right-4">
+					{isZoomPresented && (status === "running" || status === "exited") && (
+						<div
+							className="absolute bottom-3 right-4"
+							style={{
+								opacity: isHoverExpanded ? 1 : 0,
+								pointerEvents: isHoverExpanded ? "auto" : "none",
+								transition: `opacity ${TABS_HOVER_TRANSITION_MS}ms ${TABS_EASING}`,
+							}}
+						>
 							<Button
 								variant={status === "running" ? "destructive" : "secondary"}
 								size="sm"

@@ -44,7 +44,22 @@ const PROGRESSIVE_VIEWPORT_DEFAULT_HEIGHT = 900;
 const PROGRESSIVE_VIEWPORT_HEADER_HEIGHT = 24;
 const PROGRESSIVE_VIEWPORT_STREAMING_FOOTER_HEIGHT = 40;
 const CONVERSATION_BOTTOM_SPACER_HEIGHT = 40;
-const STICK_TO_BOTTOM_ESCAPE_OFFSET_PX = 54;
+
+export function resolveConversationRowHeight({
+	estimatedHeight,
+	measuredHeight,
+	streaming,
+}: {
+	estimatedHeight: number;
+	measuredHeight?: number;
+	streaming: boolean;
+}) {
+	if (measuredHeight === undefined) {
+		return estimatedHeight;
+	}
+
+	return streaming ? Math.max(measuredHeight, estimatedHeight) : measuredHeight;
+}
 
 export function ActiveThreadViewport({
 	hasSession,
@@ -301,12 +316,9 @@ function ConversationViewport({
 	const Header: ThreadViewportSlot = ConversationHeaderSpacer;
 	const planReviewActive = useMemo(() => hasUnresolvedPlanReview(data), [data]);
 	const showStreamingFooter = sending && !planReviewActive;
-	const Footer: ThreadViewportSlot = showStreamingFooter
-		? () => <StreamingFooter startTime={sendingStartTime} />
-		: ConversationFooterSpacer;
-	const footerHeight = showStreamingFooter
-		? PROGRESSIVE_VIEWPORT_STREAMING_FOOTER_HEIGHT
-		: 0;
+	const streamingIndicatorStartTime = showStreamingFooter
+		? sendingStartTime
+		: undefined;
 	const EmptyPlaceholder: ThreadViewportSlot = () => (
 		<div className="flex min-h-full flex-1 items-center justify-center px-8">
 			<EmptyState
@@ -337,7 +349,9 @@ function ConversationViewport({
 										{itemContent(index, message)}
 									</ConversationRowShell>
 								))}
-						{Footer ? createElement(Footer) : null}
+						{showStreamingFooter ? (
+							<StreamingFooter startTime={sendingStartTime} />
+						) : null}
 						<ConversationBottomSpacer />
 					</div>
 				) : (
@@ -345,8 +359,6 @@ function ConversationViewport({
 						contentRef={contentRef}
 						data={data}
 						emptyPlaceholder={EmptyPlaceholder}
-						footer={Footer}
-						footerHeight={footerHeight}
 						fontSize={fontSize}
 						header={Header}
 						itemContent={itemContent}
@@ -356,6 +368,7 @@ function ConversationViewport({
 						scrollParent={scrollParent}
 						sessionId={sessionId}
 						stopScroll={stopScroll}
+						streamingIndicatorStartTime={streamingIndicatorStartTime}
 					/>
 				)}
 			</div>
@@ -364,12 +377,41 @@ function ConversationViewport({
 	);
 }
 
+/**
+ * A single row in the virtualized progressive viewport. Two shapes:
+ *
+ *   - `message`: a real chat message, measured via `MeasuredConversationRow`.
+ *   - `indicator`: the streaming logo + timer, rendered as a fixed-height
+ *     pseudo row that lives in the same absolute-positioned coordinate
+ *     system as messages. Keeping the indicator *inside* the rows container
+ *     (instead of as its DOM sibling) means its `top` derives from the same
+ *     `totalRowsHeight` math, so it can never land on top of the streaming
+ *     row the way the old footer-sibling layout could.
+ */
+type ProgressiveViewportRow =
+	| {
+			kind: "message";
+			key: string;
+			index: number;
+			top: number;
+			height: number;
+			message: RenderedMessage;
+	  }
+	| {
+			kind: "indicator";
+			key: string;
+			index: number;
+			top: number;
+			height: number;
+			startTime: number;
+	  };
+
+const STREAMING_INDICATOR_ROW_KEY = "__streaming_indicator__";
+
 function ProgressiveConversationViewport({
 	contentRef,
 	data,
 	emptyPlaceholder: EmptyPlaceholder,
-	footer: Footer,
-	footerHeight,
 	fontSize,
 	header: Header,
 	itemContent,
@@ -379,12 +421,11 @@ function ProgressiveConversationViewport({
 	scrollParent,
 	sessionId,
 	stopScroll,
+	streamingIndicatorStartTime,
 }: {
 	contentRef?: React.RefCallback<HTMLElement>;
 	data: RenderedMessage[];
 	emptyPlaceholder?: ThreadViewportSlot;
-	footer?: ThreadViewportSlot;
-	footerHeight: number;
 	fontSize: number;
 	header?: ThreadViewportSlot;
 	itemContent: (index: number, message: RenderedMessage) => ReactNode;
@@ -394,6 +435,7 @@ function ProgressiveConversationViewport({
 	scrollParent: HTMLDivElement | null;
 	sessionId: string;
 	stopScroll: () => void;
+	streamingIndicatorStartTime?: number;
 }) {
 	const isTauri = true;
 	const [committedScrollState, setCommittedScrollState] = useState({
@@ -409,6 +451,16 @@ function ProgressiveConversationViewport({
 	const scrollIdleTimerRef = useRef<number | null>(null);
 	const deferredMeasuredHeightsRef = useRef<Record<string, number>>({});
 	const hasUserScrolledRef = useRef(false);
+
+	// DOM-driven sync for the streaming indicator pseudo row. See the effect
+	// below and the `onDomMount` prop threaded into `MeasuredConversationRow`.
+	const indicatorElRef = useRef<HTMLDivElement | null>(null);
+	const [streamingRowEl, setStreamingRowEl] = useState<HTMLElement | null>(
+		null,
+	);
+	const handleStreamingRowMount = useCallback((node: HTMLElement | null) => {
+		setStreamingRowEl(node);
+	}, []);
 
 	const [lastLayoutCacheKey, setLastLayoutCacheKey] = useState(layoutCacheKey);
 	if (lastLayoutCacheKey !== layoutCacheKey) {
@@ -529,15 +581,6 @@ function ProgressiveConversationViewport({
 			hasUserScrolledRef.current = true;
 			stopScroll();
 		};
-		const markScrolledAwayFromBottom = () => {
-			const distanceFromBottom =
-				scrollParent.scrollHeight -
-				scrollParent.clientHeight -
-				scrollParent.scrollTop;
-			if (distanceFromBottom > STICK_TO_BOTTOM_ESCAPE_OFFSET_PX) {
-				escapeBottomLock();
-			}
-		};
 		const inScrollParent = (target: EventTarget | null) => {
 			return (
 				target instanceof Node &&
@@ -575,9 +618,6 @@ function ProgressiveConversationViewport({
 			onTouchMove as unknown as EventListener,
 			{ passive: true },
 		);
-		scrollParent.addEventListener("scroll", markScrolledAwayFromBottom, {
-			passive: true,
-		});
 		return () => {
 			window.removeEventListener("wheel", onWheel as EventListener);
 			window.removeEventListener(
@@ -588,7 +628,6 @@ function ProgressiveConversationViewport({
 				"touchmove",
 				onTouchMove as unknown as EventListener,
 			);
-			scrollParent.removeEventListener("scroll", markScrolledAwayFromBottom);
 		};
 	}, [scrollParent, stopScroll]);
 
@@ -596,37 +635,105 @@ function ProgressiveConversationViewport({
 		() => estimateThreadRowHeights(data, { fontSize, paneWidth }),
 		[data, fontSize, paneWidth],
 	);
-	const rows = useMemo(
+	const rows = useMemo<ProgressiveViewportRow[]>(
 		() =>
 			measureSync(
 				"viewport:rows",
 				() => {
+					const result: ProgressiveViewportRow[] = [];
 					let top = 0;
-					return data.map((message, index) => {
+					data.forEach((message, index) => {
 						const key = message.id ?? `${message.role}:${index}`;
 						const estimatedHeight = estimatedHeights[index] ?? 72;
 						const measuredHeight = measuredHeights[key];
-						const height =
-							measuredHeight !== undefined ? measuredHeight : estimatedHeight;
-						const row = {
+						const height = resolveConversationRowHeight({
+							estimatedHeight,
+							measuredHeight,
+							streaming: message.streaming === true,
+						});
+						result.push({
 							height,
 							index,
 							key,
+							kind: "message",
 							message,
 							top,
-						};
+						});
 						top += height;
-						return row;
 					});
+					if (streamingIndicatorStartTime !== undefined) {
+						const indicatorHeight =
+							PROGRESSIVE_VIEWPORT_STREAMING_FOOTER_HEIGHT;
+						result.push({
+							height: indicatorHeight,
+							index: data.length,
+							key: STREAMING_INDICATOR_ROW_KEY,
+							kind: "indicator",
+							startTime: streamingIndicatorStartTime,
+							top,
+						});
+					}
+					return result;
 				},
-				{ count: data.length },
+				{
+					count:
+						data.length + (streamingIndicatorStartTime !== undefined ? 1 : 0),
+				},
 			),
-		[data, estimatedHeights, measuredHeights],
+		[data, estimatedHeights, measuredHeights, streamingIndicatorStartTime],
 	);
 	const totalRowsHeight =
 		rows.length > 0
 			? rows[rows.length - 1]!.top + rows[rows.length - 1]!.height
 			: 0;
+	// Fallback `top` for the streaming indicator while the streaming row's
+	// DOM node isn't mounted yet (e.g. request just sent, assistant hasn't
+	// emitted yet). Once the streaming row mounts, the DOM-driven effect
+	// below takes over and this value is ignored.
+	const lastRow = rows[rows.length - 1];
+	const indicatorFallbackTop =
+		lastRow?.kind === "indicator" ? lastRow.top : undefined;
+
+	// DOM-driven indicator position sync.
+	//
+	// The indicator pseudo row is the streaming logo + timer; it lives in
+	// the same absolute-positioned coordinate system as message rows.
+	// We own its `top` exclusively from here — the JSX for the indicator
+	// deliberately does *not* pass `top`, otherwise every React re-render
+	// would race with this effect and overwrite the synced value with the
+	// state-driven one (producing the "overlap flashes back in then fixes
+	// itself" effect).
+	//
+	// When the streaming row's DOM node is mounted we pin the indicator to
+	// `streaming-row.offsetTop + offsetHeight` via a ResizeObserver. The RO
+	// callback runs inside the same frame *before* paint, and we only ever
+	// write a single `style.top`, so this is O(1) regardless of thread
+	// length. When the streaming row isn't mounted yet (request sent but
+	// assistant hasn't started emitting), we fall back to the state-driven
+	// row.top so the indicator doesn't collapse to y=0.
+	useLayoutEffect(() => {
+		const indicator = indicatorElRef.current;
+		if (!indicator) {
+			return;
+		}
+		if (streamingRowEl) {
+			const sync = () => {
+				indicator.style.top = `${
+					streamingRowEl.offsetTop + streamingRowEl.offsetHeight
+				}px`;
+			};
+			sync();
+			if (typeof ResizeObserver === "undefined") {
+				return;
+			}
+			const observer = new ResizeObserver(sync);
+			observer.observe(streamingRowEl);
+			return () => observer.disconnect();
+		}
+		if (indicatorFallbackTop !== undefined) {
+			indicator.style.top = `${indicatorFallbackTop}px`;
+		}
+	}, [streamingRowEl, indicatorFallbackTop]);
 	const headerHeight = Header ? PROGRESSIVE_VIEWPORT_HEADER_HEIGHT : 0;
 	const effectiveViewportHeight =
 		viewportHeight > 0 ? viewportHeight : PROGRESSIVE_VIEWPORT_DEFAULT_HEIGHT;
@@ -691,11 +798,11 @@ function ProgressiveConversationViewport({
 			windowTop,
 		],
 	);
+	// Note: the streaming footer no longer lives as a sibling of the rows
+	// container. When present it is an in-list `indicator` row whose height
+	// is already included in `totalRowsHeight`, so we don't re-add it here.
 	const totalContentHeight =
-		headerHeight +
-		totalRowsHeight +
-		footerHeight +
-		CONVERSATION_BOTTOM_SPACER_HEIGHT;
+		headerHeight + totalRowsHeight + CONVERSATION_BOTTOM_SPACER_HEIGHT;
 	const rowsRef = useRef(rows);
 	useLayoutEffect(() => {
 		rowsRef.current = rows;
@@ -731,7 +838,9 @@ function ProgressiveConversationViewport({
 		(rowKey: string, nextHeight: number) => {
 			const roundedHeight = Math.max(24, Math.ceil(nextHeight));
 			const row = rowsRef.current.find((entry) => entry.key === rowKey);
-			if (!row) {
+			// Only message rows flow through here. The indicator pseudo row
+			// has a fixed height and does not use `MeasuredConversationRow`.
+			if (!row || row.kind !== "message") {
 				return;
 			}
 
@@ -745,15 +854,45 @@ function ProgressiveConversationViewport({
 				return;
 			}
 
-			if (scrollParent && row.top + headerHeight < scrollParent.scrollTop) {
+			const isStreamingRow = row.message.streaming === true;
+
+			// The streaming row's height changes are pure bottom-extensions:
+			// only its own offsetBottom grows, there are no rows below it to
+			// be pushed down, and the user's reading position is unaffected.
+			// `useStickToBottom` already follows scrollHeight growth via its
+			// smooth animation, so adjusting scrollTop here on top of that
+			// double-pushes past maxTop, gets clamped, and desyncs the
+			// library's internal state from the DOM — producing a
+			// one-line-high up/down jitter that is very visible in fast
+			// streams once the streaming row itself has grown past the
+			// scrollTop. Skip the adjust for the streaming row; keep it for
+			// historical rows (image loads, code highlighting, late font
+			// swaps) where it is genuinely needed.
+			if (
+				!isStreamingRow &&
+				scrollParent &&
+				row.top + headerHeight < scrollParent.scrollTop
+			) {
 				pendingScrollAdjustmentRef.current += roundedHeight - previousHeight;
 			}
-			startTransition(() => {
+
+			const commit = () =>
 				setMeasuredHeights((current) => ({
 					...current,
 					[rowKey]: roundedHeight,
 				}));
-			});
+			// Streaming rows commit at default priority (no transition) so
+			// the outer div height that `useStickToBottom` observes stays in
+			// step with reality and auto-scroll can keep following. Indicator
+			// positioning is handled by a separate DOM-driven sync below, so
+			// we don't need `flushSync` here — which in long threads becomes
+			// O(n) and re-introduces stuttering near the end of a long
+			// streamed reply.
+			if (isStreamingRow) {
+				commit();
+			} else {
+				startTransition(commit);
+			}
 		},
 		[headerHeight, isTauri, scrollParent],
 	);
@@ -763,7 +902,6 @@ function ProgressiveConversationViewport({
 			<div ref={contentRef} className="flex min-h-full flex-col">
 				{Header ? createElement(Header) : null}
 				{EmptyPlaceholder ? createElement(EmptyPlaceholder) : null}
-				{Footer ? createElement(Footer) : null}
 				<ConversationBottomSpacer />
 			</div>
 		);
@@ -776,20 +914,45 @@ function ProgressiveConversationViewport({
 				aria-label={`Conversation rows for session ${sessionId}`}
 				style={{ height: totalRowsHeight, position: "relative" }}
 			>
-				{visibleRows.map((row) => (
-					<MeasuredConversationRow
-						key={row.key}
-						disableContentVisibility={isTauri}
-						onHeightChange={handleHeightChange}
-						rowKey={row.key}
-						top={row.top}
-						estimatedHeight={row.height}
-					>
-						{itemContent(row.index, row.message)}
-					</MeasuredConversationRow>
-				))}
+				{visibleRows.map((row) => {
+					if (row.kind === "indicator") {
+						return (
+							<div
+								ref={indicatorElRef}
+								key={row.key}
+								style={{
+									height: row.height,
+									left: 0,
+									position: "absolute",
+									right: 0,
+									// `top` is intentionally omitted: it is owned by the
+									// DOM-sync useLayoutEffect above. Including it here
+									// would cause every React re-render to overwrite the
+									// synced value.
+								}}
+							>
+								<StreamingFooter startTime={row.startTime} />
+							</div>
+						);
+					}
+					const isStreamingMessage = row.message.streaming === true;
+					return (
+						<MeasuredConversationRow
+							key={row.key}
+							disableContentVisibility={isTauri}
+							onDomMount={
+								isStreamingMessage ? handleStreamingRowMount : undefined
+							}
+							onHeightChange={handleHeightChange}
+							rowKey={row.key}
+							top={row.top}
+							estimatedHeight={row.height}
+						>
+							{itemContent(row.index, row.message)}
+						</MeasuredConversationRow>
+					);
+				})}
 			</div>
-			{Footer ? createElement(Footer) : null}
 			<ConversationBottomSpacer />
 		</div>
 	);
@@ -799,6 +962,7 @@ function MeasuredConversationRow({
 	children,
 	disableContentVisibility,
 	estimatedHeight,
+	onDomMount,
 	onHeightChange,
 	rowKey,
 	top,
@@ -806,11 +970,26 @@ function MeasuredConversationRow({
 	children: ReactNode;
 	disableContentVisibility: boolean;
 	estimatedHeight: number;
+	/**
+	 * Optional callback fired with the row's outer DOM node when it mounts
+	 * (and `null` when it unmounts). Used by the parent to wire a
+	 * ResizeObserver directly onto the streaming row's DOM for zero-latency
+	 * indicator position sync — see the indicator-sync effect in
+	 * `ProgressiveConversationViewport`.
+	 */
+	onDomMount?: (node: HTMLElement | null) => void;
 	onHeightChange: (rowKey: string, nextHeight: number) => void;
 	rowKey: string;
 	top: number;
 }) {
 	const rowRef = useRef<HTMLDivElement | null>(null);
+	const setRowRef = useCallback(
+		(node: HTMLDivElement | null) => {
+			rowRef.current = node;
+			onDomMount?.(node);
+		},
+		[onDomMount],
+	);
 
 	useLayoutEffect(() => {
 		const node = rowRef.current;
@@ -843,7 +1022,7 @@ function MeasuredConversationRow({
 	const intrinsicSize = `auto ${Math.max(24, Math.round(estimatedHeight))}px`;
 	return (
 		<div
-			ref={rowRef}
+			ref={setRowRef}
 			style={{
 				...(disableContentVisibility
 					? conversationRowIsolationStyle
@@ -895,10 +1074,6 @@ function ConversationHeaderSpacer() {
 	return <div className="h-6 shrink-0" />;
 }
 
-function ConversationFooterSpacer() {
-	return null;
-}
-
 function ConversationBottomSpacer() {
 	return (
 		<div
@@ -928,7 +1103,10 @@ function StreamingFooter({ startTime }: { startTime: number }) {
 					.padStart(2, "0")}s`;
 
 	return (
-		<div className="flex items-center gap-1.5 px-5 py-3 text-[12px] tabular-nums text-muted-foreground">
+		<div
+			data-testid="streaming-footer"
+			className="flex items-center gap-1.5 px-5 py-3 text-[12px] tabular-nums text-muted-foreground"
+		>
 			<HelmorLogoAnimated size={14} className="opacity-80" />
 			{display}
 		</div>

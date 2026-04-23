@@ -9,6 +9,46 @@ import { vi } from "vitest";
 // is unchanged.
 configure({ asyncUtilTimeout: 3000 });
 
+// React 19.2's dev build schedules passive-effect work through
+// `setImmediate`, and its callback reads `window.event` (react-dom's
+// `schedulerEvent = window.event;` at react-dom-client.development.js L17920).
+// On slow CI runners, that `setImmediate` occasionally fires AFTER vitest
+// has torn down the test file's jsdom environment — at which point the
+// global `window` binding is gone, and the read throws
+// `ReferenceError: window is not defined`. Vitest collects that as an
+// unhandled error and exits non-zero even when every test passed.
+//
+// Wrap all existing `uncaughtException` listeners (vitest registers its
+// own error-collector at worker start, before setup files run) so we can
+// short-circuit ONLY this specific, benign teardown-race error. Any other
+// uncaught exception still reaches vitest's collector and fails the run
+// as before.
+if (
+	typeof process !== "undefined" &&
+	!process.env.HELMOR_REACT_SCHEDULER_FILTER_INSTALLED
+) {
+	process.env.HELMOR_REACT_SCHEDULER_FILTER_INSTALLED = "1";
+	const isBenignReactSchedulerTeardown = (error: unknown) =>
+		error instanceof ReferenceError &&
+		/window is not defined/.test(error.message) &&
+		typeof error.stack === "string" &&
+		error.stack.includes("react-dom-client.development.js");
+
+	const existingListeners = process.listeners("uncaughtException");
+	process.removeAllListeners("uncaughtException");
+	for (const listener of existingListeners) {
+		process.on("uncaughtException", (error, origin) => {
+			if (isBenignReactSchedulerTeardown(error)) {
+				return;
+			}
+			(listener as (err: Error, origin: string) => void)(
+				error as Error,
+				origin,
+			);
+		});
+	}
+}
+
 vi.mock("lottie-web/build/player/lottie_svg", () => ({
 	default: {
 		loadAnimation: vi.fn(() => ({
@@ -133,6 +173,10 @@ vi.mock("@tauri-apps/api/core", () => ({
 			case "list_workspace_changes_with_content":
 				return { items: [], prefetched: [] };
 			case "list_slash_commands":
+				return [];
+			case "list_workspace_linked_directories":
+				return [];
+			case "list_workspace_candidate_directories":
 				return [];
 			case "lookup_workspace_pr":
 				return null;

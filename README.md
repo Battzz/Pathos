@@ -5,11 +5,16 @@
 <h1 align="center">Helmor</h1>
 
 <p align="center">
-  The local-first IDE for coding agent orchestration.<br/>
-  We're rethinking what a developer workflow looks like in the AI era — so every engineer can ship at 100x.
+  Helmor is an open-source local workbench for multi-agent software development.
 </p>
 
-> _"AI made me 10x. **Helmor** takes me 100x. Goodbye, handcrafted code. 👋"_
+> AI made coding faster.
+>
+> Helmor is about finishing the rest of the loop.
+>
+> Not just generating more code.
+>
+> Orchestrating, reviewing, testing, merging, and actually shipping software.
 
 ## Install
 

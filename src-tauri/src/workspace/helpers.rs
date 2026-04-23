@@ -566,7 +566,7 @@ fn resolve_github_login() -> Result<Option<String>> {
 }
 
 pub fn allocate_directory_name_for_repo(repo_id: &str) -> Result<String> {
-    let connection = crate::db::open_connection(false)?;
+    let connection = crate::db::read_conn()?;
     allocate_directory_name_with_conn(&connection, repo_id)
 }
 
@@ -630,14 +630,6 @@ pub fn staged_archive_context_dir(archived_context_dir: &Path) -> PathBuf {
             .unwrap_or("workspace"),
         uuid::Uuid::new_v4()
     ))
-}
-
-pub fn attachment_prefix(path: &Path) -> String {
-    let mut prefix = path.display().to_string();
-    if !prefix.ends_with('/') {
-        prefix.push('/');
-    }
-    prefix
 }
 
 #[cfg(test)]

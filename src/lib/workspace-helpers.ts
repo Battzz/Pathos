@@ -33,7 +33,6 @@ export function createOptimisticCreatingWorkspaceDetail(
 		state: "initializing",
 		hasUnread: false,
 		workspaceUnread: 0,
-		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 		derivedStatus: row.derivedStatus ?? "in-progress",
 		manualStatus: row.manualStatus ?? null,
@@ -44,14 +43,11 @@ export function createOptimisticCreatingWorkspaceDetail(
 		branch: row.branch ?? null,
 		initializationParentBranch: null,
 		intendedTargetBranch: null,
-		notes: null,
 		pinnedAt: row.pinnedAt ?? null,
 		prTitle: null,
-		prDescription: null,
 		archiveCommit: null,
 		sessionCount: initialSessionId ? 1 : 0,
 		messageCount: 0,
-		attachmentCount: 0,
 	};
 }
 
@@ -221,7 +217,6 @@ export function clearWorkspaceUnreadFromRow(row: WorkspaceRow): WorkspaceRow {
 		...row,
 		hasUnread: false,
 		workspaceUnread: 0,
-		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 	};
 }
@@ -238,6 +233,49 @@ export function clearWorkspaceUnreadFromGroups(
 	}));
 }
 
+/**
+ * Apply "this workspace now has N unread sessions" to the groups cache.
+ * `workspaceUnread` is an independent flag — we only clear it optimistically
+ * when every session becomes read (matching the backend rule in
+ * `clear_workspace_unread_if_no_session_unread_in_transaction`). While any
+ * session is still unread we leave the existing `workspaceUnread` alone.
+ */
+export function recomputeWorkspaceUnreadInGroups(
+	groups: WorkspaceGroup[] | undefined,
+	workspaceId: string | null,
+	remainingUnreadSessionCount: number,
+): WorkspaceGroup[] | undefined {
+	if (!groups || !workspaceId) return groups;
+	return groups.map((group) => ({
+		...group,
+		rows: group.rows.map((row) => {
+			if (row.id !== workspaceId) return row;
+			const nextWorkspaceUnread =
+				remainingUnreadSessionCount > 0 ? (row.workspaceUnread ?? 0) : 0;
+			return {
+				...row,
+				unreadSessionCount: remainingUnreadSessionCount,
+				workspaceUnread: nextWorkspaceUnread,
+				hasUnread: remainingUnreadSessionCount > 0 || nextWorkspaceUnread > 0,
+			};
+		}),
+	}));
+}
+
+export function recomputeWorkspaceDetailUnread(
+	detail: WorkspaceDetail,
+	remainingUnreadSessionCount: number,
+): WorkspaceDetail {
+	const nextWorkspaceUnread =
+		remainingUnreadSessionCount > 0 ? (detail.workspaceUnread ?? 0) : 0;
+	return {
+		...detail,
+		unreadSessionCount: remainingUnreadSessionCount,
+		workspaceUnread: nextWorkspaceUnread,
+		hasUnread: remainingUnreadSessionCount > 0 || nextWorkspaceUnread > 0,
+	};
+}
+
 export function clearWorkspaceUnreadFromSummaries(
 	summaries: WorkspaceSummary[],
 	workspaceId: string,
@@ -248,7 +286,6 @@ export function clearWorkspaceUnreadFromSummaries(
 					...summary,
 					hasUnread: false,
 					workspaceUnread: 0,
-					sessionUnreadTotal: 0,
 					unreadSessionCount: 0,
 				}
 			: summary,
@@ -266,7 +303,6 @@ export function summaryToArchivedRow(summary: WorkspaceSummary): WorkspaceRow {
 		state: summary.state,
 		hasUnread: summary.hasUnread,
 		workspaceUnread: summary.workspaceUnread,
-		sessionUnreadTotal: summary.sessionUnreadTotal,
 		unreadSessionCount: summary.unreadSessionCount,
 		derivedStatus: summary.derivedStatus,
 		manualStatus: summary.manualStatus ?? null,
@@ -278,7 +314,6 @@ export function summaryToArchivedRow(summary: WorkspaceSummary): WorkspaceRow {
 		prTitle: summary.prTitle ?? null,
 		sessionCount: summary.sessionCount,
 		messageCount: summary.messageCount,
-		attachmentCount: summary.attachmentCount,
 	};
 }
 
@@ -362,7 +397,6 @@ export function rowToWorkspaceSummary(
 		state: row.state ?? "archived",
 		hasUnread: row.hasUnread ?? false,
 		workspaceUnread: row.workspaceUnread ?? 0,
-		sessionUnreadTotal: row.sessionUnreadTotal ?? 0,
 		unreadSessionCount: row.unreadSessionCount ?? 0,
 		derivedStatus: row.derivedStatus ?? "in-progress",
 		manualStatus: row.manualStatus ?? null,
@@ -374,7 +408,6 @@ export function rowToWorkspaceSummary(
 		prTitle: row.prTitle ?? null,
 		sessionCount: row.sessionCount,
 		messageCount: row.messageCount,
-		attachmentCount: row.attachmentCount,
 		...overrides,
 	};
 }
@@ -413,6 +446,8 @@ export function inferDefaultModelId(
 	modelSections: AgentModelSection[],
 	settingsDefaultModelId?: string | null,
 ): string | null {
+	const allOptions = modelSections.flatMap((section) => section.options);
+
 	// Existing session with history → respect whatever model it used
 	if (!isNewSession(session)) {
 		const sessionModel = session?.model ?? null;
@@ -431,7 +466,9 @@ export function inferDefaultModelId(
 		return settingsDefaultModelId;
 	}
 
-	return null;
+	// Last-resort UI fallback so the composer never renders an empty model chip
+	// while settings bootstrap or self-heal catches up.
+	return allOptions[0]?.id ?? null;
 }
 
 export function describeUnknownError(error: unknown, fallback: string): string {

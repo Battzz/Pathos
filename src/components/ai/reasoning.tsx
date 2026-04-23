@@ -9,10 +9,13 @@ import {
 	CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { ShimmerText } from "@/components/ui/shimmer-text";
+import type { ReasoningLifecycle } from "@/lib/reasoning-lifecycle";
 import { cn } from "@/lib/utils";
 
+export type { ReasoningLifecycle };
+
 interface ReasoningContextValue {
-	isStreaming: boolean;
+	lifecycle: ReasoningLifecycle;
 	isOpen: boolean;
 	setIsOpen: (open: boolean) => void;
 	duration: number | undefined;
@@ -28,7 +31,11 @@ function useReasoning() {
 }
 
 export type ReasoningProps = ComponentProps<typeof Collapsible> & {
-	isStreaming?: boolean;
+	/**
+	 * Current lifecycle phase. `"streaming"` and `"just-finished"` default
+	 * to open (active live turn); `"historical"` defaults to collapsed.
+	 */
+	lifecycle?: ReasoningLifecycle;
 	open?: boolean;
 	defaultOpen?: boolean;
 	onOpenChange?: (open: boolean) => void;
@@ -40,7 +47,7 @@ const MS_IN_S = 1000;
 export const Reasoning = memo(
 	({
 		className,
-		isStreaming = false,
+		lifecycle = "historical",
 		open,
 		defaultOpen,
 		onOpenChange,
@@ -48,8 +55,10 @@ export const Reasoning = memo(
 		children,
 		...props
 	}: ReasoningProps) => {
-		// Historical (non-streaming) blocks start collapsed to avoid re-opening on remount.
-		const resolvedDefaultOpen = defaultOpen ?? isStreaming;
+		// Live blocks (streaming OR just-finished) default open; historical
+		// reloads default collapsed so a returning user isn't buried in
+		// past reasoning text.
+		const resolvedDefaultOpen = defaultOpen ?? lifecycle !== "historical";
 
 		const [isOpen, setIsOpen] = useControllableState({
 			prop: open,
@@ -62,6 +71,7 @@ export const Reasoning = memo(
 		});
 
 		const [startTime, setStartTime] = useState<number | null>(null);
+		const isStreaming = lifecycle === "streaming";
 
 		useEffect(() => {
 			if (isStreaming) {
@@ -74,7 +84,7 @@ export const Reasoning = memo(
 
 		return (
 			<ReasoningContext.Provider
-				value={{ isStreaming, isOpen: isOpen ?? false, setIsOpen, duration }}
+				value={{ lifecycle, isOpen: isOpen ?? false, setIsOpen, duration }}
 			>
 				<Collapsible
 					className={cn("flex flex-col", className)}
@@ -112,7 +122,8 @@ export const ReasoningTrigger = memo(
 		getThinkingMessage = defaultGetThinkingMessage,
 		...props
 	}: ReasoningTriggerProps) => {
-		const { isStreaming, isOpen, duration } = useReasoning();
+		const { lifecycle, isOpen, duration } = useReasoning();
+		const isStreaming = lifecycle === "streaming";
 
 		return (
 			<CollapsibleTrigger

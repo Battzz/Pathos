@@ -21,7 +21,6 @@ const apiMocks = vi.hoisted(() => ({
 	loadWorkspaceSessions: vi.fn(),
 	loadSessionMessages: vi.fn(),
 	loadSessionThreadMessages: vi.fn(),
-	loadSessionAttachments: vi.fn(),
 }));
 
 const openerMocks = vi.hoisted(() => ({
@@ -53,7 +52,6 @@ vi.mock("./lib/api", async (importOriginal) => {
 		loadWorkspaceSessions: apiMocks.loadWorkspaceSessions,
 		loadSessionMessages: apiMocks.loadSessionThreadMessages,
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
-		loadSessionAttachments: apiMocks.loadSessionAttachments,
 	};
 });
 
@@ -109,7 +107,6 @@ function mockWorkspaceData() {
 		state: "ready",
 		hasUnread: false,
 		workspaceUnread: 0,
-		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 		derivedStatus: "in-progress",
 		manualStatus: null,
@@ -120,14 +117,11 @@ function mockWorkspaceData() {
 		branch: "main",
 		initializationParentBranch: "main",
 		intendedTargetBranch: "main",
-		notes: null,
 		pinnedAt: null,
 		prTitle: null,
-		prDescription: null,
 		archiveCommit: null,
 		sessionCount: 1,
 		messageCount: 0,
-		attachmentCount: 0,
 	});
 	apiMocks.loadWorkspaceSessions.mockResolvedValue([
 		{
@@ -140,24 +134,17 @@ function mockWorkspaceData() {
 			permissionMode: "default",
 			providerSessionId: null,
 			unreadCount: 0,
-			contextTokenCount: 0,
-			contextUsedPercent: null,
-			thinkingEnabled: true,
 			codexThinkingLevel: null,
 			fastMode: false,
-			agentPersonality: null,
 			createdAt: "2026-04-04T00:00:00Z",
 			updatedAt: "2026-04-04T00:00:00Z",
 			lastUserMessageAt: null,
-			resumeSessionAt: null,
 			isHidden: false,
-			isCompacting: false,
 			active: true,
 		},
 	]);
 	apiMocks.loadSessionMessages.mockResolvedValue([]);
 	apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
-	apiMocks.loadSessionAttachments.mockResolvedValue([]);
 }
 
 async function openGithubMenu() {
@@ -190,7 +177,6 @@ describe("App GitHub identity states", () => {
 		apiMocks.loadWorkspaceSessions.mockReset();
 		apiMocks.loadSessionMessages.mockReset();
 		apiMocks.loadSessionThreadMessages.mockReset();
-		apiMocks.loadSessionAttachments.mockReset();
 		openerMocks.openUrl.mockReset();
 
 		apiMocks.loadGithubIdentitySession.mockResolvedValue({

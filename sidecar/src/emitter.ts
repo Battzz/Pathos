@@ -38,7 +38,25 @@ export type StoppedEvent = {
 	readonly sessionId: string;
 };
 
+export type SteeredEvent = {
+	readonly id: string;
+	readonly type: "steered";
+	readonly sessionId: string;
+	readonly accepted: boolean;
+	readonly reason?: string;
+};
+
 export type PongEvent = { readonly id: string; readonly type: "pong" };
+
+/**
+ * Liveness ping — emitted every ~15s while a stream is active. Used by the
+ * Rust side to detect a hung/frozen sidecar vs. one that's legitimately
+ * waiting on a long-running tool. Carries no payload; only presence matters.
+ */
+export type HeartbeatEvent = {
+	readonly id: string;
+	readonly type: "heartbeat";
+};
 
 export type TitleGeneratedEvent = {
 	readonly id: string;
@@ -124,13 +142,35 @@ export type ModelsListedEvent = {
 	}>;
 };
 
+// Context-window snapshot from the agent SDK. Claude auto-pulls at
+// turn-end; Codex forwards `thread/tokenUsage/updated`. Both ride on
+// the streaming requestId. `meta` is the raw SDK JSON, stringified.
+export type ContextUsageUpdatedEvent = {
+	readonly id: string;
+	readonly type: "contextUsageUpdated";
+	readonly sessionId: string;
+	readonly meta: string | null;
+};
+
+// Account-global Codex rate-limit snapshot (5h / 7d windows). Forwarded
+// from Codex's `account/rateLimits/updated` notification. Rides on the
+// streaming requestId but the value is account-scoped — Rust persists it
+// in `settings`, not on a session row.
+export type CodexRateLimitsUpdatedEvent = {
+	readonly id: string;
+	readonly type: "codexRateLimitsUpdated";
+	readonly snapshot: string;
+};
+
 export type SidecarControlEvent =
 	| ReadyEvent
 	| EndEvent
 	| AbortedEvent
 	| ErrorEvent
 	| StoppedEvent
+	| SteeredEvent
 	| PongEvent
+	| HeartbeatEvent
 	| TitleGeneratedEvent
 	| SlashCommandsListedEvent
 	| PermissionRequestEvent
@@ -139,7 +179,9 @@ export type SidecarControlEvent =
 	| PermissionModeChangedEvent
 	| PlanCapturedEvent
 	| ModelsListedEvent
-	| UserInputRequestEvent;
+	| UserInputRequestEvent
+	| ContextUsageUpdatedEvent
+	| CodexRateLimitsUpdatedEvent;
 
 /**
  * Typed emitter for the sidecar's stdout protocol.
@@ -154,7 +196,14 @@ export interface SidecarEmitter {
 	aborted(requestId: string, reason: string): void;
 	error(requestId: string | null, message: string, internal?: boolean): void;
 	stopped(requestId: string, sessionId: string): void;
+	steered(
+		requestId: string,
+		sessionId: string,
+		accepted: boolean,
+		reason?: string,
+	): void;
 	pong(requestId: string): void;
+	heartbeat(requestId: string): void;
 	titleGenerated(
 		requestId: string,
 		title: string,
@@ -204,6 +253,12 @@ export interface SidecarEmitter {
 			effortLevels?: readonly string[];
 		}>,
 	): void;
+	contextUsageUpdated(
+		requestId: string,
+		sessionId: string,
+		meta: string | null,
+	): void;
+	codexRateLimitsUpdated(requestId: string, snapshot: string): void;
 	/**
 	 * Forward a raw provider SDK message. `id` is appended LAST so an SDK
 	 * field named `id` can never override our request id.
@@ -233,7 +288,16 @@ export function createSidecarEmitter(
 			),
 		stopped: (requestId, sessionId) =>
 			write({ id: requestId, type: "stopped", sessionId }),
+		steered: (requestId, sessionId, accepted, reason) =>
+			write({
+				id: requestId,
+				type: "steered",
+				sessionId,
+				accepted,
+				...(reason ? { reason } : {}),
+			}),
 		pong: (requestId) => write({ id: requestId, type: "pong" }),
+		heartbeat: (requestId) => write({ id: requestId, type: "heartbeat" }),
 		titleGenerated: (requestId, title, branchName) =>
 			write({ id: requestId, type: "titleGenerated", title, branchName }),
 		slashCommandsListed: (requestId, commands) =>
@@ -299,6 +363,19 @@ export function createSidecarEmitter(
 			}),
 		modelsListed: (requestId, provider, models) =>
 			write({ id: requestId, type: "modelsListed", provider, models }),
+		contextUsageUpdated: (requestId, sessionId, meta) =>
+			write({
+				id: requestId,
+				type: "contextUsageUpdated",
+				sessionId,
+				meta,
+			}),
+		codexRateLimitsUpdated: (requestId, snapshot) =>
+			write({
+				id: requestId,
+				type: "codexRateLimitsUpdated",
+				snapshot,
+			}),
 		passthrough: (requestId, message) =>
 			write({ ...(message as Record<string, unknown>), id: requestId }),
 	};

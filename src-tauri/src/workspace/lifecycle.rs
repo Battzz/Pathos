@@ -170,6 +170,7 @@ pub fn prepare_workspace_from_repo_impl(repo_id: &str) -> Result<PrepareWorkspac
                 setup_from_project: false,
                 run_from_project: false,
                 archive_from_project: false,
+                auto_run_setup: true,
             }
         }
     };
@@ -254,15 +255,10 @@ pub fn finalize_workspace_from_repo_impl(workspace_id: &str) -> Result<FinalizeW
         };
 
         helpers::create_workspace_context_scaffold(&workspace_dir)?;
-        let initialization_files_copied = git_ops::tracked_file_count(&workspace_dir)?;
-
-        workspace_models::update_workspace_initialization_metadata(
-            workspace_id,
-            initialization_files_copied,
-            &timestamp,
-        )?;
-        // Defer setup to the frontend inspector: if a script is configured,
-        // the workspace starts in "setup_pending" and the UI auto-triggers it.
+        // Defer setup to the frontend inspector: if a script is configured AND
+        // the user opted into auto-run, the workspace starts in "setup_pending"
+        // and the UI auto-triggers it. Otherwise we go straight to Ready and
+        // the user runs setup manually from the inspector when they want.
         let has_setup = match resolve_setup_hook(&repository, &workspace_dir) {
             Ok(Some(s)) if !s.trim().is_empty() => true,
             Ok(_) => false,
@@ -271,7 +267,7 @@ pub fn finalize_workspace_from_repo_impl(workspace_id: &str) -> Result<FinalizeW
                 false
             }
         };
-        let final_state = if has_setup {
+        let final_state = if has_setup && repository.auto_run_setup {
             WorkspaceState::SetupPending
         } else {
             WorkspaceState::Ready
@@ -813,7 +809,7 @@ pub fn restore_workspace_impl(
 
     let staged_archive_dir = helpers::staged_archive_context_dir(&archived_context_dir);
     if actual_branch != branch {
-        let conn = db::open_connection(true).map_err(|error| {
+        let conn = db::write_conn().map_err(|error| {
             cleanup_failed_restore(
                 &repo_root,
                 &workspace_dir,
@@ -869,12 +865,9 @@ pub fn restore_workspace_impl(
         return Err(error);
     }
 
-    if let Err(error) = workspace_models::update_restored_workspace_state(
-        workspace_id,
-        &archived_context_dir,
-        &workspace_context_dir,
-        target_branch_override,
-    ) {
+    if let Err(error) =
+        workspace_models::update_restored_workspace_state(workspace_id, target_branch_override)
+    {
         cleanup_failed_restore(
             &repo_root,
             &workspace_dir,

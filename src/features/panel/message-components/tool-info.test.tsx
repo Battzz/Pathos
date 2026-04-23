@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { getToolInfo } from "./tool-info";
 
+describe("getToolInfo — Skill", () => {
+	it("renders a dedicated skill icon and name", () => {
+		const info = getToolInfo("Skill", {
+			name: "review-ui",
+		});
+		expect(info.action).toBe("Skill");
+		expect(info.detail).toBe("review-ui");
+		expect(info.icon).not.toBeNull();
+		expect(typeof info.icon).toBe("object");
+	});
+});
+
 describe("getToolInfo — WebSearch", () => {
 	it("search action shows query", () => {
 		const info = getToolInfo("WebSearch", {

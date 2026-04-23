@@ -9,7 +9,7 @@ import {
 	RotateCcw,
 	Trash2,
 } from "lucide-react";
-import { memo, useEffect } from "react";
+import { memo, useEffect, useState } from "react";
 import { HelmorThinkingIndicator } from "@/components/helmor-thinking-indicator";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +28,10 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+	getScriptState,
+	subscribeStatus,
+} from "@/features/inspector/script-store";
 import type { DerivedStatus, WorkspaceRow } from "@/lib/api";
 import { recordSidebarRowRender } from "@/lib/dev-render-debug";
 import { cn } from "@/lib/utils";
@@ -45,7 +49,7 @@ const rowVariants = cva(
 	{
 		variants: {
 			active: {
-				true: "bg-accent text-foreground",
+				true: "workspace-row-selected text-foreground",
 				false: "text-foreground/80 hover:bg-accent/60",
 			},
 		},
@@ -59,7 +63,6 @@ export type WorkspaceRowItemProps = {
 	row: WorkspaceRow;
 	selected: boolean;
 	isSending?: boolean;
-	isCompleted?: boolean;
 	isInteractionRequired?: boolean;
 	rowRef?: (element: HTMLDivElement | null) => void;
 	onSelect?: (workspaceId: string) => void;
@@ -79,12 +82,31 @@ export type WorkspaceRowItemProps = {
 	workspaceActionsDisabled?: boolean;
 };
 
+/**
+ * Subscribes to this workspace's `run`-script status via the module-level
+ * script-store used by the inspector. Returns true only while the script is
+ * actively executing (not "idle" or "exited"). Per-row subscription keeps the
+ * re-render fan-out narrow — only rows whose status flipped re-render.
+ */
+function useIsRunScriptRunning(workspaceId: string): boolean {
+	const [running, setRunning] = useState(
+		() => getScriptState(workspaceId, "run")?.status === "running",
+	);
+	useEffect(() => {
+		// Re-sync when the row is reused for a different workspace (virtual list).
+		setRunning(getScriptState(workspaceId, "run")?.status === "running");
+		return subscribeStatus(workspaceId, "run", (status) => {
+			setRunning(status === "running");
+		});
+	}, [workspaceId]);
+	return running;
+}
+
 export const WorkspaceRowItem = memo(
 	function WorkspaceRowItem({
 		row,
 		selected,
 		isSending,
-		isCompleted,
 		isInteractionRequired,
 		rowRef,
 		onSelect,
@@ -103,6 +125,7 @@ export const WorkspaceRowItem = memo(
 		useEffect(() => {
 			recordSidebarRowRender(row.id);
 		});
+		const isRunScriptRunning = useIsRunScriptRunning(row.id);
 		const actionLabel =
 			row.state === "archived" ? "Restore workspace" : "Archive workspace";
 		const isArchiving = archivingWorkspaceIds?.has(row.id) ?? false;
@@ -143,16 +166,13 @@ export const WorkspaceRowItem = memo(
 		});
 		const statusDotLabel = isInteractionRequired
 			? "Interaction required"
-			: isCompleted
-				? "Session completed"
-				: row.hasUnread
-					? "Unread"
-					: null;
+			: row.hasUnread
+				? "Unread"
+				: null;
 		const statusDotClassName = isInteractionRequired
 			? "bg-yellow-500"
 			: "bg-chart-2";
-		const showStatusDot =
-			statusDotLabel !== null && (isInteractionRequired || !selected);
+		const showStatusDot = statusDotLabel !== null;
 		const displayTitle = row.branch ? humanizeBranch(row.branch) : row.title;
 
 		const rowBody = (
@@ -186,7 +206,7 @@ export const WorkspaceRowItem = memo(
 					!selected && row.state === "archived" && "opacity-50",
 				)}
 			>
-				<div className="row-content-fade flex min-w-0 flex-1 items-center gap-2">
+				<div className="flex min-w-0 flex-1 items-center gap-2">
 					<WorkspaceAvatar
 						repoIconSrc={row.repoIconSrc}
 						repoInitials={row.repoInitials ?? row.avatar ?? null}
@@ -194,32 +214,39 @@ export const WorkspaceRowItem = memo(
 						title={displayTitle}
 						badgeClassName={showStatusDot ? statusDotClassName : null}
 						badgeAriaLabel={statusDotLabel ?? undefined}
+						isRunning={isRunScriptRunning}
 					/>
-					{isSending && !isInteractionRequired ? (
-						<HelmorThinkingIndicator size={13} />
-					) : (
-						<GitBranch
-							className={cn(
-								"size-[13px] shrink-0",
-								branchToneClasses[branchTone],
-							)}
-							strokeWidth={1.9}
-						/>
-					)}
-					<span
-						className={cn(
-							"truncate leading-none",
-							selected
-								? row.hasUnread
-									? "font-semibold text-foreground"
-									: "font-medium text-foreground"
-								: row.hasUnread
-									? "font-semibold text-foreground"
-									: "font-medium",
+					{/* Fade is on an inner wrapper so the avatar's overflowing badge isn't clipped by mask-image. */}
+					<div className="row-content-fade flex min-w-0 flex-1 items-center gap-2">
+						{isSending && !isInteractionRequired ? (
+							<HelmorThinkingIndicator size={13} />
+						) : (
+							<GitBranch
+								className={cn(
+									"size-[13px] shrink-0",
+									branchToneClasses[branchTone],
+								)}
+								strokeWidth={1.9}
+							/>
 						)}
-					>
-						<HyperText text={displayTitle} className="inline" />
-					</span>
+						<span
+							className={cn(
+								// leading-tight (1.25) instead of leading-none so descenders
+								// (g/j/p/q/y) aren't clipped by truncate's overflow:hidden
+								// when the page is zoomed out (Cmd+-).
+								"truncate leading-tight",
+								selected
+									? row.hasUnread
+										? "font-semibold text-foreground"
+										: "font-medium text-foreground"
+									: row.hasUnread
+										? "font-semibold text-foreground"
+										: "font-medium",
+							)}
+						>
+							<HyperText text={displayTitle} className="inline" />
+						</span>
+					</div>
 				</div>
 
 				{hasActionHandler ? (
@@ -378,7 +405,6 @@ export const WorkspaceRowItem = memo(
 			previous.row === next.row &&
 			previous.selected === next.selected &&
 			previous.isSending === next.isSending &&
-			previous.isCompleted === next.isCompleted &&
 			previous.isInteractionRequired === next.isInteractionRequired &&
 			previous.archivingWorkspaceIds === next.archivingWorkspaceIds &&
 			previous.markingUnreadWorkspaceId === next.markingUnreadWorkspaceId &&

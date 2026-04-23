@@ -7,7 +7,7 @@ use super::common::{run_blocking, CmdResult};
 #[tauri::command]
 pub async fn get_app_settings() -> CmdResult<std::collections::HashMap<String, String>> {
     run_blocking(|| {
-        let conn = db::open_connection(false)?;
+        let conn = db::read_conn()?;
         let mut stmt = conn
             .prepare(
                 "SELECT key, value FROM settings WHERE key LIKE 'app.%' OR key LIKE 'branch_prefix_%'",
@@ -42,6 +42,15 @@ pub async fn update_app_settings(
         Ok(())
     })
     .await
+}
+
+/// Read the account-global Codex rate-limit snapshot. Stored under
+/// `settings::CODEX_RATE_LIMITS_KEY` by `agents/streaming.rs` whenever
+/// Codex emits an `account/rateLimits/updated` notification. Returns
+/// `Ok(None)` when no turn has run yet (fresh DB).
+#[tauri::command]
+pub async fn get_codex_rate_limits() -> CmdResult<Option<String>> {
+    run_blocking(|| settings::load_setting_value(settings::CODEX_RATE_LIMITS_KEY)).await
 }
 
 #[tauri::command]

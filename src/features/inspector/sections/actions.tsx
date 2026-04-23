@@ -23,7 +23,9 @@ import {
 	type ActionProvider,
 	type ActionStatusKind,
 	getWorkspacePrCheckInsertText,
+	loadRepoPreferences,
 	type PullRequestInfo,
+	type RepoPreferences,
 	type SyncWorkspaceTargetResponse,
 	syncWorkspaceWithTargetBranch,
 	type WorkspaceGitActionStatus,
@@ -36,8 +38,8 @@ import {
 	workspaceGitActionStatusQueryOptions,
 	workspacePrActionStatusQueryOptions,
 } from "@/lib/query-client";
+import { resolveRepoPreferencePrompt } from "@/lib/repo-preferences-prompts";
 import { cn } from "@/lib/utils";
-import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import {
 	INSPECTOR_SECTION_HEADER_CLASS,
 	INSPECTOR_SECTION_TITLE_CLASS,
@@ -91,20 +93,20 @@ const EMPTY_PR_ACTION_STATUS: WorkspacePrActionStatus = {
 
 type ActionsSectionProps = {
 	workspaceId: string | null;
+	repoId?: string | null;
 	workspaceRemote?: string | null;
 	sectionRef?: React.RefObject<HTMLElement | null>;
 	bodyHeight: number;
 	expanded: boolean;
 	onCommitAction?: (mode: WorkspaceCommitButtonMode) => Promise<void>;
 	currentSessionId?: string | null;
-	sendingSessionIds?: Set<string>;
 	onQueuePendingPromptForSession?: (request: {
 		sessionId: string;
 		prompt: string;
 		modelId?: string | null;
 		permissionMode?: string | null;
+		forceQueue?: boolean;
 	}) => void;
-	pushToast?: PushWorkspaceToast;
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
 	prInfo: PullRequestInfo | null;
@@ -112,6 +114,7 @@ type ActionsSectionProps = {
 
 function buildSyncResolutionPrompt(
 	result: SyncWorkspaceTargetResponse,
+	repoPreferences: RepoPreferences | null,
 	workspaceRemote?: string | null,
 ): string {
 	const remote = workspaceRemote?.trim();
@@ -126,24 +129,24 @@ function buildSyncResolutionPrompt(
 				? `${remote}/${targetBranch}`
 				: targetBranch;
 
-	if (result.outcome === "dirtyWorktree") {
-		return `Commit uncommitted changes, then merge ${targetRef} into this branch. Then push.`;
-	}
-
-	return `Merge ${targetRef} into this branch. Then push.`;
+	return resolveRepoPreferencePrompt({
+		key: "resolveConflicts",
+		repoPreferences,
+		targetRef,
+		dirtyWorktree: result.outcome === "dirtyWorktree",
+	});
 }
 
 export function ActionsSection({
 	workspaceId,
+	repoId,
 	workspaceRemote,
 	sectionRef,
 	bodyHeight,
 	expanded,
 	onCommitAction,
 	currentSessionId,
-	sendingSessionIds,
 	onQueuePendingPromptForSession,
-	pushToast,
 	commitButtonMode,
 	commitButtonState,
 	prInfo,
@@ -169,31 +172,27 @@ export function ActionsSection({
 		: Math.max(0, Math.round(bodyHeight * 0.3));
 	const actionDisabled = commitButtonState === "busy";
 	const queueSyncResolutionPrompt = useCallback(
-		(result: SyncWorkspaceTargetResponse) => {
+		async (result: SyncWorkspaceTargetResponse) => {
 			if (!currentSessionId || !onQueuePendingPromptForSession) {
 				return false;
 			}
-			if (sendingSessionIds?.has(currentSessionId)) {
-				pushToast?.(
-					"AI is still responding in the current chat. Wait for that reply to finish, then retry Pull so Helmor can send the merge task in this conversation.",
-					"AI is still responding",
-				);
-				return false;
-			}
-
+			const repoPreferences = repoId ? await loadRepoPreferences(repoId) : null;
+			// `forceQueue: true` — if a turn is already streaming, the
+			// prompt MUST queue (never steer), regardless of the user's
+			// followUpBehavior setting. The merge task is a fresh task,
+			// not a course correction for the current turn.
 			onQueuePendingPromptForSession({
 				sessionId: currentSessionId,
-				prompt: buildSyncResolutionPrompt(result, workspaceRemote),
+				prompt: buildSyncResolutionPrompt(
+					result,
+					repoPreferences,
+					workspaceRemote,
+				),
+				forceQueue: true,
 			});
 			return true;
 		},
-		[
-			currentSessionId,
-			onQueuePendingPromptForSession,
-			pushToast,
-			sendingSessionIds,
-			workspaceRemote,
-		],
+		[currentSessionId, onQueuePendingPromptForSession, repoId, workspaceRemote],
 	);
 	const handleSync = useCallback(async () => {
 		if (!workspaceId || syncPending) {
@@ -209,9 +208,9 @@ export function ActionsSection({
 			} else if (result.outcome === "alreadyUpToDate") {
 				toast(`Already up to date with ${target}`);
 			} else if (result.outcome === "conflict") {
-				queueSyncResolutionPrompt(result);
+				await queueSyncResolutionPrompt(result);
 			} else {
-				queueSyncResolutionPrompt(result);
+				await queueSyncResolutionPrompt(result);
 			}
 		} catch (error) {
 			const message =

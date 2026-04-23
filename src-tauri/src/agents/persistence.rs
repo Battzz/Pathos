@@ -34,20 +34,15 @@ pub(super) fn persist_user_message(
     conn.execute(
         r#"
             INSERT INTO session_messages (
-              id, session_id, role, content, created_at, sent_at,
-              model, last_assistant_message_id, turn_id,
-              is_resumable_message
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?8, 0)
+              id, session_id, role, content, created_at, sent_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
             "#,
         params![
             user_message_id,
             ctx.helmor_session_id,
             MessageRole::User,
             content,
-            now,
-            ctx.model_id,
-            ctx.assistant_sdk_message_id,
-            ctx.turn_id
+            now
         ],
     )?;
     Ok(())
@@ -60,7 +55,7 @@ pub(super) fn persist_turn_message(
     conn: &Connection,
     ctx: &ExchangeContext,
     turn: &CollectedTurn,
-    resolved_model: &str,
+    _resolved_model: &str,
 ) -> Result<String> {
     let now = current_timestamp_string()?;
     // Use the pre-assigned ID from the turn so streaming and historical
@@ -70,18 +65,15 @@ pub(super) fn persist_turn_message(
     conn.execute(
         r#"
             INSERT INTO session_messages (
-              id, session_id, role, content, created_at, sent_at,
-              model, turn_id, is_resumable_message
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, 0)
+              id, session_id, role, content, created_at, sent_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
             "#,
         params![
             msg_id,
             ctx.helmor_session_id,
             turn.role,
             turn.content_json,
-            now,
-            resolved_model,
-            ctx.turn_id
+            now
         ],
     )?;
     Ok(msg_id)
@@ -90,7 +82,7 @@ pub(super) fn persist_turn_message(
 pub(super) fn persist_error_message(
     conn: &Connection,
     ctx: &ExchangeContext,
-    resolved_model: &str,
+    _resolved_model: &str,
     message: &str,
 ) -> Result<String> {
     let now = current_timestamp_string()?;
@@ -104,18 +96,15 @@ pub(super) fn persist_error_message(
     conn.execute(
         r#"
             INSERT INTO session_messages (
-              id, session_id, role, content, created_at, sent_at,
-              model, turn_id, is_resumable_message
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, 0)
+              id, session_id, role, content, created_at, sent_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
             "#,
         params![
             msg_id,
             ctx.helmor_session_id,
             MessageRole::Error,
             payload,
-            now,
-            resolved_model,
-            ctx.turn_id
+            now
         ],
     )?;
 
@@ -125,7 +114,7 @@ pub(super) fn persist_error_message(
 pub(super) fn persist_exit_plan_message(
     conn: &Connection,
     ctx: &ExchangeContext,
-    resolved_model: &str,
+    _resolved_model: &str,
     tool_use_id: &str,
     tool_name: &str,
     tool_input: &Value,
@@ -154,18 +143,15 @@ pub(super) fn persist_exit_plan_message(
     conn.execute(
         r#"
             INSERT INTO session_messages (
-              id, session_id, role, content, created_at, sent_at,
-              model, turn_id, is_resumable_message
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, 0)
+              id, session_id, role, content, created_at, sent_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
             "#,
         params![
             msg_id,
             ctx.helmor_session_id,
             MessageRole::Assistant,
             payload.to_string(),
-            now,
-            resolved_model,
-            ctx.turn_id
+            now
         ],
     )?;
 
@@ -180,7 +166,7 @@ pub(super) fn persist_exit_plan_message(
 pub(super) fn persist_result_and_finalize(
     conn: &Connection,
     ctx: &ExchangeContext,
-    resolved_model: &str,
+    _resolved_model: &str,
     assistant_text: &str,
     effort_level: Option<&str>,
     permission_mode: Option<&str>,
@@ -211,19 +197,14 @@ pub(super) fn persist_result_and_finalize(
     transaction.execute(
         r#"
             INSERT INTO session_messages (
-              id, session_id, role, content, created_at, sent_at,
-              model, sdk_message_id, turn_id,
-              is_resumable_message
-            ) VALUES (?1, ?2, 'assistant', ?3, ?4, ?4, ?5, ?6, ?7, 0)
+              id, session_id, role, content, created_at, sent_at
+            ) VALUES (?1, ?2, 'assistant', ?3, ?4, ?4)
             "#,
         params![
             result_message_id,
             ctx.helmor_session_id,
             result_payload,
-            now,
-            resolved_model,
-            ctx.assistant_sdk_message_id,
-            ctx.turn_id
+            now
         ],
     )?;
 
@@ -310,10 +291,6 @@ fn finalize_session_metadata_in_transaction(
     Ok(())
 }
 
-pub(super) fn open_write_connection() -> Result<Connection> {
-    crate::models::db::open_connection(true)
-}
-
 fn current_timestamp_string() -> Result<String> {
     crate::models::db::current_timestamp()
 }
@@ -325,10 +302,8 @@ mod tests {
     fn test_exchange_context() -> ExchangeContext {
         ExchangeContext {
             helmor_session_id: "session-1".to_string(),
-            turn_id: "turn-1".to_string(),
             model_id: "gpt-5.4".to_string(),
             model_provider: "codex".to_string(),
-            assistant_sdk_message_id: "assistant-1".to_string(),
             user_message_id: "user-1".to_string(),
         }
     }
@@ -344,13 +319,7 @@ mod tests {
                 role TEXT,
                 content TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                sent_at TEXT,
-                cancelled_at TEXT,
-                model TEXT,
-                sdk_message_id TEXT,
-                last_assistant_message_id TEXT,
-                turn_id TEXT,
-                is_resumable_message INTEGER
+                sent_at TEXT
             );
             "#,
         )
@@ -360,17 +329,15 @@ mod tests {
         let message_id =
             persist_error_message(&conn, &ctx, "gpt-5.4", "Reconnecting... 1/5").unwrap();
 
-        let (role, content, model, turn_id): (String, String, String, String) = conn
+        let (role, content): (String, String) = conn
             .query_row(
-                "SELECT role, content, model, turn_id FROM session_messages WHERE id = ?1",
+                "SELECT role, content FROM session_messages WHERE id = ?1",
                 [message_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
 
         assert_eq!(role, "error");
-        assert_eq!(model, "gpt-5.4");
-        assert_eq!(turn_id, "turn-1");
         assert_eq!(
             serde_json::from_str::<Value>(&content).unwrap(),
             json!({

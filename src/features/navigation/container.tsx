@@ -7,7 +7,6 @@ type WorkspaceToastVariant = "default" | "destructive";
 type WorkspacesSidebarContainerProps = {
 	selectedWorkspaceId: string | null;
 	sendingWorkspaceIds?: Set<string>;
-	completedWorkspaceIds?: Set<string>;
 	interactionRequiredWorkspaceIds?: Set<string>;
 	onSelectWorkspace: (workspaceId: string | null) => void;
 	pushWorkspaceToast: (
@@ -25,7 +24,6 @@ export const WorkspacesSidebarContainer = memo(
 	function WorkspacesSidebarContainer({
 		selectedWorkspaceId,
 		sendingWorkspaceIds,
-		completedWorkspaceIds,
 		interactionRequiredWorkspaceIds,
 		onSelectWorkspace,
 		pushWorkspaceToast,
@@ -36,17 +34,22 @@ export const WorkspacesSidebarContainer = memo(
 			archivedRows,
 			availableRepositories,
 			creatingWorkspaceRepoId,
+			cloneDefaultDirectory,
 			groups,
 			handleAddRepository,
 			handleArchiveWorkspace,
+			handleCloneFromUrl,
 			handleCreateWorkspaceFromRepo,
 			handleDeleteWorkspace,
 			handleMarkWorkspaceUnread,
+			handleOpenCloneDialog,
 			handleRestoreWorkspace,
 			handleSelectWorkspace,
 			handleSetManualStatus,
 			handleTogglePin,
+			isCloneDialogOpen,
 			prefetchWorkspace,
+			setIsCloneDialogOpen,
 		} = useWorkspacesSidebarController({
 			selectedWorkspaceId,
 			onSelectWorkspace,
@@ -62,12 +65,16 @@ export const WorkspacesSidebarContainer = memo(
 				archivingWorkspaceIds={archivingWorkspaceIds}
 				selectedWorkspaceId={selectedWorkspaceId}
 				sendingWorkspaceIds={sendingWorkspaceIds}
-				completedWorkspaceIds={completedWorkspaceIds}
 				interactionRequiredWorkspaceIds={interactionRequiredWorkspaceIds}
 				creatingWorkspaceRepoId={creatingWorkspaceRepoId}
 				onAddRepository={() => {
 					void handleAddRepository();
 				}}
+				onOpenCloneDialog={handleOpenCloneDialog}
+				isCloneDialogOpen={isCloneDialogOpen}
+				onCloneDialogOpenChange={setIsCloneDialogOpen}
+				cloneDefaultDirectory={cloneDefaultDirectory}
+				onSubmitClone={handleCloneFromUrl}
 				onSelectWorkspace={handleSelectWorkspace}
 				onPrefetchWorkspace={prefetchWorkspace}
 				onCreateWorkspace={(repoId) => {

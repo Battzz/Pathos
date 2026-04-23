@@ -9,13 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createSidecarEmitter, type SidecarEmitter } from "../src/emitter.js";
@@ -464,37 +458,101 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		expect(captured.some((e) => e.type === "aborted")).toBe(false);
 	});
 
-	test("adds worktree git metadata directories to Claude query options", async () => {
-		const workspaceDir = makeTempDir("helmor-claude-worktree-");
-		const repoRoot = makeTempDir("helmor-claude-repo-");
-		const gitCommonDir = resolve(repoRoot, ".git");
-		const gitDir = resolve(gitCommonDir, "worktrees", "alnitak");
-
-		mkdirSync(gitDir, { recursive: true });
-		writeFileSync(resolve(workspaceDir, ".git"), `gitdir: ${gitDir}\n`);
-		writeFileSync(resolve(gitDir, "commondir"), "../../\n");
+	test("forwards only user-linked directories to Claude query options", async () => {
+		const userDirA = makeTempDir("helmor-claude-user-a-");
+		const userDirB = makeTempDir("helmor-claude-user-b-");
 
 		mockQueryImpl = () => asyncIterableFrom([{ type: "result", result: "ok" }]);
 
 		await manager.sendMessage(
-			"REQ-WORKTREE",
+			"REQ-USER-LINKED",
 			{
-				sessionId: "s-worktree",
-				prompt: "commit the changes",
+				sessionId: "s-user-linked",
+				prompt: "ok",
 				model: "opus-1m",
-				cwd: workspaceDir,
+				cwd: undefined,
 				resume: undefined,
 				permissionMode: "bypassPermissions",
 				effortLevel: undefined,
 				fastMode: undefined,
+				// Include a duplicate to confirm Claude now forwards the
+				// caller-provided list directly without extra normalization.
+				additionalDirectories: [userDirA, userDirA, userDirB],
 			},
 			emitter,
 		);
 
 		expect(lastQueryArgs).toMatchObject({
 			options: {
+				additionalDirectories: [userDirA, userDirA, userDirB],
+				env: {
+					CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1",
+				},
+			},
+		});
+	});
+
+	test("prepends the linked-directories preamble to Claude's first user message", async () => {
+		const linkedDirA = makeTempDir("helmor-claude-prompt-a-");
+		const linkedDirB = makeTempDir("helmor-claude-prompt-b-");
+
+		mockQueryImpl = () => asyncIterableFrom([{ type: "result", result: "ok" }]);
+
+		await manager.sendMessage(
+			"REQ-PREAMBLE",
+			{
+				sessionId: "s-preamble",
+				prompt: "summarize what's in these projects",
+				model: "opus-1m",
+				cwd: undefined,
+				resume: undefined,
+				permissionMode: "bypassPermissions",
+				effortLevel: undefined,
+				fastMode: undefined,
+				additionalDirectories: [linkedDirA, linkedDirB],
+			},
+			emitter,
+		);
+
+		const promptSource = (
+			lastQueryArgs as {
+				prompt?: AsyncIterable<{
+					type?: string;
+					message?: { role?: string; content?: string };
+				}>;
+			}
+		).prompt;
+		const firstMessage = promptSource
+			? await promptSource[Symbol.asyncIterator]().next()
+			: null;
+		const content = firstMessage?.value?.message?.content ?? "";
+
+		expect(content).toContain(linkedDirA);
+		expect(content).toContain(linkedDirB);
+		expect(content).toContain("summarize what's in these projects");
+	});
+
+	test("listSlashCommands forwards additionalDirectories and env", async () => {
+		const workspaceDir = makeTempDir("helmor-claude-slash-");
+		const linkedDir = makeTempDir("helmor-claude-slash-linked-");
+
+		mockQueryImpl = () =>
+			makeMockQuery({
+				supportedCommands: async () => [],
+			});
+
+		await manager.listSlashCommands({
+			cwd: workspaceDir,
+			additionalDirectories: [linkedDir],
+		});
+
+		expect(lastQueryArgs).toMatchObject({
+			options: {
 				cwd: workspaceDir,
-				additionalDirectories: [gitDir, gitCommonDir],
+				additionalDirectories: [linkedDir],
+				env: {
+					CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1",
+				},
 			},
 		});
 	});

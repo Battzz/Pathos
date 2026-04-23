@@ -18,10 +18,19 @@ export interface SendMessageParams {
 	readonly permissionMode: string | undefined;
 	readonly effortLevel: string | undefined;
 	readonly fastMode: boolean | undefined;
+	/**
+	 * Extra directories the user linked via `/add-dir`. Passed to Claude as
+	 * `additionalDirectories`; merged into Codex's per-turn `sandboxPolicy`
+	 * writable roots when the session is in plan mode. Absent for sessions
+	 * with no linked dirs so callers don't need to hand-populate empty
+	 * arrays everywhere.
+	 */
+	readonly additionalDirectories?: readonly string[];
 }
 
 export interface ListSlashCommandsParams {
 	readonly cwd: string | undefined;
+	readonly additionalDirectories?: readonly string[];
 }
 
 /**
@@ -95,6 +104,7 @@ export interface SessionManager {
 	generateTitle(
 		requestId: string,
 		userMessage: string,
+		branchRenamePrompt: string | null,
 		emitter: SidecarEmitter,
 		timeoutMs?: number,
 	): Promise<void>;
@@ -116,6 +126,20 @@ export interface SessionManager {
 	 * Abort an in-flight session by id. No-op if the session is not active.
 	 */
 	stopSession(sessionId: string): Promise<void>;
+
+	/**
+	 * Inject an additional user message into an in-flight turn (real
+	 * mid-turn steer). Returns `true` when the input was delivered to
+	 * the provider, `false` when no active turn exists for `sessionId`.
+	 * Implementations MUST confirm provider acceptance before emitting
+	 * any pipeline event — a failed steer must not pollute the stream.
+	 * Throws on SDK-level rejection.
+	 */
+	steer(
+		sessionId: string,
+		prompt: string,
+		files: readonly string[],
+	): Promise<boolean>;
 
 	/**
 	 * Tear down every in-flight session this manager owns. Called when the

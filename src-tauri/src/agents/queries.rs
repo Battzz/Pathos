@@ -1,6 +1,5 @@
 use std::sync::Mutex;
 
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
@@ -29,6 +28,8 @@ pub struct GenerateSessionTitleResponse {
 /// another 30 s, so keep a small buffer here for request handoff and delivery.
 const TITLE_GEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(65);
 
+type WorkspaceInfo = (String, String, Option<String>, String, Option<String>);
+
 fn can_replace_session_title(current_title: &str, title_seed: Option<&str>) -> bool {
     current_title == "Untitled"
         || title_seed
@@ -43,7 +44,7 @@ pub async fn generate_session_title(
     request: GenerateSessionTitleRequest,
 ) -> CmdResult<GenerateSessionTitleResponse> {
     let connection =
-        open_write_connection().map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
+        crate::models::db::read_conn().map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
     let (current_title, action_kind): (String, Option<super::ActionKind>) = connection
         .query_row(
             "SELECT title, action_kind FROM sessions WHERE id = ?1",
@@ -62,24 +63,29 @@ pub async fn generate_session_title(
         "generate_session_title title gating resolved"
     );
 
-    let workspace_info: Option<(String, Option<String>, String, Option<String>)> =
-        if action_kind.is_none() {
-            let sql = format!(
-                r#"SELECT w.id, r.root_path, w.directory_name, w.branch
+    let workspace_info: Option<WorkspaceInfo> = if action_kind.is_none() {
+        let sql = format!(
+            r#"SELECT w.id, r.id, r.root_path, w.directory_name, w.branch
                    FROM workspaces w
                    JOIN repos r ON r.id = w.repository_id
                    JOIN sessions s ON s.workspace_id = w.id
                    WHERE s.id = ?1 AND w.state {}"#,
-                workspace_state::OPERATIONAL_FILTER,
-            );
-            connection
-                .query_row(&sql, [&request.session_id], |row| {
-                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-                })
-                .ok()
-        } else {
-            None
-        };
+            workspace_state::OPERATIONAL_FILTER,
+        );
+        connection
+            .query_row(&sql, [&request.session_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .ok()
+    } else {
+        None
+    };
 
     let branch_settings = crate::settings::load_branch_prefix_settings().unwrap_or(
         crate::settings::BranchPrefixSettings {
@@ -91,7 +97,7 @@ pub async fn generate_session_title(
     let should_generate_branch =
         workspace_info
             .as_ref()
-            .is_some_and(|(_, _, directory_name, branch)| {
+            .is_some_and(|(_, _, _, directory_name, branch)| {
                 branch.as_deref().is_some_and(|current_branch| {
                     crate::helpers::is_default_branch_name(
                         current_branch,
@@ -100,6 +106,12 @@ pub async fn generate_session_title(
                     )
                 })
             });
+
+    let branch_rename_prompt = workspace_info
+        .as_ref()
+        .and_then(|(_, repo_id, _, _, _)| crate::repos::load_repo_preferences(repo_id).ok())
+        .and_then(|preferences| preferences.branch_rename)
+        .filter(|value| !value.trim().is_empty());
 
     if !should_generate_title && !should_generate_branch {
         tracing::debug!(
@@ -119,6 +131,7 @@ pub async fn generate_session_title(
         method: "generateTitle".to_string(),
         params: serde_json::json!({
             "userMessage": request.user_message,
+            "branchRenamePrompt": branch_rename_prompt,
         }),
     };
 
@@ -198,8 +211,8 @@ pub async fn generate_session_title(
     let mut title_renamed = false;
     if should_generate_title {
         if let Some(ref title) = generated_title {
-            let connection =
-                open_write_connection().map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
+            let connection = crate::models::db::read_conn()
+                .map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
             let latest_title: String = connection
                 .query_row(
                     "SELECT title FROM sessions WHERE id = ?1",
@@ -232,26 +245,28 @@ pub async fn generate_session_title(
 
     let mut branch_renamed = false;
     if should_generate_branch {
-        if let (Some(branch_segment), Some((workspace_id, root_path, directory_name, _))) =
+        if let (Some(branch_segment), Some((workspace_id, _, root_path, directory_name, _))) =
             (generated_branch.as_deref(), workspace_info)
         {
             // Acquire per-workspace lock so concurrent title-gens serialise
             // their branch renames instead of racing on `git branch -m`.
-            let ws_lock = crate::models::db::workspace_mutation_lock(&workspace_id);
+            let ws_lock = crate::models::db::workspace_fs_mutation_lock(&workspace_id);
             let _guard = ws_lock.lock().await;
 
             // Re-read branch under lock to avoid TOCTOU: if another title-gen
             // already renamed the branch, we'll see the updated value and skip.
-            let connection =
-                open_write_connection().map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
-            let old_branch: Option<String> = connection
-                .query_row(
-                    "SELECT branch FROM workspaces WHERE id = ?1",
-                    [&workspace_id],
-                    |row| row.get(0),
-                )
-                .ok()
-                .flatten();
+            let old_branch: Option<String> = {
+                let read_conn = crate::models::db::read_conn()
+                    .map_err(|e| anyhow::anyhow!("Failed to open DB: {e}"))?;
+                read_conn
+                    .query_row(
+                        "SELECT branch FROM workspaces WHERE id = ?1",
+                        [&workspace_id],
+                        |row| row.get(0),
+                    )
+                    .ok()
+                    .flatten()
+            };
 
             if !old_branch.as_deref().is_some_and(|b| {
                 crate::helpers::is_default_branch_name(b, &directory_name, &branch_settings)
@@ -307,10 +322,14 @@ pub async fn generate_session_title(
                     };
 
                     if fs_rename_ok {
-                        if let Err(error) = connection.execute(
-                            "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
-                            (&new_branch, &workspace_id),
-                        ) {
+                        let write_result = crate::models::db::write_conn().and_then(|conn| {
+                            conn.execute(
+                                "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
+                                (&new_branch, &workspace_id),
+                            )
+                            .map_err(|e| anyhow::anyhow!(e))
+                        });
+                        if let Err(error) = write_result {
                             tracing::error!(workspace_id = %workspace_id, "DB UPDATE workspaces.branch failed: {error:#}");
                             if fs_rename_attempted {
                                 if let (Some(ref old_name), Some(ref repo_root)) =
@@ -377,6 +396,7 @@ fn deduplicate_branch_name(base: &str, repo_root: &std::path::Path) -> String {
 pub struct ListSlashCommandsRequest {
     pub provider: String,
     pub working_directory: Option<String>,
+    pub workspace_id: Option<String>,
     /// Repo id of the workspace — used to serve a repo-level fallback when the
     /// exact workspace cache is cold (different workspaces on the same repo
     /// usually share the same skill directories).
@@ -410,10 +430,14 @@ pub async fn list_slash_commands(
 ) -> CmdResult<SlashCommandsResponse> {
     let cwd = request.working_directory.as_deref().unwrap_or("");
     let repo_id = request.repo_id.as_deref().unwrap_or("");
+    let additional_directories =
+        lookup_workspace_linked_directories_for_commands(request.workspace_id.as_deref());
     tracing::debug!(
         provider = %request.provider,
         cwd,
+        workspace_id = request.workspace_id.as_deref().unwrap_or(""),
         repo_id,
+        linked_dir_count = additional_directories.len(),
         "list_slash_commands request"
     );
 
@@ -425,7 +449,7 @@ pub async fn list_slash_commands(
             cwd,
             "list_slash_commands: cwd missing, returning empty (cached repo fallback may still apply)"
         );
-        if !repo_id.is_empty() {
+        if additional_directories.is_empty() && !repo_id.is_empty() {
             let rkey = super::slash_commands::repo_key(&request.provider, repo_id);
             if let Some(commands) = cache.get_repo(&rkey) {
                 return Ok(SlashCommandsResponse { commands });
@@ -439,6 +463,7 @@ pub async fn list_slash_commands(
     let ws_key = super::slash_commands::workspace_key(
         &request.provider,
         request.working_directory.as_deref(),
+        &additional_directories,
     );
 
     // 1. Workspace-level exact hit → return instantly + SWR refresh.
@@ -448,7 +473,7 @@ pub async fn list_slash_commands(
     }
 
     // 2. Repo-level fallback → return stale-but-plausible + SWR refresh.
-    if !repo_id.is_empty() {
+    if additional_directories.is_empty() && !repo_id.is_empty() {
         let rkey = super::slash_commands::repo_key(&request.provider, repo_id);
         if let Some(commands) = cache.get_repo(&rkey) {
             tracing::debug!(
@@ -470,7 +495,7 @@ pub async fn list_slash_commands(
         repo_id,
         "list_slash_commands cache miss; fetching full result synchronously"
     );
-    let commands = fetch_from_sidecar(&sidecar, &request)?;
+    let commands = fetch_from_sidecar(&sidecar, &request, &additional_directories)?;
     tracing::debug!(
         provider = %request.provider,
         cwd,
@@ -480,6 +505,23 @@ pub async fn list_slash_commands(
     );
     cache.set(ws_key, request.repo_id.as_deref(), commands.clone());
     Ok(SlashCommandsResponse { commands })
+}
+
+fn lookup_workspace_linked_directories_for_commands(workspace_id: Option<&str>) -> Vec<String> {
+    let Some(workspace_id) = workspace_id else {
+        return Vec::new();
+    };
+    match crate::workspaces::get_workspace_linked_directories(workspace_id) {
+        Ok(dirs) => dirs,
+        Err(err) => {
+            tracing::warn!(
+                workspace_id,
+                error = %err,
+                "Failed to load linked directories for slash commands; falling back to empty list"
+            );
+            Vec::new()
+        }
+    }
 }
 
 /// Prewarm the slash-command cache for a single workspace (both providers).
@@ -526,7 +568,7 @@ pub fn prewarm_slash_command_cache_for_workspace(app: &AppHandle, workspace_id: 
                 );
                 return;
             };
-            dispatch_prewarm_for(&app, root_path, &record.repo_id);
+            dispatch_prewarm_for(&app, &workspace_id, root_path, &record.repo_id);
         });
 }
 
@@ -554,19 +596,28 @@ pub fn prewarm_slash_command_cache(app: &AppHandle) {
         });
 }
 
-fn dispatch_prewarm_for(app: &AppHandle, root_path: &str, repo_id: &str) {
+fn dispatch_prewarm_for(app: &AppHandle, workspace_id: &str, root_path: &str, repo_id: &str) {
     let cache: tauri::State<'_, super::slash_commands::SlashCommandCache> = app.state();
+    let additional_directories =
+        lookup_workspace_linked_directories_for_commands(Some(workspace_id));
     for provider in ["claude", "codex"] {
         let request = ListSlashCommandsRequest {
             provider: provider.to_string(),
             working_directory: Some(root_path.to_string()),
+            workspace_id: Some(workspace_id.to_string()),
             repo_id: Some(repo_id.to_string()),
         };
-        let ws_key = super::slash_commands::workspace_key(provider, Some(root_path));
+        let ws_key = super::slash_commands::workspace_key(
+            provider,
+            Some(root_path),
+            &additional_directories,
+        );
         tracing::debug!(
             provider,
+            workspace_id,
             cwd = root_path,
             repo_id,
+            linked_dir_count = additional_directories.len(),
             "Slash-command prewarm dispatching background refresh"
         );
         spawn_background_refresh(app, &cache, &request, ws_key);
@@ -578,6 +629,7 @@ fn dispatch_prewarm_for(app: &AppHandle, root_path: &str, repo_id: &str) {
 fn fetch_from_sidecar(
     sidecar: &crate::sidecar::ManagedSidecar,
     request: &ListSlashCommandsRequest,
+    additional_directories: &[String],
 ) -> CmdResult<Vec<SlashCommandEntry>> {
     let request_id = Uuid::new_v4().to_string();
 
@@ -585,6 +637,18 @@ fn fetch_from_sidecar(
     params.insert("provider".into(), Value::String(request.provider.clone()));
     if let Some(cwd) = request.working_directory.as_ref() {
         params.insert("cwd".into(), Value::String(cwd.clone()));
+    }
+    if !additional_directories.is_empty() {
+        params.insert(
+            "additionalDirectories".into(),
+            Value::Array(
+                additional_directories
+                    .iter()
+                    .cloned()
+                    .map(Value::String)
+                    .collect(),
+            ),
+        );
     }
 
     let sidecar_req = crate::sidecar::SidecarRequest {
@@ -704,12 +768,15 @@ fn spawn_background_refresh(
             let sidecar_state: tauri::State<'_, crate::sidecar::ManagedSidecar> = app.state();
             let cache_state: tauri::State<'_, super::slash_commands::SlashCommandCache> =
                 app.state();
+            let additional_directories =
+                lookup_workspace_linked_directories_for_commands(request.workspace_id.as_deref());
 
-            match fetch_from_sidecar(&sidecar_state, &request) {
+            match fetch_from_sidecar(&sidecar_state, &request, &additional_directories) {
                 Ok(commands) => {
                     tracing::debug!(
                         provider = %request.provider,
                         cwd = request.working_directory.as_deref().unwrap_or(""),
+                        linked_dir_count = additional_directories.len(),
                         count = commands.len(),
                         "Background slash command refresh succeeded"
                     );
@@ -724,10 +791,6 @@ fn spawn_background_refresh(
             cache_state.finish_refresh(&refresh_key);
         })
         .ok();
-}
-
-fn open_write_connection() -> Result<rusqlite::Connection> {
-    crate::models::db::open_connection(true)
 }
 
 // ---------------------------------------------------------------------------

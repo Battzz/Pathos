@@ -31,20 +31,17 @@ fn create_workspace_from_repo_creates_ready_workspace_and_initial_session() {
     assert!(workspace_dir.join(".context/attachments").is_dir());
 
     let connection = Connection::open(harness.db_path()).unwrap();
-    let (
-        state,
-        branch,
-        placeholder_branch_name,
-        initialization_parent_branch,
-        intended_target_branch,
-        initialization_files_copied,
-        active_session_id,
-    ): (String, String, String, String, String, i64, String) = connection
+    let (state, branch, initialization_parent_branch, intended_target_branch, active_session_id): (
+        String,
+        String,
+        String,
+        String,
+        String,
+    ) = connection
         .query_row(
             r#"
-            SELECT state, branch, placeholder_branch_name, initialization_parent_branch,
-              intended_target_branch, initialization_files_copied,
-              active_session_id
+            SELECT state, branch, initialization_parent_branch,
+              intended_target_branch, active_session_id
             FROM workspaces WHERE id = ?1
             "#,
             [&response.created_workspace_id],
@@ -55,23 +52,20 @@ fn create_workspace_from_repo_creates_ready_workspace_and_initial_session() {
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
                 ))
             },
         )
         .unwrap();
-    let (session_title, session_model, session_agent_type, session_permission_mode, thinking_enabled): (
+    let (session_title, session_model, session_agent_type, session_permission_mode): (
         String,
         Option<String>,
         Option<String>,
         String,
-        i64,
     ) = connection
         .query_row(
-            "SELECT title, model, agent_type, permission_mode, thinking_enabled FROM sessions WHERE id = ?1",
+            "SELECT title, model, agent_type, permission_mode FROM sessions WHERE id = ?1",
             [&active_session_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .unwrap();
 
@@ -80,10 +74,8 @@ fn create_workspace_from_repo_creates_ready_workspace_and_initial_session() {
         branch.starts_with("testuser/"),
         "Expected testuser/ prefix, got: {branch}"
     );
-    assert_eq!(branch, placeholder_branch_name);
     assert_eq!(initialization_parent_branch, "main");
     assert_eq!(intended_target_branch, "main");
-    assert!(initialization_files_copied > 0);
     assert_eq!(response.initial_session_id, active_session_id);
     assert_eq!(session_title, "Untitled");
     assert_eq!(session_model, None, "new session should have no model");
@@ -92,21 +84,21 @@ fn create_workspace_from_repo_creates_ready_workspace_and_initial_session() {
         "new session should have no agent_type"
     );
     assert_eq!(session_permission_mode, "default");
-    assert_eq!(thinking_enabled, 1);
 }
 
 #[test]
-fn create_workspace_from_repo_defers_setup_when_script_configured() {
+fn create_workspace_from_repo_defers_setup_when_script_configured_by_default() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let harness = CreateTestHarness::new();
 
+    // Setup script configured. auto_run_setup defaults to true (DB default
+    // 1), so the workspace defers to the frontend inspector for auto-run.
     harness.commit_repo_files(&[("helmor.json", r#"{"scripts":{"setup":"echo hello"}}"#)]);
 
     let response = workspaces::create_workspace_from_repo_impl(&harness.repo_id).unwrap();
 
-    // Setup script detected → deferred to frontend inspector.
     assert_eq!(response.created_state, WorkspaceState::SetupPending);
 
     let connection = Connection::open(harness.db_path()).unwrap();
@@ -118,6 +110,22 @@ fn create_workspace_from_repo_defers_setup_when_script_configured() {
         )
         .unwrap();
     assert_eq!(state, "setup_pending");
+}
+
+#[test]
+fn create_workspace_from_repo_stays_ready_when_auto_run_setup_disabled() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = CreateTestHarness::new();
+
+    harness.commit_repo_files(&[("helmor.json", r#"{"scripts":{"setup":"echo hello"}}"#)]);
+    repos::update_repo_auto_run_setup(&harness.repo_id, false).unwrap();
+
+    let response = workspaces::create_workspace_from_repo_impl(&harness.repo_id).unwrap();
+
+    // User opted out → workspace lands in Ready; setup runs manually.
+    assert_eq!(response.created_state, WorkspaceState::Ready);
 }
 
 #[test]
@@ -276,12 +284,32 @@ fn finalize_workspace_reports_setup_pending_when_helmor_json_has_setup() {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let harness = CreateTestHarness::new();
 
+    // Default behavior: auto_run_setup=true, helmor.json sets a setup script
+    // → workspace defers to frontend inspector.
     harness.commit_repo_files(&[("helmor.json", r#"{"scripts":{"setup":"echo hi"}}"#)]);
 
     let prepared = workspaces::prepare_workspace_from_repo_impl(&harness.repo_id).unwrap();
     let finalized = workspaces::finalize_workspace_from_repo_impl(&prepared.workspace_id).unwrap();
 
     assert_eq!(finalized.final_state, WorkspaceState::SetupPending);
+}
+
+#[test]
+fn finalize_workspace_stays_ready_when_helmor_json_has_setup_but_auto_run_disabled() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = CreateTestHarness::new();
+
+    harness.commit_repo_files(&[("helmor.json", r#"{"scripts":{"setup":"echo hi"}}"#)]);
+    repos::update_repo_auto_run_setup(&harness.repo_id, false).unwrap();
+
+    let prepared = workspaces::prepare_workspace_from_repo_impl(&harness.repo_id).unwrap();
+    let finalized = workspaces::finalize_workspace_from_repo_impl(&prepared.workspace_id).unwrap();
+
+    // User opted out → setup script is configured but the workspace lands
+    // in Ready; user must run setup manually.
+    assert_eq!(finalized.final_state, WorkspaceState::Ready);
 }
 
 #[test]
@@ -586,8 +614,8 @@ fn delete_workspace_and_session_rows_leaves_other_workspaces_intact() {
     let drop = workspaces::prepare_workspace_from_repo_impl(&harness.repo_id).unwrap();
     workspaces::finalize_workspace_from_repo_impl(&drop.workspace_id).unwrap();
 
-    // Plant a session_message + attachment on each so the cascade is
-    // observable across every dependent table.
+    // Plant a session_message on each so the cascade is observable across
+    // every dependent table.
     let connection = Connection::open(harness.db_path()).unwrap();
     let now = crate::models::db::current_timestamp().unwrap();
     for (session_id, workspace_id) in [
@@ -605,56 +633,40 @@ fn delete_workspace_and_session_rows_leaves_other_workspaces_intact() {
                 ),
             )
             .unwrap();
-        connection
-            .execute(
-                "INSERT INTO attachments (id, session_id, is_draft, created_at)
-                 VALUES (?1, ?2, 0, ?3)",
-                (
-                    format!("att-{workspace_id}"),
-                    session_id.as_str(),
-                    now.as_str(),
-                ),
-            )
-            .unwrap();
     }
 
     crate::models::workspaces::delete_workspace_and_session_rows(&drop.workspace_id).unwrap();
 
     // Dropped workspace + everything under it is gone.
-    let (dropped_ws, dropped_sessions, dropped_msgs, dropped_atts): (i64, i64, i64, i64) =
-        connection
-            .query_row(
-                "SELECT
+    let (dropped_ws, dropped_sessions, dropped_msgs): (i64, i64, i64) = connection
+        .query_row(
+            "SELECT
                     (SELECT COUNT(*) FROM workspaces WHERE id = ?1),
                     (SELECT COUNT(*) FROM sessions WHERE workspace_id = ?1),
-                    (SELECT COUNT(*) FROM session_messages WHERE session_id = ?2),
-                    (SELECT COUNT(*) FROM attachments WHERE session_id = ?2)",
-                [&drop.workspace_id, &drop.initial_session_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )
-            .unwrap();
+                    (SELECT COUNT(*) FROM session_messages WHERE session_id = ?2)",
+            [&drop.workspace_id, &drop.initial_session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
     assert_eq!(dropped_ws, 0);
     assert_eq!(dropped_sessions, 0);
     assert_eq!(dropped_msgs, 0);
-    assert_eq!(dropped_atts, 0);
 
     // Sibling workspace is fully intact — cascade must not leak across
     // workspace_id.
-    let (kept_ws, kept_sessions, kept_msgs, kept_atts): (i64, i64, i64, i64) = connection
+    let (kept_ws, kept_sessions, kept_msgs): (i64, i64, i64) = connection
         .query_row(
             "SELECT
                 (SELECT COUNT(*) FROM workspaces WHERE id = ?1),
                 (SELECT COUNT(*) FROM sessions WHERE workspace_id = ?1),
-                (SELECT COUNT(*) FROM session_messages WHERE session_id = ?2),
-                (SELECT COUNT(*) FROM attachments WHERE session_id = ?2)",
+                (SELECT COUNT(*) FROM session_messages WHERE session_id = ?2)",
             [&keep.workspace_id, &keep.initial_session_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .unwrap();
     assert_eq!(kept_ws, 1);
     assert_eq!(kept_sessions, 1);
     assert_eq!(kept_msgs, 1);
-    assert_eq!(kept_atts, 1);
 }
 
 #[test]

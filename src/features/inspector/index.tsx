@@ -6,7 +6,6 @@ import type {
 import type { PullRequestInfo } from "@/lib/api";
 import type { DiffOpenOptions } from "@/lib/editor-session";
 import { cn } from "@/lib/utils";
-import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import { useWorkspaceInspectorSidebar } from "./hooks/use-inspector";
 import { useScriptStatus } from "./hooks/use-script-status";
 import { useSetupAutoRun } from "./hooks/use-setup-auto-run";
@@ -19,26 +18,25 @@ import { SetupTab } from "./sections/setup";
 
 type WorkspaceInspectorSidebarProps = {
 	workspaceId?: string | null;
+	repoId?: string | null;
 	workspaceRootPath?: string | null;
 	workspaceBranch?: string | null;
 	workspaceTargetBranch?: string | null;
 	workspaceRemote?: string | null;
 	workspaceState?: string | null;
-	repoId?: string | null;
 	editorMode: boolean;
 	activeEditorPath?: string | null;
 	onOpenEditorFile(path: string, options?: DiffOpenOptions): void;
 	onOpenMockReview?: (path: string) => void;
 	onCommitAction?: (mode: WorkspaceCommitButtonMode) => Promise<void>;
 	currentSessionId?: string | null;
-	sendingSessionIds?: Set<string>;
 	onQueuePendingPromptForSession?: (request: {
 		sessionId: string;
 		prompt: string;
 		modelId?: string | null;
 		permissionMode?: string | null;
+		forceQueue?: boolean;
 	}) => void;
-	pushToast?: PushWorkspaceToast;
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
 	prInfo?: PullRequestInfo | null;
@@ -57,9 +55,7 @@ export function WorkspaceInspectorSidebar({
 	onOpenEditorFile,
 	onCommitAction,
 	currentSessionId,
-	sendingSessionIds,
 	onQueuePendingPromptForSession,
-	pushToast,
 	commitButtonMode,
 	commitButtonState,
 	prInfo,
@@ -124,6 +120,17 @@ export function WorkspaceInspectorSidebar({
 		!!repoScripts?.runScript?.trim(),
 	);
 
+	// Only allow hover-to-zoom when the active tab has real terminal output.
+	// "idle" = script configured but never run; "no-script" = nothing to run.
+	// In both cases the body is a placeholder (Run / Open-settings button)
+	// that doesn't benefit from — and shouldn't trigger — the enlargement.
+	const activeTabState =
+		activeTab === "setup" ? setupScriptState : runScriptState;
+	const canHoverExpand =
+		activeTabState === "running" ||
+		activeTabState === "success" ||
+		activeTabState === "failure";
+
 	const handleOpenSettings = onOpenSettings ?? (() => {});
 
 	return (
@@ -157,15 +164,14 @@ export function WorkspaceInspectorSidebar({
 
 			<ActionsSection
 				workspaceId={workspaceId ?? null}
+				repoId={repoId ?? null}
 				workspaceRemote={workspaceRemote ?? null}
 				sectionRef={actionsRef}
 				bodyHeight={actionsHeight}
 				expanded={!tabsOpen}
 				onCommitAction={onCommitAction}
 				currentSessionId={currentSessionId ?? null}
-				sendingSessionIds={sendingSessionIds}
 				onQueuePendingPromptForSession={onQueuePendingPromptForSession}
-				pushToast={pushToast}
 				commitButtonMode={commitButtonMode}
 				commitButtonState={commitButtonState}
 				prInfo={prInfo ?? null}
@@ -187,6 +193,7 @@ export function WorkspaceInspectorSidebar({
 				tabActions={runTabActions}
 				setupScriptState={setupScriptState}
 				runScriptState={runScriptState}
+				canHoverExpand={canHoverExpand}
 			>
 				<SetupTab
 					repoId={repoId ?? null}

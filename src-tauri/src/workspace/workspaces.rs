@@ -45,7 +45,6 @@ pub struct WorkspaceSidebarRow {
     pub state: WorkspaceState,
     pub has_unread: bool,
     pub workspace_unread: i64,
-    pub session_unread_total: i64,
     pub unread_session_count: i64,
     pub derived_status: DerivedStatus,
     pub manual_status: Option<DerivedStatus>,
@@ -58,7 +57,6 @@ pub struct WorkspaceSidebarRow {
     pub pinned_at: Option<String>,
     pub session_count: i64,
     pub message_count: i64,
-    pub attachment_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -82,7 +80,6 @@ pub struct WorkspaceSummary {
     pub state: WorkspaceState,
     pub has_unread: bool,
     pub workspace_unread: i64,
-    pub session_unread_total: i64,
     pub unread_session_count: i64,
     pub derived_status: DerivedStatus,
     pub manual_status: Option<DerivedStatus>,
@@ -94,7 +91,6 @@ pub struct WorkspaceSummary {
     pub pr_title: Option<String>,
     pub session_count: i64,
     pub message_count: i64,
-    pub attachment_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -114,7 +110,6 @@ pub struct WorkspaceDetail {
     pub state: WorkspaceState,
     pub has_unread: bool,
     pub workspace_unread: i64,
-    pub session_unread_total: i64,
     pub unread_session_count: i64,
     pub derived_status: DerivedStatus,
     pub manual_status: Option<DerivedStatus>,
@@ -125,14 +120,11 @@ pub struct WorkspaceDetail {
     pub branch: Option<String>,
     pub initialization_parent_branch: Option<String>,
     pub intended_target_branch: Option<String>,
-    pub notes: Option<String>,
     pub pinned_at: Option<String>,
     pub pr_title: Option<String>,
-    pub pr_description: Option<String>,
     pub archive_commit: Option<String>,
     pub session_count: i64,
     pub message_count: i64,
-    pub attachment_count: i64,
 }
 
 // Workspace persistence lives in `crate::models::workspaces`.
@@ -227,15 +219,31 @@ pub fn get_workspace(workspace_id: &str) -> Result<WorkspaceDetail> {
     Ok(record_to_detail(record))
 }
 
-// ---- Mark read / unread ----
+// ---- Read / unread ----
 
 pub fn mark_workspace_read(workspace_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start workspace-read transaction")?;
 
-    sessions::mark_workspace_read_in_transaction(&transaction, workspace_id)?;
+    transaction
+        .execute(
+            "UPDATE sessions SET unread_count = 0 WHERE workspace_id = ?1",
+            [workspace_id],
+        )
+        .with_context(|| format!("Failed to clear unread sessions for workspace {workspace_id}"))?;
+
+    let updated_rows = transaction
+        .execute(
+            "UPDATE workspaces SET unread = 0 WHERE id = ?1",
+            [workspace_id],
+        )
+        .with_context(|| format!("Failed to mark workspace {workspace_id} as read"))?;
+
+    if updated_rows != 1 {
+        bail!("Workspace read update affected {updated_rows} rows for workspace {workspace_id}");
+    }
 
     transaction
         .commit()
@@ -243,7 +251,7 @@ pub fn mark_workspace_read(workspace_id: &str) -> Result<()> {
 }
 
 pub fn mark_workspace_unread(workspace_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start workspace-unread transaction")?;
@@ -256,7 +264,7 @@ pub fn mark_workspace_unread(workspace_id: &str) -> Result<()> {
 }
 
 pub fn pin_workspace(workspace_id: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     connection
         .execute(
             "UPDATE workspaces SET pinned_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1",
@@ -267,7 +275,7 @@ pub fn pin_workspace(workspace_id: &str) -> Result<()> {
 }
 
 pub fn unpin_workspace(workspace_id: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     connection
         .execute(
             "UPDATE workspaces SET pinned_at = NULL, updated_at = datetime('now') WHERE id = ?1",
@@ -281,7 +289,7 @@ pub fn set_workspace_manual_status(
     workspace_id: &str,
     status: Option<DerivedStatus>,
 ) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     connection
         .execute(
             "UPDATE workspaces SET manual_status = ?2, updated_at = datetime('now') WHERE id = ?1",
@@ -289,6 +297,270 @@ pub fn set_workspace_manual_status(
         )
         .context("Failed to set workspace manual status")?;
     Ok(())
+}
+
+// ---- Linked directories (the /add-dir feature) ----
+//
+// Stored as a JSON array of absolute paths in `workspaces.linked_directory_paths`.
+// Schema pre-dates the feature (Conductor import compatibility); we own it now.
+
+pub fn get_workspace_linked_directories(workspace_id: &str) -> Result<Vec<String>> {
+    let connection = db::read_conn()?;
+    let raw: Option<String> = connection
+        .query_row(
+            "SELECT linked_directory_paths FROM workspaces WHERE id = ?1",
+            [workspace_id],
+            |row| row.get(0),
+        )
+        .context("Failed to read linked_directory_paths")?;
+    Ok(parse_linked_directory_paths(raw.as_deref()))
+}
+
+/// One entry in the `/add-dir` picker's "known workspaces" list. Mirrors
+/// the sidebar row's display fields so the popup looks and reads the
+/// same as Helmor's workspace list (repo icon + humanized title +
+/// branch). `absolute_path` is the only non-display field — it's what
+/// we persist into `linked_directory_paths` on selection.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateDirectory {
+    pub workspace_id: String,
+    pub title: String,
+    pub repo_name: String,
+    pub repo_icon_src: Option<String>,
+    pub repo_initials: String,
+    pub branch: Option<String>,
+    pub absolute_path: String,
+}
+
+/// List every ready (non-archived, non-initializing) workspace across all
+/// repos as candidate directories for `/add-dir`. `exclude_workspace_id`
+/// is typically the currently-active workspace — the one the user is
+/// composing a prompt for — which we filter out since "link yourself to
+/// yourself" is nonsense.
+pub fn list_candidate_directories(
+    exclude_workspace_id: Option<&str>,
+) -> Result<Vec<CandidateDirectory>> {
+    let records = workspace_models::load_workspace_records()?;
+    let mut out = Vec::with_capacity(records.len());
+    for record in records {
+        if record.state != WorkspaceState::Ready {
+            continue;
+        }
+        if exclude_workspace_id == Some(record.id.as_str()) {
+            continue;
+        }
+        // `workspace_dir` needs the data dir to be set. A single
+        // unresolvable row shouldn't hide the rest, so skip silently.
+        let Ok(path) = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)
+        else {
+            continue;
+        };
+        let title = helpers::display_title(&record);
+        let repo_initials = helpers::repo_initials_for_name(&record.repo_name);
+        let repo_icon_src = helpers::repo_icon_src_for_root_path(record.root_path.as_deref());
+        out.push(CandidateDirectory {
+            workspace_id: record.id,
+            title,
+            repo_name: record.repo_name,
+            repo_icon_src,
+            repo_initials,
+            branch: record.branch,
+            absolute_path: path.display().to_string(),
+        });
+    }
+    // Sort by title then repo for a stable, human-friendly display.
+    out.sort_by(|a, b| {
+        a.title
+            .to_lowercase()
+            .cmp(&b.title.to_lowercase())
+            .then_with(|| a.repo_name.to_lowercase().cmp(&b.repo_name.to_lowercase()))
+    });
+    Ok(out)
+}
+
+pub fn set_workspace_linked_directories(
+    workspace_id: &str,
+    directories: Vec<String>,
+) -> Result<Vec<String>> {
+    let normalized = normalize_linked_directories(directories);
+    let payload = if normalized.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string(&normalized).context("Failed to encode linked directories")?)
+    };
+    let connection = db::write_conn()?;
+    let updated = connection
+        .execute(
+            "UPDATE workspaces SET linked_directory_paths = ?2, updated_at = datetime('now') WHERE id = ?1",
+            rusqlite::params![workspace_id, payload],
+        )
+        .context("Failed to set linked_directory_paths")?;
+    if updated != 1 {
+        bail!("Linked-directories update affected {updated} rows for {workspace_id}");
+    }
+    Ok(normalized)
+}
+
+/// Parse the JSON-encoded `linked_directory_paths` column. Tolerant: any
+/// corrupt / legacy value yields an empty list rather than an error, so a
+/// user can always reset by saving a fresh list.
+pub fn parse_linked_directory_paths(raw: Option<&str>) -> Vec<String> {
+    let trimmed = raw.map(str::trim).unwrap_or("");
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    serde_json::from_str::<Vec<String>>(trimmed)
+        .map(normalize_linked_directories)
+        .unwrap_or_default()
+}
+
+fn normalize_linked_directories(input: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(input.len());
+    for raw in input {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let path = trimmed.to_string();
+        if seen.insert(path.clone()) {
+            out.push(path);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod linked_directories_tests {
+    use super::{normalize_linked_directories, parse_linked_directory_paths};
+
+    #[test]
+    fn parses_valid_json_array() {
+        let parsed = parse_linked_directory_paths(Some(r#"["/a","/b"]"#));
+        assert_eq!(parsed, vec!["/a".to_string(), "/b".to_string()]);
+    }
+
+    #[test]
+    fn empty_and_null_inputs_return_empty() {
+        assert!(parse_linked_directory_paths(None).is_empty());
+        assert!(parse_linked_directory_paths(Some("")).is_empty());
+        assert!(parse_linked_directory_paths(Some("   ")).is_empty());
+    }
+
+    #[test]
+    fn malformed_json_falls_back_to_empty() {
+        assert!(parse_linked_directory_paths(Some("not json")).is_empty());
+        assert!(parse_linked_directory_paths(Some("{\"a\":1}")).is_empty());
+    }
+
+    #[test]
+    fn normalize_trims_and_dedupes() {
+        let out = normalize_linked_directories(vec![
+            "  /a  ".to_string(),
+            "".to_string(),
+            "/b".to_string(),
+            "/a".to_string(),
+        ]);
+        assert_eq!(out, vec!["/a".to_string(), "/b".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod candidate_directories_tests {
+    use super::list_candidate_directories;
+
+    fn with_env<F: FnOnce(&rusqlite::Connection)>(f: F) {
+        let dir = tempfile::tempdir().unwrap();
+        let _guard = crate::data_dir::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        std::env::set_var("HELMOR_DATA_DIR", dir.path());
+        crate::data_dir::ensure_directory_structure().unwrap();
+        let conn = rusqlite::Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
+        crate::schema::ensure_schema(&conn).unwrap();
+        f(&conn);
+        std::env::remove_var("HELMOR_DATA_DIR");
+    }
+
+    fn seed_repo(conn: &rusqlite::Connection, id: &str, name: &str) {
+        conn.execute(
+            "INSERT INTO repos (id, name, default_branch) VALUES (?1, ?2, 'main')",
+            [id, name],
+        )
+        .unwrap();
+    }
+    fn seed_workspace(
+        conn: &rusqlite::Connection,
+        id: &str,
+        repo_id: &str,
+        dir: &str,
+        branch: Option<&str>,
+        state: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO workspaces (id, repository_id, directory_name, state,
+             derived_status, branch) VALUES (?1, ?2, ?3, ?4, 'in-progress', ?5)",
+            rusqlite::params![id, repo_id, dir, state, branch],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn returns_ready_workspaces_across_all_repos() {
+        with_env(|conn| {
+            seed_repo(conn, "r1", "alpha");
+            seed_repo(conn, "r2", "bravo");
+            seed_workspace(conn, "w1", "r1", "feat-a", Some("feat/a"), "ready");
+            seed_workspace(conn, "w2", "r2", "main-b", Some("main"), "ready");
+            let out = list_candidate_directories(None).unwrap();
+            let titles: Vec<&str> = out.iter().map(|c| c.title.as_str()).collect();
+            // `display_title` humanizes directory names for rows without a
+            // PR / session title — "feat-a" → "Feat A", "main-b" → "Main B".
+            assert!(titles.iter().any(|t| t == &"Feat A"));
+            assert!(titles.iter().any(|t| t == &"Main B"));
+        });
+    }
+
+    #[test]
+    fn skips_non_ready_workspaces() {
+        with_env(|conn| {
+            seed_repo(conn, "r1", "alpha");
+            seed_workspace(conn, "w1", "r1", "ready", Some("main"), "ready");
+            seed_workspace(conn, "w2", "r1", "initing", Some("main"), "initializing");
+            seed_workspace(conn, "w3", "r1", "done", Some("main"), "archived");
+            let out = list_candidate_directories(None).unwrap();
+            assert_eq!(out.len(), 1);
+            assert_eq!(out[0].workspace_id, "w1");
+        });
+    }
+
+    #[test]
+    fn excludes_the_currently_active_workspace() {
+        with_env(|conn| {
+            seed_repo(conn, "r1", "alpha");
+            seed_workspace(conn, "w1", "r1", "one", Some("main"), "ready");
+            seed_workspace(conn, "w2", "r1", "two", Some("main"), "ready");
+            let out = list_candidate_directories(Some("w1")).unwrap();
+            assert_eq!(out.len(), 1);
+            assert_eq!(out[0].workspace_id, "w2");
+        });
+    }
+
+    #[test]
+    fn includes_absolute_path_and_branch_metadata() {
+        with_env(|conn| {
+            seed_repo(conn, "r1", "alpha");
+            seed_workspace(conn, "w1", "r1", "feat-x", Some("feat/x"), "ready");
+            let out = list_candidate_directories(None).unwrap();
+            let row = &out[0];
+            assert_eq!(row.branch.as_deref(), Some("feat/x"));
+            assert_eq!(row.repo_name, "alpha");
+            // repo_initials are derived from the repo name at display time.
+            assert!(!row.repo_initials.is_empty());
+            assert!(row.absolute_path.ends_with("/alpha/feat-x"));
+        });
+    }
 }
 
 // ---- Select visible workspace for repo ----
@@ -334,7 +606,6 @@ pub fn record_to_sidebar_row(record: WorkspaceRecord) -> WorkspaceSidebarRow {
         state: record.state,
         has_unread: record.has_unread,
         workspace_unread: record.workspace_unread,
-        session_unread_total: record.session_unread_total,
         unread_session_count: record.unread_session_count,
         derived_status: record.derived_status,
         manual_status: record.manual_status,
@@ -347,7 +618,6 @@ pub fn record_to_sidebar_row(record: WorkspaceRecord) -> WorkspaceSidebarRow {
         pinned_at: record.pinned_at,
         session_count: record.session_count,
         message_count: record.message_count,
-        attachment_count: record.attachment_count,
     }
 }
 
@@ -364,7 +634,6 @@ pub fn record_to_summary(record: WorkspaceRecord) -> WorkspaceSummary {
         state: record.state,
         has_unread: record.has_unread,
         workspace_unread: record.workspace_unread,
-        session_unread_total: record.session_unread_total,
         unread_session_count: record.unread_session_count,
         derived_status: record.derived_status,
         manual_status: record.manual_status,
@@ -376,7 +645,6 @@ pub fn record_to_summary(record: WorkspaceRecord) -> WorkspaceSummary {
         pr_title: record.pr_title,
         session_count: record.session_count,
         message_count: record.message_count,
-        attachment_count: record.attachment_count,
     }
 }
 
@@ -412,7 +680,6 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
         state: record.state,
         has_unread: record.has_unread,
         workspace_unread: record.workspace_unread,
-        session_unread_total: record.session_unread_total,
         unread_session_count: record.unread_session_count,
         derived_status: record.derived_status,
         manual_status: record.manual_status,
@@ -423,14 +690,11 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
         branch: record.branch,
         initialization_parent_branch: record.initialization_parent_branch,
         intended_target_branch: record.intended_target_branch,
-        notes: record.notes,
         pinned_at: record.pinned_at,
         pr_title: record.pr_title,
-        pr_description: record.pr_description,
         archive_commit: record.archive_commit,
         session_count: record.session_count,
         message_count: record.message_count,
-        attachment_count: record.attachment_count,
     }
 }
 
@@ -442,7 +706,7 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
 /// Archived workspaces are excluded — their worktree is intentionally gone, but
 /// their archived `.context` and session history must be preserved.
 pub fn purge_orphaned_workspaces() -> Result<usize> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut stmt = connection.prepare(
         "SELECT w.id, r.name, w.directory_name, w.state
          FROM workspaces w
@@ -491,11 +755,11 @@ pub fn purge_orphaned_workspaces() -> Result<usize> {
     Ok(count)
 }
 
-/// Permanently delete a workspace and all its data (sessions, messages,
-/// attachments, diff_comments) from the database, plus any filesystem
-/// artifacts (worktree directory, archived context).
+/// Permanently delete a workspace and all its data (sessions, messages)
+/// from the database, plus any filesystem artifacts (worktree directory,
+/// archived context).
 pub fn permanently_delete_workspace(workspace_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
 
     // Load workspace info for filesystem cleanup
     let record: Option<(String, String, WorkspaceState)> = connection
@@ -511,18 +775,6 @@ pub fn permanently_delete_workspace(workspace_id: &str) -> Result<()> {
         .transaction()
         .context("Failed to start delete workspace transaction")?;
 
-    transaction
-        .execute(
-            "DELETE FROM diff_comments WHERE workspace_id = ?1",
-            [workspace_id],
-        )
-        .context("Failed to delete workspace diff comments")?;
-    transaction
-        .execute(
-            "DELETE FROM attachments WHERE session_id IN (SELECT id FROM sessions WHERE workspace_id = ?1)",
-            [workspace_id],
-        )
-        .context("Failed to delete workspace attachments")?;
     transaction
         .execute(
             "DELETE FROM session_messages WHERE session_id IN (SELECT id FROM sessions WHERE workspace_id = ?1)",

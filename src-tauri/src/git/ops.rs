@@ -58,6 +58,12 @@ pub enum WorkspacePushStatus {
 /// the calling blocking-pool worker indefinitely.
 pub const GIT_NETWORK_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Hard upper bound on `git clone`. Cloning large repositories over a slow
+/// network regularly exceeds the 30s `GIT_NETWORK_TIMEOUT`, so use a more
+/// generous cap here while still preventing the blocking pool from being
+/// parked indefinitely on a stalled remote.
+pub const GIT_CLONE_TIMEOUT: Duration = Duration::from_secs(300);
+
 pub fn run_git<I, S>(args: I, current_dir: Option<&Path>) -> Result<String>
 where
     I: IntoIterator<Item = S>,
@@ -1313,6 +1319,7 @@ mod tests {
             &["config", "user.email", "helmor@example.com"],
         );
         run(clone_dir.path(), &["config", "user.name", "Helmor Test"]);
+        run(clone_dir.path(), &["config", "commit.gpgsign", "false"]);
         (origin, clone_dir)
     }
 

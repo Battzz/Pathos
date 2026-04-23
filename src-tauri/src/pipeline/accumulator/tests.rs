@@ -106,6 +106,158 @@ fn accumulate_tool_use_blocks() {
 }
 
 #[test]
+fn handle_assistant_stamps_thinking_block_as_just_finished_live() {
+    // When the SDK's finalized `assistant` event arrives, the accumulator
+    // must mark thinking blocks with `__is_streaming: false` and a
+    // measured `__duration_ms` so the frontend keeps the block open and
+    // shows "Thought for Ns" — even when the streaming partial window
+    // was too short for React to ever render with `streaming=true`.
+    let mut acc = StreamAccumulator::new("claude", "opus");
+    acc.push_event(
+        &json!({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking"}
+            }
+        }),
+        "",
+    );
+    acc.push_event(
+        &json!({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "quick thought"}
+            }
+        }),
+        "",
+    );
+
+    let full_msg = json!({
+        "type": "assistant",
+        "message": {
+            "id": "msg1",
+            "role": "assistant",
+            "content": [{"type": "thinking", "thinking": "quick thought"}]
+        }
+    });
+    acc.push_event(&full_msg, &full_msg.to_string());
+
+    let snapshot = acc.snapshot("ctx", "sess");
+    let block = &snapshot.last().unwrap().parsed.as_ref().unwrap()["message"]["content"][0];
+    assert_eq!(block["__is_streaming"], json!(false));
+    assert!(block["__duration_ms"].is_number());
+}
+
+#[test]
+fn flush_assistant_strips_live_only_is_streaming_from_persisted_turn() {
+    // `__is_streaming: false` is a render-only marker. If we leak it into
+    // the DB row, historical reloads resurrect each old thinking block as
+    // a fresh "just completed" one and keep them all expanded.
+    let mut acc = StreamAccumulator::new("claude", "opus");
+    acc.push_event(
+        &json!({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking"}
+            }
+        }),
+        "",
+    );
+    acc.push_event(
+        &json!({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "pondering"}
+            }
+        }),
+        "",
+    );
+    let full_msg = json!({
+        "type": "assistant",
+        "message": {
+            "id": "msg1",
+            "role": "assistant",
+            "content": [{"type": "thinking", "thinking": "pondering"}]
+        }
+    });
+    acc.push_event(&full_msg, &full_msg.to_string());
+
+    // Second user turn triggers the implicit flush of the previous
+    // assistant turn.
+    let user_msg = json!({
+        "type": "user",
+        "message": {"role": "user", "content": "next"}
+    });
+    acc.push_event(&user_msg, &user_msg.to_string());
+
+    let turn = acc.turn_at(0);
+    let parsed: Value = serde_json::from_str(&turn.content_json).unwrap();
+    let block = &parsed["message"]["content"][0];
+    assert!(block.get("__is_streaming").is_none());
+    assert!(block["__duration_ms"].is_number());
+}
+
+#[test]
+fn materialize_partial_keeps_thinking_open_live_and_strips_flag_for_persistence() {
+    // Abort mid-thinking. The UI should keep the block expanded
+    // (`__is_streaming: false` in `collected[]`) while the persisted
+    // turn drops the live-only marker so a later historical reload
+    // doesn't treat this block as "just completed".
+    let mut acc = StreamAccumulator::new("claude", "opus");
+    acc.push_event(
+        &json!({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking"}
+            }
+        }),
+        "",
+    );
+    acc.push_event(
+        &json!({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "interrupted"}
+            }
+        }),
+        "",
+    );
+    acc.materialize_partial("ctx", "sess");
+
+    // Live side: `collected[]` thinking block has `__is_streaming: false`
+    // + `__duration_ms` so the frontend keeps it open.
+    let collected = acc.collected();
+    let live_block = &collected
+        .last()
+        .expect("collected has the materialized partial")
+        .parsed
+        .as_ref()
+        .expect("parsed JSON present")["message"]["content"][0];
+    assert_eq!(live_block["__is_streaming"], json!(false));
+    assert!(live_block["__duration_ms"].is_number());
+
+    // Persist side: `turns` has the block WITHOUT `__is_streaming` but
+    // keeps `__duration_ms` — mirrors `flush_assistant` semantics.
+    let turn = acc.turn_at(0);
+    let parsed: Value = serde_json::from_str(&turn.content_json).unwrap();
+    let persisted_block = &parsed["message"]["content"][0];
+    assert!(persisted_block.get("__is_streaming").is_none());
+    assert!(persisted_block["__duration_ms"].is_number());
+}
+
+#[test]
 fn full_assistant_clears_blocks() {
     let mut acc = StreamAccumulator::new("claude", "opus");
     // Add a text block
@@ -148,6 +300,81 @@ fn full_assistant_clears_blocks() {
     // Should have the collected full message, no streaming partial
     assert_eq!(snapshot.len(), 1);
     assert!(!snapshot[0].is_streaming);
+}
+
+#[test]
+fn mid_stream_user_prompt_event_splits_assistant_turn() {
+    // Locks in the steer positioning + persistence contract.
+    //
+    // The sidecar's `steer()` (Claude `streamInput`, Codex `turn/steer`)
+    // emits a `user_prompt` passthrough into the active stream AFTER the
+    // provider confirms acceptance. The accumulator must:
+    //   (a) flush the currently-streaming assistant message,
+    //   (b) push a user turn whose `content_json` is the raw event JSON
+    //       (which matches the adapter's `user_prompt` shape — same as
+    //       initial prompts, so streaming.rs persistence is one-shot),
+    //   (c) open a fresh assistant message for any subsequent events.
+    //
+    // This is the single contract that keeps the steer bubble in the
+    // right place AND prevents the double-persist bug that a separate
+    // `persist_steer_message` path introduced in a previous attempt.
+    let mut acc = StreamAccumulator::new("claude", "opus");
+
+    // Assistant's first segment (pre-steer).
+    let asst_first = json!({
+        "type": "assistant",
+        "message": {
+            "id": "msg_a",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Analyzing..."}]
+        }
+    });
+    acc.push_event(&asst_first, &asst_first.to_string());
+
+    // Synthetic steer event (matches what sidecar emits post-ack).
+    let steer_event = json!({
+        "type": "user_prompt",
+        "text": "stop analyzing",
+        "steer": true,
+        "files": ["src/foo.ts"],
+    });
+    let steer_raw = steer_event.to_string();
+    acc.push_event(&steer_event, &steer_raw);
+
+    // Assistant's response to the steer.
+    let asst_second = json!({
+        "type": "assistant",
+        "message": {
+            "id": "msg_b",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "OK, stopping."}]
+        }
+    });
+    acc.push_event(&asst_second, &asst_second.to_string());
+
+    // `result` / stream end flushes the trailing staged assistant.
+    acc.flush_pending();
+
+    assert_eq!(acc.turns_len(), 3, "expected assistant + user + assistant");
+
+    // Middle turn MUST carry the full `user_prompt` JSON (with `steer`
+    // marker AND files) as its content_json — this is what
+    // `persist_turn_message` writes to the DB, and what the adapter's
+    // `user_prompt` branch reads on reload. Breaks here = double-persist
+    // bug returning or files dropping on reload.
+    let middle_turn = acc.turn_at(1);
+    assert_eq!(middle_turn.role, MessageRole::User);
+    let middle_parsed: Value = serde_json::from_str(&middle_turn.content_json).unwrap();
+    assert_eq!(middle_parsed["type"], "user_prompt");
+    assert_eq!(middle_parsed["text"], "stop analyzing");
+    assert_eq!(middle_parsed["steer"], true);
+    assert_eq!(middle_parsed["files"], json!(["src/foo.ts"]));
+
+    let snapshot = acc.snapshot("ctx", "sess");
+    assert_eq!(snapshot.len(), 3);
+    assert_eq!(snapshot[0].role, MessageRole::Assistant);
+    assert_eq!(snapshot[1].role, MessageRole::User);
+    assert_eq!(snapshot[2].role, MessageRole::Assistant);
 }
 
 #[test]

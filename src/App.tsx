@@ -1,6 +1,7 @@
 import "./App.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { listen } from "@tauri-apps/api/event";
 import {
 	Check,
 	ChevronDown,
@@ -36,7 +37,7 @@ import { WorkspaceEditorSurface } from "@/features/editor";
 import { WorkspaceInspectorSidebar } from "@/features/inspector";
 import { WorkspacesSidebarContainer } from "@/features/navigation/container";
 import { seedNewSessionInCache } from "@/features/panel/session-cache";
-import { closeWorkspaceSession } from "@/features/panel/session-close";
+import { useConfirmSessionClose } from "@/features/panel/use-confirm-session-close";
 import { SettingsButton, SettingsDialog } from "@/features/settings";
 import { AppUpdateButton } from "@/features/updater/app-update-button";
 import { useAppUpdater } from "@/features/updater/use-app-updater";
@@ -50,6 +51,7 @@ import { GithubStatusMenu } from "@/shell/github-status-menu";
 import { useEnsureDefaultModel } from "@/shell/hooks/use-ensure-default-model";
 import { useGithubIdentity } from "@/shell/hooks/use-github-identity";
 import { useShellPanels } from "@/shell/hooks/use-panels";
+import { useUiSyncBridge } from "@/shell/hooks/use-ui-sync-bridge";
 import {
 	findAdjacentSessionId,
 	findAdjacentWorkspaceId,
@@ -68,13 +70,14 @@ import {
 	isConductorAvailable,
 	listConductorRepos,
 	listConductorWorkspaces,
-	listenGitBranchChanged,
-	listenGitRefsChanged,
+	markSessionRead,
+	markSessionUnread,
 	openWorkspaceInEditor,
 	prewarmSlashCommandsForWorkspace,
 	setWorkspaceManualStatus,
 	triggerWorkspaceFetch,
 	type WorkspaceDetail,
+	type WorkspaceGroup,
 	type WorkspaceSessionSummary,
 } from "./lib/api";
 import {
@@ -111,13 +114,33 @@ import {
 	useSettings,
 } from "./lib/settings";
 import { useOsNotifications } from "./lib/use-os-notifications";
-import { summaryToArchivedRow } from "./lib/workspace-helpers";
+import {
+	recomputeWorkspaceDetailUnread,
+	recomputeWorkspaceUnreadInGroups,
+	summaryToArchivedRow,
+} from "./lib/workspace-helpers";
 import {
 	type WorkspaceToastOptions,
 	WorkspaceToastProvider,
 } from "./lib/workspace-toast-context";
+import { StreamingFooterOverlapScenario } from "./test/e2e-scenarios/streaming-footer-overlap";
+
+const SETTINGS_RELOAD_EVENT = "helmor:reload-settings";
 
 function App() {
+	const e2eScenario =
+		typeof window === "undefined"
+			? null
+			: new URLSearchParams(window.location.search).get("e2eScenario");
+
+	if (e2eScenario === "streaming-footer-overlap") {
+		return <StreamingFooterOverlapScenario />;
+	}
+
+	return <MainApp />;
+}
+
+function MainApp() {
 	const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [settingsWorkspaceId, setSettingsWorkspaceId] = useState<string | null>(
@@ -146,7 +169,6 @@ function App() {
 		}),
 		[appSettings, preloadSettings],
 	);
-
 	const [splashVisible, setSplashVisible] = useState(true);
 	const [splashMounted, setSplashMounted] = useState(true);
 
@@ -160,6 +182,17 @@ function App() {
 				setTimeout(() => setSplashMounted(false), 400);
 			},
 		);
+	}, []);
+
+	useEffect(() => {
+		const handleSettingsReload = () => {
+			void loadSettings().then(setAppSettings);
+		};
+
+		window.addEventListener(SETTINGS_RELOAD_EVENT, handleSettingsReload);
+		return () => {
+			window.removeEventListener(SETTINGS_RELOAD_EVENT, handleSettingsReload);
+		};
 	}, []);
 
 	// Cmd+, (macOS) / Ctrl+, (Windows / Linux) to open settings
@@ -195,6 +228,9 @@ function App() {
 								return false;
 							}
 							if (key[0] === "slashCommands") {
+								return false;
+							}
+							if (key[0] === "agentModelSections") {
 								return false;
 							}
 							// Workspace lists are fast local DB queries — always
@@ -265,6 +301,16 @@ function AppShell({
 	const warmedWorkspaceIdsRef = useRef<Set<string>>(new Set());
 	const selectedWorkspaceIdRef = useRef<string | null>(null);
 	const selectedSessionIdRef = useRef<string | null>(null);
+	// Tracks which session we last persisted as "read" so the auto-read effect
+	// stays idempotent when interaction-required state churns without the
+	// displayed session changing.
+	const lastMarkedReadSessionIdRef = useRef<string | null>(null);
+	// Bumped whenever the user re-clicks the already-selected workspace. The
+	// mark-session-read effect depends on this tick so a manual "mark as
+	// unread" followed by clicking the same workspace clears the dot, even
+	// though displayedSessionId didn't change.
+	const [workspaceReselectTick, setWorkspaceReselectTick] = useState(0);
+	const lastMarkedReadReselectTickRef = useRef(0);
 
 	const workspaceViewModeRef = useRef<"conversation" | "editor">(
 		"conversation",
@@ -332,6 +378,7 @@ function AppShell({
 		handleCopyGithubDeviceCode,
 		handleDisconnectGithubIdentity,
 		handleStartGithubIdentityConnect,
+		refreshGithubIdentityState,
 		isIdentityConnected,
 	} = useGithubIdentity(pushWorkspaceToast);
 	const {
@@ -380,28 +427,15 @@ function AppShell({
 	const [pendingComposerInserts, setPendingComposerInserts] = useState<
 		ResolvedComposerInsertRequest[]
 	>([]);
-	// Sessions that finished streaming while the user was viewing a different
-	// session. Map of sessionId → workspaceId so we can derive both per-session
-	// and per-workspace red-dot indicators.
-	const [completedSessions, setCompletedSessions] = useState<
-		Map<string, string>
-	>(() => new Map());
-	// Tracks sessions that have reached a terminal "done" event at least once.
-	// This is separate from `completedSessions`, which only drives away-from-tab
-	// UI badges and intentionally excludes the currently-viewed session.
+	// Tracks sessions that have reached a terminal "done" event at least once
+	// in this app run. Used by the commit lifecycle to know when to prompt.
+	// Distinct from "unread" — `unreadCount` is the persisted, cross-restart
+	// signal driven entirely from the backend.
 	const [settledSessionIds, setSettledSessionIds] = useState<Set<string>>(
 		() => new Set(),
 	);
 	const [interactionRequiredSessions, setInteractionRequiredSessions] =
 		useState<Map<string, string>>(() => new Map());
-	const completedSessionIds = useMemo(
-		() => new Set(completedSessions.keys()),
-		[completedSessions],
-	);
-	const completedWorkspaceIds = useMemo(
-		() => new Set(completedSessions.values()),
-		[completedSessions],
-	);
 	const interactionRequiredSessionIds = useMemo(
 		() => new Set(interactionRequiredSessions.keys()),
 		[interactionRequiredSessions],
@@ -411,19 +445,136 @@ function AppShell({
 		[interactionRequiredSessions],
 	);
 
-	// Clear the completed-session dot for whichever session the user
-	// is actually viewing. This fires on workspace switches (where the
-	// default session resolves through cache or async prime) and on
-	// direct session tab clicks alike.
+	// Persist "session read" once the user actually views a session AND it is
+	// not waiting on an interaction prompt. Workspace.unread is purely derived
+	// from sessions, so clearing the session naturally drops the workspace red
+	// dot when no other sessions remain unread. Selecting a workspace alone
+	// must NOT clear unread state — only opening a session does.
+	//
+	// Optimistically applies the cleared state to the cache so the sidebar dot
+	// and dock badge react instantly, then commits via IPC + invalidate. If the
+	// IPC fails the optimistic patch is rolled back.
 	useEffect(() => {
-		if (!displayedSessionId) return;
-		setCompletedSessions((prev) => {
-			if (!prev.has(displayedSessionId)) return prev;
-			const next = new Map(prev);
-			next.delete(displayedSessionId);
-			return next;
-		});
-	}, [displayedSessionId]);
+		if (!displayedSessionId) {
+			lastMarkedReadSessionIdRef.current = null;
+			return;
+		}
+		if (interactionRequiredSessionIds.has(displayedSessionId)) {
+			// Reset the dedupe key so once the interaction completes the next
+			// effect run will fire the IPC.
+			lastMarkedReadSessionIdRef.current = null;
+			return;
+		}
+		if (
+			lastMarkedReadSessionIdRef.current === displayedSessionId &&
+			workspaceReselectTick === lastMarkedReadReselectTickRef.current
+		) {
+			return;
+		}
+
+		const sessionId = displayedSessionId;
+		const workspaceId = selectedWorkspaceIdRef.current;
+		lastMarkedReadSessionIdRef.current = sessionId;
+		lastMarkedReadReselectTickRef.current = workspaceReselectTick;
+
+		// Snapshot for rollback on IPC failure.
+		const previousGroups = queryClient.getQueryData(
+			helmorQueryKeys.workspaceGroups,
+		);
+		const previousDetail = workspaceId
+			? queryClient.getQueryData(helmorQueryKeys.workspaceDetail(workspaceId))
+			: undefined;
+		const previousSessions = workspaceId
+			? queryClient.getQueryData(helmorQueryKeys.workspaceSessions(workspaceId))
+			: undefined;
+
+		// Optimistic: clear this session's unread in the sessions cache, then
+		// recompute the owning workspace's hasUnread / unreadSessionCount /
+		// workspaceUnread from the patched session list. Sidebar dot and dock
+		// badge react instantly; the IPC + invalidate afterwards reconciles.
+		let remainingUnread = 0;
+		if (workspaceId) {
+			const currentSessions = queryClient.getQueryData<
+				WorkspaceSessionSummary[] | undefined
+			>(helmorQueryKeys.workspaceSessions(workspaceId));
+			if (Array.isArray(currentSessions)) {
+				const patched = currentSessions.map((session) =>
+					session.id === sessionId ? { ...session, unreadCount: 0 } : session,
+				);
+				remainingUnread = patched.filter((s) => s.unreadCount > 0).length;
+				queryClient.setQueryData<WorkspaceSessionSummary[]>(
+					helmorQueryKeys.workspaceSessions(workspaceId),
+					patched,
+				);
+			}
+			queryClient.setQueryData<WorkspaceGroup[] | undefined>(
+				helmorQueryKeys.workspaceGroups,
+				(current) =>
+					recomputeWorkspaceUnreadInGroups(
+						current,
+						workspaceId,
+						remainingUnread,
+					),
+			);
+			queryClient.setQueryData<WorkspaceDetail | null | undefined>(
+				helmorQueryKeys.workspaceDetail(workspaceId),
+				(current) =>
+					current
+						? recomputeWorkspaceDetailUnread(current, remainingUnread)
+						: current,
+			);
+		}
+
+		void markSessionRead(sessionId)
+			.then(() => {
+				const invalidations = [
+					queryClient.invalidateQueries({
+						queryKey: helmorQueryKeys.workspaceGroups,
+					}),
+					queryClient.invalidateQueries({
+						queryKey: helmorQueryKeys.archivedWorkspaces,
+					}),
+				];
+				if (workspaceId) {
+					invalidations.push(
+						queryClient.invalidateQueries({
+							queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
+						}),
+						queryClient.invalidateQueries({
+							queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
+						}),
+					);
+				}
+				return Promise.all(invalidations);
+			})
+			.catch((error) => {
+				// Roll back the optimistic patch and reset dedupe so a retry can
+				// succeed.
+				queryClient.setQueryData(
+					helmorQueryKeys.workspaceGroups,
+					previousGroups,
+				);
+				if (workspaceId) {
+					queryClient.setQueryData(
+						helmorQueryKeys.workspaceDetail(workspaceId),
+						previousDetail,
+					);
+					queryClient.setQueryData(
+						helmorQueryKeys.workspaceSessions(workspaceId),
+						previousSessions,
+					);
+				}
+				if (lastMarkedReadSessionIdRef.current === sessionId) {
+					lastMarkedReadSessionIdRef.current = null;
+				}
+				console.error("[app] mark session read on view:", error);
+			});
+	}, [
+		displayedSessionId,
+		interactionRequiredSessionIds,
+		queryClient,
+		workspaceReselectTick,
+	]);
 
 	useEffect(() => {
 		if (!showOnboarding) return;
@@ -701,59 +852,6 @@ function AppShell({
 		}
 	}, [appSettings.theme]);
 
-	// ── Git watcher: react to external branch / ref changes ──────────
-	useEffect(() => {
-		let disposed = false;
-		let unlistenBranch: (() => void) | undefined;
-		let unlistenRefs: (() => void) | undefined;
-
-		void listenGitBranchChanged((payload) => {
-			if (disposed) return;
-			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceGroups,
-			});
-			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceDetail(payload.workspaceId),
-			});
-			// Checkout changes what's uncommitted — refresh file diff
-			queryClient.invalidateQueries({ queryKey: ["workspaceChanges"] });
-		}).then((unlisten) => {
-			if (disposed) {
-				unlisten();
-				return;
-			}
-			unlistenBranch = unlisten;
-		});
-
-		void listenGitRefsChanged((payload) => {
-			if (disposed) return;
-			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceGroups,
-			});
-			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceDetail(payload.workspaceId),
-			});
-			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceGitActionStatus(payload.workspaceId),
-			});
-			// Ref changes (commit, push, fetch) affect merge-base and
-			// staged/unstaged state — refresh the inspector file diff.
-			queryClient.invalidateQueries({ queryKey: ["workspaceChanges"] });
-		}).then((unlisten) => {
-			if (disposed) {
-				unlisten();
-				return;
-			}
-			unlistenRefs = unlisten;
-		});
-
-		return () => {
-			disposed = true;
-			unlistenBranch?.();
-			unlistenRefs?.();
-		};
-	}, [queryClient]);
-
 	useEffect(() => {
 		if (
 			githubIdentityState.status === "connected" ||
@@ -824,6 +922,56 @@ function AppShell({
 				originalRef: options?.originalRef,
 				modifiedRef: options?.modifiedRef,
 			});
+		},
+		[
+			confirmDiscardEditorChanges,
+			editorSession?.path,
+			pushWorkspaceToast,
+			selectedWorkspaceId,
+			workspaceRootPath,
+		],
+	);
+
+	const handleOpenFileReference = useCallback(
+		(path: string, line?: number, column?: number) => {
+			if (!workspaceRootPath) {
+				pushWorkspaceToast(
+					"Open a workspace with a resolved root path before using the in-app editor.",
+					"Editor unavailable",
+				);
+				return;
+			}
+
+			if (!isPathWithinRoot(path, workspaceRootPath)) {
+				pushWorkspaceToast(
+					"Only files inside the current workspace can be opened in the in-app editor.",
+					"File unavailable",
+				);
+				return;
+			}
+
+			if (
+				editorSession?.path !== path &&
+				!confirmDiscardEditorChanges("open another file")
+			) {
+				return;
+			}
+
+			if (selectedWorkspaceId) {
+				triggerWorkspaceFetch(selectedWorkspaceId);
+			}
+
+			setWorkspaceViewMode("editor");
+			setEditorSession((current) => ({
+				kind: "file",
+				path,
+				line,
+				column,
+				dirty: current?.path === path ? current.dirty : false,
+				originalText: current?.path === path ? current.originalText : undefined,
+				modifiedText: current?.path === path ? current.modifiedText : undefined,
+				mtimeMs: current?.path === path ? current.mtimeMs : undefined,
+			}));
 		},
 		[
 			confirmDiscardEditorChanges,
@@ -1051,6 +1199,13 @@ function AppShell({
 	const handleSelectWorkspace = useCallback(
 		(workspaceId: string | null) => {
 			if (workspaceId === selectedWorkspaceIdRef.current) {
+				// Re-clicking the currently selected workspace: force the
+				// mark-session-read effect to re-evaluate so a lingering dot
+				// from a manual "mark as unread" clears, without tearing down
+				// the current session view.
+				if (workspaceId !== null) {
+					setWorkspaceReselectTick((tick) => tick + 1);
+				}
 				return;
 			}
 
@@ -1164,15 +1319,6 @@ function AppShell({
 			rememberSessionSelection(selectedWorkspaceIdRef.current, sessionId);
 			selectedSessionIdRef.current = sessionId;
 			setSelectedSessionId(sessionId);
-			// Clear the "completed while away" dot for this session
-			if (sessionId) {
-				setCompletedSessions((prev) => {
-					if (!prev.has(sessionId)) return prev;
-					const next = new Map(prev);
-					next.delete(sessionId);
-					return next;
-				});
-			}
 			if (sessionId === null) {
 				if (sessionSelectionRequestRef.current !== requestId) {
 					return;
@@ -1228,6 +1374,7 @@ function AppShell({
 		queryClient,
 		selectedWorkspaceId,
 		selectedWorkspaceIdRef,
+		selectedRepoId: selectedWorkspaceDetailQuery.data?.repoId ?? null,
 		workspaceManualStatus: selectedWorkspaceManualStatus,
 		workspacePrInfo,
 		workspacePrActionStatus,
@@ -1249,13 +1396,30 @@ function AppShell({
 			});
 
 			const isCurrentSession = sessionId === selectedSessionIdRef.current;
-			// Green dot only for sessions the user isn't viewing
+			// Bump session-level unread for sessions the user isn't viewing.
+			// Workspace.unread is purely derived, so this also drives the
+			// sidebar workspace dot and the dock badge.
 			if (!isCurrentSession) {
-				setCompletedSessions((prev) => {
-					const next = new Map(prev);
-					next.set(sessionId, workspaceId);
-					return next;
-				});
+				void markSessionUnread(sessionId)
+					.then(() =>
+						Promise.all([
+							queryClient.invalidateQueries({
+								queryKey: helmorQueryKeys.workspaceGroups,
+							}),
+							queryClient.invalidateQueries({
+								queryKey: helmorQueryKeys.archivedWorkspaces,
+							}),
+							queryClient.invalidateQueries({
+								queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
+							}),
+							queryClient.invalidateQueries({
+								queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
+							}),
+						]),
+					)
+					.catch((error) => {
+						console.error("[app] mark session unread on completion:", error);
+					});
 			}
 			// OS notification: skip when user is focused on this session
 			if (document.hasFocus() && isCurrentSession) return;
@@ -1334,53 +1498,49 @@ function AppShell({
 			sessionId,
 			workspace,
 			sessions,
+			session: sessions.find((candidate) => candidate.id === sessionId) ?? null,
 		};
 	}, [queryClient]);
 
+	const { requestClose: requestCloseSession, dialogNode: closeConfirmDialog } =
+		useConfirmSessionClose({
+			sendingSessionIds,
+			onSelectSession: handleSelectSession,
+			pushToast: pushWorkspaceToast,
+			queryClient,
+		});
+
 	const handleCloseSelectedSession = useCallback(async () => {
 		const currentSession = getCloseableCurrentSession();
-		if (!currentSession) {
-			return false;
+		if (!currentSession?.session) {
+			return;
 		}
 
-		await closeWorkspaceSession({
-			queryClient,
-			workspace: currentSession.workspace,
-			sessions: currentSession.sessions,
-			sessionId: currentSession.sessionId,
-			onSelectSession: handleSelectSession,
+		const { workspaceId, sessionId, workspace, sessions, session } =
+			currentSession;
+
+		await requestCloseSession({
+			workspace,
+			sessions,
+			session,
 			onSessionsChanged: () => {
 				void Promise.all([
 					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceDetail(
-							currentSession.workspaceId,
-						),
+						queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
 					}),
 					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceSessions(
-							currentSession.workspaceId,
-						),
+						queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
 					}),
 					queryClient.invalidateQueries({
 						queryKey: helmorQueryKeys.workspaceGroups,
 					}),
 					queryClient.invalidateQueries({
-						queryKey: [
-							...helmorQueryKeys.sessionMessages(currentSession.sessionId),
-							"thread",
-						],
+						queryKey: [...helmorQueryKeys.sessionMessages(sessionId), "thread"],
 					}),
 				]);
 			},
-			pushToast: pushWorkspaceToast,
 		});
-		return true;
-	}, [
-		getCloseableCurrentSession,
-		handleSelectSession,
-		pushWorkspaceToast,
-		queryClient,
-	]);
+	}, [getCloseableCurrentSession, queryClient, requestCloseSession]);
 
 	const handleCreateSession = useCallback(async () => {
 		const workspaceId = selectedWorkspaceIdRef.current;
@@ -1493,6 +1653,52 @@ function AppShell({
 		[rememberSessionSelection],
 	);
 
+	const processPendingCliSends = useCallback(async () => {
+		try {
+			const sends = await drainPendingCliSends();
+			if (sends.length === 0) return;
+
+			const first = sends[0];
+
+			await queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.workspaceGroups,
+			});
+			if (first.workspaceId) {
+				await queryClient.invalidateQueries({
+					queryKey: helmorQueryKeys.workspaceSessions(first.workspaceId),
+				});
+			}
+
+			handleSelectWorkspace(first.workspaceId);
+
+			setTimeout(() => {
+				queuePendingPromptForSession({
+					sessionId: first.sessionId,
+					prompt: first.prompt,
+					modelId: first.modelId,
+					permissionMode: first.permissionMode,
+				});
+				handleSelectSession(first.sessionId);
+			}, 100);
+		} catch (error) {
+			console.error("[pendingCliSend] drain failed:", error);
+		}
+	}, [
+		handleSelectSession,
+		handleSelectWorkspace,
+		queryClient,
+		queuePendingPromptForSession,
+	]);
+
+	useUiSyncBridge({
+		queryClient,
+		processPendingCliSends,
+		reloadSettings: () => {
+			window.dispatchEvent(new Event(SETTINGS_RELOAD_EVENT));
+		},
+		refreshGithubIdentity: refreshGithubIdentityState,
+	});
+
 	// ── Pending CLI sends: on window focus, drain queued prompts ────────
 	// When `helmor send` detects the App is running it writes the prompt
 	// into `pending_cli_sends` instead of starting its own sidecar. On
@@ -1510,50 +1716,7 @@ function AppShell({
 					triggerWorkspaceFetch(wsId);
 				}
 
-				try {
-					const sends = await drainPendingCliSends();
-					if (sends.length === 0) return;
-
-					// Process the first send immediately. If there are
-					// multiple we queue only the first — subsequent sends
-					// will be picked up on the next focus or could be
-					// extended later to a queue.
-					const first = sends[0];
-					console.log(
-						"[pendingCliSend] picked up",
-						sends.length,
-						"send(s), processing first:",
-						first.sessionId,
-					);
-
-					// Ensure workspace + session data is fresh before navigating
-					await queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceGroups,
-					});
-					if (first.workspaceId) {
-						await queryClient.invalidateQueries({
-							queryKey: helmorQueryKeys.workspaceSessions(first.workspaceId),
-						});
-					}
-
-					// Navigate to the workspace + session
-					handleSelectWorkspace(first.workspaceId);
-
-					// Small delay to let workspace selection settle before
-					// setting the pending prompt — otherwise the conversation
-					// container might not have mounted the target session yet.
-					setTimeout(() => {
-						queuePendingPromptForSession({
-							sessionId: first.sessionId,
-							prompt: first.prompt,
-							modelId: first.modelId,
-							permissionMode: first.permissionMode,
-						});
-						handleSelectSession(first.sessionId);
-					}, 100);
-				} catch (error) {
-					console.error("[pendingCliSend] drain failed:", error);
-				}
+				await processPendingCliSends();
 			}).then((fn) => {
 				unlisten = fn;
 			});
@@ -1562,12 +1725,7 @@ function AppShell({
 		return () => {
 			unlisten?.();
 		};
-	}, [
-		handleSelectWorkspace,
-		handleSelectSession,
-		queryClient,
-		queuePendingPromptForSession,
-	]);
+	}, [processPendingCliSends]);
 
 	// Close-confirmation is handled by <QuitConfirmDialog /> which registers
 	// its own onCloseRequested listener.  No need for a separate hook here.
@@ -1627,6 +1785,39 @@ function AppShell({
 	}, [
 		handleNavigateSessions,
 		handleNavigateWorkspaces,
+		isIdentityConnected,
+		workspaceViewMode,
+	]);
+
+	useEffect(() => {
+		if (!isIdentityConnected || workspaceViewMode === "editor") {
+			return;
+		}
+
+		let disposed = false;
+		let unlisten: (() => void) | undefined;
+
+		void listen("helmor://close-current-session", () => {
+			if (!getCloseableCurrentSession()) {
+				return;
+			}
+
+			void handleCloseSelectedSession();
+		}).then((fn) => {
+			if (disposed) {
+				fn();
+				return;
+			}
+			unlisten = fn;
+		});
+
+		return () => {
+			disposed = true;
+			unlisten?.();
+		};
+	}, [
+		getCloseableCurrentSession,
+		handleCloseSelectedSession,
 		isIdentityConnected,
 		workspaceViewMode,
 	]);
@@ -1836,7 +2027,6 @@ function AppShell({
 													<WorkspacesSidebarContainer
 														selectedWorkspaceId={selectedWorkspaceId}
 														sendingWorkspaceIds={sendingWorkspaceIds}
-														completedWorkspaceIds={completedWorkspaceIds}
 														interactionRequiredWorkspaceIds={
 															interactionRequiredWorkspaceIds
 														}
@@ -1943,6 +2133,9 @@ function AppShell({
 												displayedWorkspaceId={displayedWorkspaceId}
 												selectedSessionId={selectedSessionId}
 												displayedSessionId={displayedSessionId}
+												repoId={
+													selectedWorkspaceDetailQuery.data?.repoId ?? null
+												}
 												sessionSelectionHistory={
 													selectedWorkspaceId
 														? (sessionSelectionHistoryByWorkspaceRef.current[
@@ -1959,7 +2152,6 @@ function AppShell({
 												onInteractionSessionsChange={
 													handleInteractionSessionsChange
 												}
-												completedSessionIds={completedSessionIds}
 												interactionRequiredSessionIds={
 													interactionRequiredSessionIds
 												}
@@ -1974,6 +2166,9 @@ function AppShell({
 												onQueuePendingPromptForSession={
 													queuePendingPromptForSession
 												}
+												onRequestCloseSession={requestCloseSession}
+												workspaceRootPath={workspaceRootPath}
+												onOpenFileReference={handleOpenFileReference}
 												headerLeading={
 													sidebarCollapsed ? (
 														<>
@@ -2069,13 +2264,13 @@ function AppShell({
 																		>
 																			<EditorIcon
 																				editorId={editor.id}
-																				className="size-3.5 shrink-0"
+																				className="shrink-0"
 																			/>
 																			<span className="flex-1">
 																				{editor.name}
 																			</span>
 																			{editor.id === preferredEditor.id && (
-																				<Check className="ml-auto size-3 text-muted-foreground" />
+																				<Check className="ml-auto text-muted-foreground" />
 																			)}
 																		</DropdownMenuItem>
 																	))}
@@ -2101,13 +2296,13 @@ function AppShell({
 									onKeyDown={handleResizeKeyDown("inspector")}
 									className="group absolute inset-y-0 z-30 cursor-ew-resize touch-none outline-none"
 									style={{
-										right: `${inspectorWidth - SIDEBAR_RESIZE_HIT_AREA / 2}px`,
+										right: `${Math.max(0, inspectorWidth - SIDEBAR_RESIZE_HIT_AREA)}px`,
 										width: `${SIDEBAR_RESIZE_HIT_AREA}px`,
 									}}
 								>
 									<span
 										aria-hidden="true"
-										className={`pointer-events-none absolute inset-y-0 left-1/2 -translate-x-1/2 transition-[width,background-color,box-shadow] ${
+										className={`pointer-events-none absolute inset-y-0 left-0 transition-[width,background-color,box-shadow] ${
 											isInspectorResizing
 												? "w-[2px] bg-transparent shadow-none"
 												: "w-px bg-border group-hover:w-[2px] group-hover:bg-muted-foreground/75 group-focus-visible:w-[2px] group-focus-visible:bg-muted-foreground/75"
@@ -2146,11 +2341,9 @@ function AppShell({
 										onOpenEditorFile={handleOpenEditorFile}
 										onCommitAction={handleInspectorCommitAction}
 										currentSessionId={displayedSessionId}
-										sendingSessionIds={sendingSessionIds}
 										onQueuePendingPromptForSession={
 											queuePendingPromptForSession
 										}
-										pushToast={pushWorkspaceToast}
 										commitButtonMode={commitButtonMode}
 										commitButtonState={commitButtonState}
 										prInfo={workspacePrInfo}
@@ -2165,6 +2358,7 @@ function AppShell({
 						position="bottom-right"
 						visibleToasts={6}
 					/>
+					{closeConfirmDialog}
 				</ComposerInsertProvider>
 			</WorkspaceToastProvider>
 			<QuitConfirmDialog sendingSessionIds={sendingSessionIds} />

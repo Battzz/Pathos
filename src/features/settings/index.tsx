@@ -61,14 +61,16 @@ const MAX_FONT_SIZE = 20;
 const FALLBACK_EFFORT_LEVELS = ["low", "medium", "high"];
 
 type SettingsSection =
+	| "general"
 	| "appearance"
-	| "workspace"
+	| "model"
+	| "git"
 	| "experimental"
 	| "import"
 	| "developer"
 	| `repo:${string}`;
 
-function sectionLabel(
+function sidebarSectionLabel(
 	section: SettingsSection,
 	repos: RepositoryCreateOption[],
 ): string {
@@ -76,7 +78,14 @@ function sectionLabel(
 		const repoId = section.slice(5);
 		return repos.find((r) => r.id === repoId)?.name ?? "Repository";
 	}
-	return section;
+	return section.charAt(0).toUpperCase() + section.slice(1);
+}
+
+function titleSectionLabel(
+	section: SettingsSection,
+	repos: RepositoryCreateOption[],
+): string {
+	return sidebarSectionLabel(section, repos);
 }
 
 export const SettingsDialog = memo(function SettingsDialog({
@@ -93,7 +102,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 	const { settings, updateSettings } = useSettings();
 	const queryClient = useQueryClient();
 	const [activeSection, setActiveSection] =
-		useState<SettingsSection>("appearance");
+		useState<SettingsSection>("general");
 	const [githubLogin, setGithubLogin] = useState<string | null>(null);
 	const [conductorEnabled, setConductorEnabled] = useState(false);
 
@@ -152,8 +161,10 @@ export const SettingsDialog = memo(function SettingsDialog({
 	const isDev = import.meta.env.DEV;
 
 	const fixedSections: SettingsSection[] = [
+		"general",
 		"appearance",
-		"workspace",
+		"model",
+		"git",
 		"experimental",
 		...(conductorEnabled ? (["import"] as const) : []),
 		...(isDev ? (["developer"] as const) : []),
@@ -171,7 +182,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 			<DialogContent className="h-[min(80vh,640px)] w-[min(80vw,860px)] max-w-[860px] overflow-hidden rounded-2xl border-border/60 bg-background p-0 shadow-2xl sm:max-w-[860px]">
 				<SidebarProvider className="flex h-full min-h-0 w-full min-w-0 gap-0 overflow-hidden">
 					{/* Nav sidebar */}
-					<nav className="scrollbar-stable flex w-[200px] shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-sidebar-border bg-sidebar pt-14 pb-6">
+					<nav className="scrollbar-stable flex w-[200px] shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-sidebar-border bg-sidebar py-6">
 						<SidebarGroup>
 							<SidebarGroupContent>
 								<SidebarMenu>
@@ -180,9 +191,8 @@ export const SettingsDialog = memo(function SettingsDialog({
 											<SidebarMenuButton
 												isActive={activeSection === section}
 												onClick={() => setActiveSection(section)}
-												className="capitalize"
 											>
-												{section}
+												{sidebarSectionLabel(section, repositories)}
 											</SidebarMenuButton>
 										</SidebarMenuItem>
 									))}
@@ -235,12 +245,94 @@ export const SettingsDialog = memo(function SettingsDialog({
 							<DialogTitle className="text-[15px] font-semibold text-foreground">
 								{activeRepo
 									? activeRepo.name
-									: sectionLabel(activeSection, repositories)}
+									: titleSectionLabel(activeSection, repositories)}
 							</DialogTitle>
 						</div>
 
 						{/* Content area */}
 						<div className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-8 py-6">
+							{activeSection === "general" && (
+								<div className="flex flex-col gap-3">
+									{/* Desktop Notifications */}
+									<div className="flex items-center justify-between rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
+										<div className="mr-8">
+											<div className="text-[13px] font-medium leading-snug text-foreground">
+												Desktop Notifications
+											</div>
+											<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
+												Show system notifications when sessions complete or need
+												input
+											</div>
+										</div>
+										<Switch
+											checked={settings.notifications}
+											onCheckedChange={(checked) =>
+												updateSettings({ notifications: checked })
+											}
+										/>
+									</div>
+
+									{/* Always show context usage */}
+									<div className="flex items-center justify-between rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
+										<div className="mr-8">
+											<div className="text-[13px] font-medium leading-snug text-foreground">
+												Always show context usage
+											</div>
+											<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
+												Always show context usage. By default, it is only shown
+												when more than 70% is used.
+											</div>
+										</div>
+										<Switch
+											checked={settings.alwaysShowContextUsage}
+											onCheckedChange={(checked) =>
+												updateSettings({ alwaysShowContextUsage: checked })
+											}
+										/>
+									</div>
+
+									{/* Follow-up behavior */}
+									<div className="flex items-center justify-between rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
+										<div className="mr-8">
+											<div className="text-[13px] font-medium leading-snug text-foreground">
+												Follow-up behavior
+											</div>
+											<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
+												Queue follow-ups while the agent runs, or steer the
+												current run.
+											</div>
+										</div>
+										<ToggleGroup
+											type="single"
+											value={settings.followUpBehavior}
+											onValueChange={(value) => {
+												if (value === "queue" || value === "steer") {
+													updateSettings({ followUpBehavior: value });
+												}
+											}}
+											className="gap-1 bg-muted/40"
+										>
+											<ToggleGroupItem
+												value="queue"
+												aria-label="Queue"
+												className="h-7 rounded-md px-2.5 text-[12px] font-medium text-muted-foreground data-[state=on]:bg-accent data-[state=on]:text-foreground"
+											>
+												Queue
+											</ToggleGroupItem>
+											<ToggleGroupItem
+												value="steer"
+												aria-label="Steer"
+												className="h-7 rounded-md px-2.5 text-[12px] font-medium text-muted-foreground data-[state=on]:bg-accent data-[state=on]:text-foreground"
+											>
+												Steer
+											</ToggleGroupItem>
+										</ToggleGroup>
+									</div>
+
+									<AppUpdatesPanel />
+								</div>
+							)}
+
 							{activeSection === "appearance" && (
 								<div className="flex flex-col gap-3">
 									{/* Theme */}
@@ -329,78 +421,11 @@ export const SettingsDialog = memo(function SettingsDialog({
 											</Button>
 										</div>
 									</div>
-
-									{/* Desktop Notifications */}
-									<div className="flex items-center justify-between rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
-										<div className="mr-8">
-											<div className="text-[13px] font-medium leading-snug text-foreground">
-												Desktop Notifications
-											</div>
-											<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
-												Show system notifications when sessions complete or need
-												input
-											</div>
-										</div>
-										<Switch
-											checked={settings.notifications}
-											onCheckedChange={(checked) =>
-												updateSettings({ notifications: checked })
-											}
-										/>
-									</div>
 								</div>
 							)}
 
-							{activeSection === "workspace" && (
+							{activeSection === "model" && (
 								<div className="flex flex-col gap-3">
-									<div className="rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
-										<div className="text-[13px] font-medium leading-snug text-foreground">
-											Branch Prefix
-										</div>
-										<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
-											Prefix added to branch names when creating new workspaces
-										</div>
-										<RadioGroup
-											value={settings.branchPrefixType}
-											onValueChange={(value: string) =>
-												updateSettings({
-													branchPrefixType: value as
-														| "github"
-														| "custom"
-														| "none",
-												})
-											}
-											className="mt-4 gap-1"
-										>
-											<RadioOption
-												value="github"
-												label={`GitHub username${githubLogin ? ` (${githubLogin})` : ""}`}
-											/>
-											<RadioOption value="custom" label="Custom" />
-											{settings.branchPrefixType === "custom" && (
-												<div className="ml-7">
-													<Input
-														type="text"
-														value={settings.branchPrefixCustom}
-														onChange={(e) =>
-															updateSettings({
-																branchPrefixCustom: e.target.value,
-															})
-														}
-														placeholder="e.g. feat/"
-														className="w-full bg-muted/30 text-[13px] text-foreground placeholder:text-muted-foreground/50"
-													/>
-													{settings.branchPrefixCustom && (
-														<div className="mt-1.5 text-[12px] text-muted-foreground">
-															Preview: {settings.branchPrefixCustom}tokyo
-														</div>
-													)}
-												</div>
-											)}
-											<RadioOption value="none" label="None" />
-										</RadioGroup>
-									</div>
-
 									{/* Default Model */}
 									<div className="flex items-center justify-between rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
 										<div className="mr-8">
@@ -482,8 +507,58 @@ export const SettingsDialog = memo(function SettingsDialog({
 											</div>
 										</div>
 									</div>
+								</div>
+							)}
 
-									<AppUpdatesPanel />
+							{activeSection === "git" && (
+								<div className="flex flex-col gap-3">
+									<div className="rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
+										<div className="text-[13px] font-medium leading-snug text-foreground">
+											Branch Prefix
+										</div>
+										<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
+											Prefix added to branch names when creating new workspaces
+										</div>
+										<RadioGroup
+											value={settings.branchPrefixType}
+											onValueChange={(value: string) =>
+												updateSettings({
+													branchPrefixType: value as
+														| "github"
+														| "custom"
+														| "none",
+												})
+											}
+											className="mt-4 gap-1"
+										>
+											<RadioOption
+												value="github"
+												label={`GitHub username${githubLogin ? ` (${githubLogin})` : ""}`}
+											/>
+											<RadioOption value="custom" label="Custom" />
+											{settings.branchPrefixType === "custom" && (
+												<div className="ml-7">
+													<Input
+														type="text"
+														value={settings.branchPrefixCustom}
+														onChange={(e) =>
+															updateSettings({
+																branchPrefixCustom: e.target.value,
+															})
+														}
+														placeholder="e.g. feat/"
+														className="w-full bg-muted/30 text-[13px] text-foreground placeholder:text-muted-foreground/50"
+													/>
+													{settings.branchPrefixCustom && (
+														<div className="mt-1.5 text-[12px] text-muted-foreground">
+															Preview: {settings.branchPrefixCustom}tokyo
+														</div>
+													)}
+												</div>
+											)}
+											<RadioOption value="none" label="None" />
+										</RadioGroup>
+									</div>
 								</div>
 							)}
 
@@ -517,7 +592,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 										});
 									}}
 									onRepoDeleted={() => {
-										setActiveSection("appearance");
+										setActiveSection("general");
 										void queryClient.invalidateQueries({
 											queryKey: helmorQueryKeys.repositories,
 										});

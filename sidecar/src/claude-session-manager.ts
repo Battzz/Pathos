@@ -22,11 +22,12 @@ import {
 	claudeModelSupportsFastMode,
 } from "./claude-model-overrides.js";
 import type { SidecarEmitter } from "./emitter.js";
-import { resolveGitAccessDirectories } from "./git-access.js";
 import { readImageWithResize } from "./image-resize.js";
 import { parseImageRefs } from "./images.js";
+import { prependLinkedDirectoriesContext } from "./linked-directories-context.js";
 import { errorDetails, logger } from "./logger.js";
 import { sortClaudeModels } from "./model-sort.js";
+import { createPushable, type Pushable } from "./pushable-iterable.js";
 import {
 	formatModelLabel,
 	type ListSlashCommandsParams,
@@ -124,6 +125,23 @@ function executableOptions(): {
 interface LiveSession {
 	readonly query: Query;
 	readonly abortController: AbortController;
+	/**
+	 * Streaming-input source. The initial prompt is pushed up front in
+	 * `sendMessage`; each `steer()` call pushes one more user message.
+	 * The SDK folds every pushed message into ONE extended turn and
+	 * emits a SINGLE terminal `result` when the whole trajectory is
+	 * done — verified empirically (steer mid-stream yields one merged
+	 * assistant message and one result, not per-push results). The
+	 * for-await loop therefore bails on the first result it sees.
+	 */
+	readonly promptSource: Pushable<SDKUserMessage>;
+	/** Request id owning this session; needed by `steer()` to synthesize
+	 *  a user passthrough event for the active stream. */
+	readonly requestId: string;
+	/** Emitter bound to the active stream — used by `steer()` to fan a
+	 *  synthetic user event to the pipeline so the UI renders the mid-turn
+	 *  bubble at the correct position instead of tacking it onto the end. */
+	readonly emitter: SidecarEmitter;
 }
 
 const VALID_PERMISSION_MODES = [
@@ -377,26 +395,49 @@ export class ClaudeSessionManager implements SessionManager {
 			fastMode,
 		} = params;
 		const abortController = new AbortController();
-		const additionalDirectories = await resolveGitAccessDirectories(cwd);
+		const additionalDirectories = [...(params.additionalDirectories ?? [])];
+		logger.info(`[${requestId}] claude additionalDirectories resolved`, {
+			directories: additionalDirectories,
+			cwd: cwd ?? "(none)",
+		});
+		const promptWithContext = prependLinkedDirectoriesContext(
+			prompt,
+			additionalDirectories,
+		);
 
-		const { text, imagePaths } = parseImageRefs(prompt);
-		const promptValue: string | AsyncIterable<SDKUserMessage> =
+		const { text, imagePaths } = parseImageRefs(promptWithContext);
+		// Always use streaming-input mode so `steer()` can push additional
+		// `SDKUserMessage`s into the same turn. For Claude real steer, the
+		// SDK consumes subsequent pushes as part of the in-flight turn and
+		// emits ONE final `result` — so bail-on-first-result semantics are
+		// unchanged.
+		const promptSource = createPushable<SDKUserMessage>();
+		const initialMessage =
 			imagePaths.length === 0
-				? prompt
-				: (async function* () {
-						yield await buildUserMessageWithImages(text, imagePaths);
-					})();
+				? ({
+						type: "user",
+						message: { role: "user", content: text },
+						parent_tool_use_id: null,
+					} as SDKUserMessage)
+				: await buildUserMessageWithImages(text, imagePaths);
+		promptSource.push(initialMessage);
+
 		const effectiveFastMode =
 			fastMode === true && claudeModelSupportsFastMode(model);
+		const additionalDirectoryEnv =
+			additionalDirectories.length > 0
+				? { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1" }
+				: undefined;
 
 		const q = query({
-			prompt: promptValue,
+			prompt: promptSource,
 			options: {
 				abortController,
 				pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
 				...executableOptions(),
 				cwd: cwd || undefined,
 				...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
+				...(additionalDirectoryEnv ? { env: additionalDirectoryEnv } : {}),
 				model: model || undefined,
 				...(resume ? { resume } : {}),
 				permissionMode: parsePermissionMode(permissionMode),
@@ -506,7 +547,13 @@ export class ClaudeSessionManager implements SessionManager {
 			},
 		});
 
-		this.sessions.set(sessionId, { query: q, abortController });
+		this.sessions.set(sessionId, {
+			query: q,
+			abortController,
+			promptSource,
+			requestId,
+			emitter,
+		});
 
 		try {
 			for await (const message of q) {
@@ -525,6 +572,15 @@ export class ClaudeSessionManager implements SessionManager {
 					emitter.passthrough(requestId, passthroughMessage);
 				}
 				if (isTerminalSuccessResult(message)) {
+					// The SDK emits ONE terminal `result` for the entire
+					// streaming-input session, even when `steer()` pushed
+					// additional messages — all pushes fold into one
+					// extended turn. Bail on the first one we see; any
+					// steer() still in its image-load await at this point
+					// will find `promptSource.closed` via the finally
+					// block below and return false (see the re-check in
+					// `steer()`).
+					await snapshotContextUsage(q, emitter, requestId, sessionId);
 					emitter.end(requestId);
 					return;
 				}
@@ -532,6 +588,11 @@ export class ClaudeSessionManager implements SessionManager {
 			emitter.end(requestId);
 		} catch (err) {
 			if (isAbortError(err)) {
+				// Aborted turns may still have consumed real context (the
+				// user typed and we tokenised it before they hit stop). Try
+				// to snapshot anyway — the Query is in a half-closed state
+				// so the SDK call may reject; swallow either way.
+				await snapshotContextUsage(q, emitter, requestId, sessionId);
 				emitter.aborted(requestId, "user_requested");
 				return;
 			}
@@ -551,6 +612,7 @@ export class ClaudeSessionManager implements SessionManager {
 					...errorDetails(closeErr),
 				});
 			}
+			promptSource.close();
 			this.sessions.delete(sessionId);
 			for (const [elicitationId, resolve] of this.pendingElicitations) {
 				this.pendingElicitations.delete(elicitationId);
@@ -559,9 +621,93 @@ export class ClaudeSessionManager implements SessionManager {
 		}
 	}
 
+	/**
+	 * Real mid-turn steer: push a `SDKUserMessage` into the active turn's
+	 * streaming-input queue so the SDK folds it into the current extended
+	 * turn, and emit a `user_prompt` passthrough event so the accumulator
+	 * renders the user bubble at the correct position AND streaming.rs
+	 * persists it exactly once (no extra DB path).
+	 *
+	 * Event shape matches `persist_user_message`'s DB row exactly:
+	 * `{ type: "user_prompt", text: <raw prompt>, steer: true, files }`.
+	 * We emit the RAW prompt (not the image-stripped version), keeping
+	 * every `@/image.png` / `@src/foo.ts` / custom-tag sigil intact —
+	 * that's what the adapter's `split_user_text_with_files` relies on
+	 * to produce FileMention badges, and matches what a non-steer
+	 * initial prompt stores. The image stripping is ONLY used to build
+	 * the `SDKUserMessage` base64 image blocks we hand to the SDK.
+	 *
+	 * Two correctness properties this method enforces:
+	 *
+	 *   1. **Ghost-steer rejection.** The SDK emits ONE terminal `result`
+	 *      for the whole streaming session; once the for-await loop sees
+	 *      it, the finally block closes `promptSource`. If our image-
+	 *      loading await straddles that boundary, a naive post-await
+	 *      emit would plant a synthetic event into the pipeline with no
+	 *      assistant response behind it. Re-check `promptSource.closed`
+	 *      after the await to refuse the steer in that window.
+	 *
+	 *   2. **Strict ordering with post-steer deltas.** Emit the synthetic
+	 *      event BEFORE `promptSource.push()`. Both are synchronous so
+	 *      no other JS code can interleave, and the accumulator observes
+	 *      `user_prompt` strictly before any deltas the SDK generates
+	 *      in response.
+	 *
+	 * Returns `true` on success, `false` when no active session or when
+	 * the turn finished while we were preparing the message.
+	 */
+	async steer(
+		sessionId: string,
+		prompt: string,
+		files: readonly string[],
+	): Promise<boolean> {
+		const session = this.sessions.get(sessionId);
+		if (!session || session.promptSource.closed) {
+			return false;
+		}
+
+		// Strip image refs to build the SDK's base64 image content. Keep
+		// the raw prompt separately — that's what the synthetic event +
+		// DB row need so `@-refs` survive the round-trip.
+		const { text: stripped, imagePaths } = parseImageRefs(prompt);
+		const sdkMessage =
+			imagePaths.length === 0
+				? ({
+						type: "user",
+						message: { role: "user", content: prompt },
+						parent_tool_use_id: null,
+					} as SDKUserMessage)
+				: await buildUserMessageWithImages(stripped, imagePaths);
+
+		// Re-check after the image-loading await — during those awaits
+		// the for-await loop may have hit the extended turn's single
+		// terminal result and closed our queue. Without this guard a
+		// late image-steer call would plant a ghost bubble.
+		if (session.promptSource.closed) {
+			return false;
+		}
+
+		const event: {
+			type: "user_prompt";
+			text: string;
+			steer: true;
+			files?: string[];
+		} = { type: "user_prompt", text: prompt, steer: true };
+		if (files.length > 0) event.files = [...files];
+		session.emitter.passthrough(session.requestId, event);
+		session.promptSource.push(sdkMessage);
+		logger.info(`steer ${sessionId}`, {
+			preview: prompt.slice(0, 60),
+			fileCount: files.length,
+			imageCount: imagePaths.length,
+		});
+		return true;
+	}
+
 	async generateTitle(
 		requestId: string,
 		userMessage: string,
+		branchRenamePrompt: string | null,
 		emitter: SidecarEmitter,
 		timeoutMs = TITLE_GENERATION_TIMEOUT_MS,
 	): Promise<void> {
@@ -569,7 +715,7 @@ export class ClaudeSessionManager implements SessionManager {
 		const timeout = setTimeout(() => abortController.abort(), timeoutMs);
 
 		const q = query({
-			prompt: buildTitlePrompt(userMessage),
+			prompt: buildTitlePrompt(userMessage, branchRenamePrompt),
 			options: {
 				abortController,
 				pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
@@ -625,6 +771,11 @@ export class ClaudeSessionManager implements SessionManager {
 	): Promise<readonly SlashCommandInfo[]> {
 		const { cwd } = params;
 		const abortController = new AbortController();
+		const additionalDirectories = [...(params.additionalDirectories ?? [])];
+		const additionalDirectoryEnv =
+			additionalDirectories.length > 0
+				? { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1" }
+				: undefined;
 
 		let resolveDone: () => void = () => undefined;
 		const donePromise = new Promise<void>((resolve) => {
@@ -652,6 +803,8 @@ export class ClaudeSessionManager implements SessionManager {
 				pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
 				...executableOptions(),
 				cwd: cwd || undefined,
+				...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
+				...(additionalDirectoryEnv ? { env: additionalDirectoryEnv } : {}),
 				permissionMode: "bypassPermissions",
 				allowDangerouslySkipPermissions: true,
 				includePartialMessages: false,
@@ -908,6 +1061,112 @@ function isTerminalSuccessResult(message: SDKMessage): boolean {
 		return false;
 	}
 	return (message as { is_error?: boolean }).is_error !== true;
+}
+
+/**
+ * Hard cap on how long we let `q.getContextUsage()` block the terminal
+ * `end`/`aborted` event. The snapshot is best-effort metadata for the ring;
+ * the user-visible turn-finished signal must NOT be hostage to a slow SDK
+ * control-message round-trip. 1.5s is generous (typical < 200ms) but
+ * bounded so a hung SDK can't stall the UI.
+ */
+const CONTEXT_USAGE_SNAPSHOT_TIMEOUT_MS = 1500;
+const SNAPSHOT_TIMEOUT_SENTINEL: unique symbol = Symbol("snapshot-timeout");
+
+/**
+ * Subset of `SDKControlGetContextUsageResponse` we actually consume on the
+ * frontend. Slimming here prevents the SDK's 30+ KB `gridRows` / `mcpTools`
+ * / `skills` payload from hitting the DB on every turn.
+ */
+type SlimClaudeContextUsage = {
+	totalTokens: number;
+	maxTokens: number;
+	percentage: number;
+	isAutoCompactEnabled: boolean;
+	categories: ReadonlyArray<{
+		name: string;
+		tokens: number;
+		color: string;
+	}>;
+};
+
+/**
+ * Reduce the SDK's full context-usage response to the fields the UI parses.
+ * Drops the "Free space" pseudo-category (it's the unallocated remainder,
+ * never useful to a user). Exported for tests.
+ */
+export function slimClaudeContextUsage(raw: unknown): SlimClaudeContextUsage {
+	const root = (raw ?? {}) as Record<string, unknown>;
+	const rawCategories = Array.isArray(root.categories) ? root.categories : [];
+	return {
+		totalTokens: typeof root.totalTokens === "number" ? root.totalTokens : 0,
+		maxTokens: typeof root.maxTokens === "number" ? root.maxTokens : 0,
+		percentage: typeof root.percentage === "number" ? root.percentage : 0,
+		isAutoCompactEnabled: root.isAutoCompactEnabled === true,
+		categories: rawCategories
+			.filter(
+				(entry): entry is { name: string; tokens: number; color: string } => {
+					if (!entry || typeof entry !== "object") return false;
+					const e = entry as { name?: unknown; tokens?: unknown };
+					return (
+						typeof e.name === "string" &&
+						e.name !== "Free space" &&
+						typeof e.tokens === "number"
+					);
+				},
+			)
+			.map(({ name, tokens, color }) => ({
+				name,
+				tokens,
+				color: typeof color === "string" ? color : "",
+			})),
+	};
+}
+
+/**
+ * Snapshot context usage from a (possibly half-closed) Query and emit it.
+ * Bounded by `CONTEXT_USAGE_SNAPSHOT_TIMEOUT_MS`; SDK rejection or timeout
+ * are both swallowed — the ring just keeps its previous value. Exported
+ * for testing the timeout path.
+ */
+export async function snapshotContextUsage(
+	q: Query,
+	emitter: SidecarEmitter,
+	requestId: string,
+	sessionId: string,
+): Promise<void> {
+	let timeoutId: ReturnType<typeof setTimeout> | undefined;
+	const timeoutPromise = new Promise<typeof SNAPSHOT_TIMEOUT_SENTINEL>(
+		(resolve) => {
+			timeoutId = setTimeout(
+				() => resolve(SNAPSHOT_TIMEOUT_SENTINEL),
+				CONTEXT_USAGE_SNAPSHOT_TIMEOUT_MS,
+			);
+		},
+	);
+	try {
+		const result = await Promise.race([q.getContextUsage(), timeoutPromise]);
+		if (result === SNAPSHOT_TIMEOUT_SENTINEL) {
+			logger.debug("context usage snapshot timed out", {
+				requestId,
+				sessionId,
+			});
+			return;
+		}
+		emitter.contextUsageUpdated(
+			requestId,
+			sessionId,
+			JSON.stringify(slimClaudeContextUsage(result)),
+		);
+	} catch (err) {
+		logger.debug("context usage snapshot failed", {
+			requestId,
+			sessionId,
+			...errorDetails(err),
+		});
+	} finally {
+		if (timeoutId !== undefined) clearTimeout(timeoutId);
+	}
 }
 
 function stripDeferredToolUseFromAssistant(message: SDKMessage): object | null {

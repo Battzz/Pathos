@@ -184,6 +184,38 @@ fn user_prompt_files_array_present_but_empty() {
 }
 
 #[test]
+fn user_prompt_steer_flag_renders_as_user() {
+    // A steer prompt is a regular user turn with `steer: true` added to
+    // the JSON payload. The adapter should ignore the flag for rendering
+    // (the marker only exists so the UI can later add a distinct badge).
+    let msgs = vec![user_prompt_steer("u1", "actually focus on failing tests")];
+    assert_yaml_snapshot!(run_normalized(msgs));
+}
+
+#[test]
+fn user_prompt_steer_groups_in_same_turn() {
+    // Two user prompts in the same turn (initial + steer) + an assistant
+    // response between them. Shape check: the second prompt still renders
+    // as a user bubble and groups inline with the surrounding messages
+    // rather than truncating or dropping.
+    let msgs = vec![
+        user_prompt("u1", "start investigating"),
+        assistant_json(
+            "a1",
+            json!([{ "type": "text", "text": "Looking into it..." }]),
+            None,
+        ),
+        user_prompt_steer("u2", "focus on failing tests first"),
+        assistant_json(
+            "a2",
+            json!([{ "type": "text", "text": "OK, switching focus." }]),
+            None,
+        ),
+    ];
+    assert_yaml_snapshot!(run_normalized(msgs));
+}
+
+#[test]
 fn user_json_text_swallowed() {
     // JSON user message with pure text content is dropped (the assistant
     // already has the prompt; this avoids double-rendering).
@@ -393,6 +425,195 @@ fn asst_redacted_thinking() {
     assert_yaml_snapshot!(run_normalized(msgs));
 }
 
+// ---------------------------------------------------------------------------
+// Reasoning tri-state: pins the streaming flag + duration_ms shape the
+// frontend relies on to distinguish "still streaming" / "just finished live"
+// / "historical". A regression here is what surfaces to users as thinking
+// blocks that collapse themselves or never show "Thought for Ns".
+// ---------------------------------------------------------------------------
+
+#[test]
+fn asst_thinking_streaming_in_progress() {
+    // Partial snapshot mid-stream — `__is_streaming: true`, no duration yet.
+    // Frontend must keep the block open and show "Thinking...".
+    let msgs = vec![assistant_json(
+        "a1",
+        json!([{
+            "type": "thinking",
+            "thinking": "working it out",
+            "__is_streaming": true,
+            "__part_id": "a1:blk:0",
+        }]),
+        None,
+    )];
+    assert_yaml_snapshot!(run_normalized(msgs));
+}
+
+#[test]
+fn asst_thinking_live_just_finished() {
+    // The shape `handle_assistant` produces the moment the SDK emits its
+    // finalized assistant event: explicit `__is_streaming: false` plus
+    // `__duration_ms`. Frontend keeps the block open and renders
+    // "Thought for Ns" even when React never observed streaming=true
+    // (fast block coalesced inside one requestAnimationFrame window).
+    let msgs = vec![assistant_json(
+        "a1",
+        json!([{
+            "type": "thinking",
+            "thinking": "figured it out fast",
+            "__is_streaming": false,
+            "__duration_ms": 3200,
+            "__part_id": "a1:blk:0",
+        }]),
+        None,
+    )];
+    assert_yaml_snapshot!(run_normalized(msgs));
+}
+
+#[test]
+fn asst_thinking_historical_has_duration_without_streaming_flag() {
+    // What a DB reload produces: `flush_assistant` stripped the live-only
+    // `__is_streaming` marker, `__duration_ms` survived. Frontend treats
+    // this as historical → collapsed by default, still labels "Thought
+    // for Ns" once the user expands it.
+    let msgs = vec![assistant_json(
+        "a1",
+        json!([{
+            "type": "thinking",
+            "thinking": "from last session",
+            "__duration_ms": 5000,
+            "__part_id": "a1:blk:0",
+        }]),
+        None,
+    )];
+    assert_yaml_snapshot!(run_normalized(msgs));
+}
+
+#[test]
+fn asst_thinking_historical_without_duration() {
+    // Thinking blocks persisted before duration tracking landed. Both
+    // `streaming` and `duration_ms` should be absent so the frontend
+    // falls through to its plain "Thinking" label.
+    let msgs = vec![assistant_json(
+        "a1",
+        json!([{
+            "type": "thinking",
+            "thinking": "legacy",
+            "__part_id": "a1:blk:0",
+        }]),
+        None,
+    )];
+    assert_yaml_snapshot!(run_normalized(msgs));
+}
+
+#[test]
+fn stream_thinking_lifecycle_end_to_end() {
+    // Replays the ACTUAL Claude SDK event order captured via
+    // `sidecar/scripts/trace-thinking-events.ts`: thinking deltas, then
+    // the `assistant` finalized event, then `content_block_stop` (after
+    // the assistant event, within the same millisecond). Locks in:
+    //
+    //   1. Streaming partials expose `streaming: true` while deltas arrive.
+    //   2. The finalized assistant emission has `streaming: false` and a
+    //      measured `duration_ms` — the fix that prevents fast thinking
+    //      blocks from mounting already collapsed on the frontend.
+    //   3. `persisted_turn_blocks` keeps `__duration_ms` but drops
+    //      `__is_streaming` — historical reloads don't resurrect old
+    //      thinking blocks as "just completed".
+    //   4. `historical_render` round-trips with `streaming: None` +
+    //      `duration_ms` — collapsed by default but labelled correctly.
+    let events = vec![
+        json!({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking", "thinking": "", "signature": ""},
+            },
+            "session_id": "session-1",
+        }),
+        json!({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "Quick thought."},
+            },
+            "session_id": "session-1",
+        }),
+        json!({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "signature_delta", "signature": "sig"},
+            },
+            "session_id": "session-1",
+        }),
+        // Real-SDK quirk: the finalized assistant event arrives BEFORE
+        // `content_block_stop`. Keep this ordering — without the
+        // `started_at_ms` snapshot taken in `handle_assistant`, there'd
+        // be no way to recover the duration after `finalize_blocks`
+        // wipes `self.blocks`.
+        json!({
+            "type": "assistant",
+            "message": {
+                "id": "msg_1",
+                "role": "assistant",
+                "content": [{
+                    "type": "thinking",
+                    "thinking": "Quick thought.",
+                    "signature": "sig",
+                }],
+            },
+            "session_id": "session-1",
+        }),
+        json!({
+            "type": "stream_event",
+            "event": {"type": "content_block_stop", "index": 0},
+            "session_id": "session-1",
+        }),
+        json!({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": {"type": "text", "text": ""},
+            },
+            "session_id": "session-1",
+        }),
+        json!({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 1,
+                "delta": {"type": "text_delta", "text": "Done."},
+            },
+            "session_id": "session-1",
+        }),
+        json!({
+            "type": "assistant",
+            "message": {
+                "id": "msg_1",
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "Quick thought.", "signature": "sig"},
+                    {"type": "text", "text": "Done."},
+                ],
+            },
+            "session_id": "session-1",
+        }),
+        json!({
+            "type": "stream_event",
+            "event": {"type": "content_block_stop", "index": 1},
+            "session_id": "session-1",
+        }),
+    ];
+
+    let fingerprint = replay_stream_events("claude", &events);
+    assert_yaml_snapshot!(normalize_stream_fingerprint(&fingerprint));
+}
+
 #[test]
 fn asst_server_tool_use() {
     let msgs = vec![assistant_json(
@@ -491,6 +712,19 @@ fn asst_empty_content_fallback() {
         "a1",
         "assistant",
         &serde_json::to_string(&parsed).unwrap(),
+    )];
+    assert_yaml_snapshot!(run_normalized(msgs));
+}
+
+#[test]
+fn asst_unknown_error_prefers_message_text() {
+    let msgs = vec![assistant_json(
+        "a1",
+        json!([{
+            "type": "text",
+            "text": "API Error: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()"
+        }]),
+        Some(json!({ "error": "unknown" })),
     )];
     assert_yaml_snapshot!(run_normalized(msgs));
 }

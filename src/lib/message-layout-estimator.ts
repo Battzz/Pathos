@@ -4,10 +4,12 @@ import type {
 	ExtendedMessagePart,
 	MessagePart,
 	PlanReviewPart,
+	ReasoningPart,
 	ThreadMessageLike,
 	ToolCallPart,
 } from "./api";
 import { measureSync } from "./perf-marks";
+import { reasoningLifecycle } from "./reasoning-lifecycle";
 
 type EstimateOptions = {
 	fontSize: number;
@@ -21,6 +23,15 @@ const USER_LINE_HEIGHT = 28;
 const SYSTEM_LINE_HEIGHT = 18;
 const TOOL_SUMMARY_HEIGHT = 24;
 const REASONING_SUMMARY_HEIGHT = 24;
+// Chrome around the expanded reasoning body: trigger (~28px), CollapsibleContent
+// top padding (6px), and the <pre>'s px-3/py-2.5 so together we match what
+// `ReasoningContent` actually renders in `src/components/ai/reasoning.tsx`.
+const REASONING_EXPANDED_CHROME_HEIGHT = 50;
+// Matches `max-h-[20rem]` on the reasoning scroll container. Above this the
+// body scrolls internally instead of growing, so the row shouldn't grow past
+// this either.
+const REASONING_EXPANDED_MAX_CONTENT_HEIGHT = 320;
+const REASONING_EXPANDED_CONTENT_HORIZONTAL_PADDING = 24;
 const COLLAPSED_GROUP_HEIGHT = 24;
 const USER_BUBBLE_VERTICAL_PADDING = 16;
 const USER_BUBBLE_HORIZONTAL_PADDING = 24;
@@ -152,7 +163,7 @@ function estimateAssistantPartHeight(
 		case "text":
 			return estimateAssistantTextHeight(part.text, options);
 		case "reasoning":
-			return REASONING_SUMMARY_HEIGHT;
+			return estimateReasoningHeight(part, options);
 		case "tool-call":
 			return estimateToolCallHeight(part);
 		case "collapsed-group":
@@ -168,6 +179,45 @@ function estimateAssistantPartHeight(
 		default:
 			return TOOL_SUMMARY_HEIGHT;
 	}
+}
+
+/**
+ * Reasoning height has two regimes, matching what `ReasoningContent` actually
+ * renders:
+ *
+ *   - historical reload → collapsed by default → just the trigger (~24px).
+ *   - streaming / just-finished → expanded by default → trigger + chrome +
+ *     the wrapped-text height of the body, clamped at `max-h-[20rem]` since
+ *     the body scrolls internally past that point and no longer contributes
+ *     to the outer row.
+ *
+ * Crucially this keeps the estimate *monotonic* against the measured height:
+ * `resolveConversationRowHeight` uses `max(measured, estimated)` while
+ * streaming, so a conservatively-sized estimate just means a harmless bit of
+ * bottom padding if the live reasoning turns out to be short; it will never
+ * shove the footer indicator inside the row the way the old flat 24px did.
+ */
+function estimateReasoningHeight(
+	part: ReasoningPart,
+	options: { fontSize: number; contentWidth: number },
+) {
+	if (reasoningLifecycle(part) === "historical") {
+		return REASONING_SUMMARY_HEIGHT;
+	}
+	const bodyWidth = Math.max(
+		MIN_TEXT_WIDTH,
+		options.contentWidth - REASONING_EXPANDED_CONTENT_HORIZONTAL_PADDING,
+	);
+	const textHeight = measureTextHeight(part.text, {
+		fontSize: options.fontSize,
+		lineHeight: ASSISTANT_LINE_HEIGHT,
+		maxWidth: bodyWidth,
+		whiteSpace: "pre-wrap",
+	});
+	return (
+		REASONING_EXPANDED_CHROME_HEIGHT +
+		Math.min(textHeight, REASONING_EXPANDED_MAX_CONTENT_HEIGHT)
+	);
 }
 
 function estimatePlanReviewHeight(
@@ -434,7 +484,19 @@ function estimateToolCallHeight(part: ToolCallPart) {
 }
 
 function estimateCollapsedGroupHeight(group: CollapsedGroupPart) {
-	return group.active ? COLLAPSED_GROUP_HEIGHT + 4 : COLLAPSED_GROUP_HEIGHT;
+	if (group.tools.length === 0) {
+		return group.active ? COLLAPSED_GROUP_HEIGHT + 4 : COLLAPSED_GROUP_HEIGHT;
+	}
+
+	const childHeights = group.tools.map((tool) => estimateToolCallHeight(tool));
+	const childrenHeight = childHeights.reduce((sum, height) => sum + height, 0);
+	const childrenGapHeight = Math.max(0, group.tools.length - 1) * 2;
+	const expandedChildrenHeight = 4 + childrenHeight + childrenGapHeight;
+	const trailingToolHeight =
+		childHeights[childHeights.length - 1] ?? TOOL_SUMMARY_HEIGHT;
+	const activeBuffer = group.active ? trailingToolHeight + 8 : 0;
+
+	return COLLAPSED_GROUP_HEIGHT + expandedChildrenHeight + activeBuffer;
 }
 
 function looksLikeStructuredMarkdown(text: string) {

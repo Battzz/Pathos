@@ -121,6 +121,22 @@ function createAskUserQuestionDeferredTool(): PendingDeferredTool {
 	};
 }
 
+function createGenericDeferredTool(): PendingDeferredTool {
+	return {
+		provider: "claude",
+		modelId: "opus-1m",
+		resolvedModel: "opus-1m",
+		providerSessionId: "provider-session-1",
+		workingDirectory: "/tmp/helmor",
+		permissionMode: "default",
+		toolUseId: "tool-generic-1",
+		toolName: "Bash",
+		toolInput: {
+			command: "git status --short",
+		},
+	};
+}
+
 function createFormElicitation(): PendingElicitation {
 	return {
 		provider: "claude",
@@ -983,6 +999,55 @@ describe("WorkspaceComposer", () => {
 						},
 					},
 				}),
+			}),
+		);
+	});
+
+	it("keeps deferred tool approval buttons enabled while the stream is paused for approval", async () => {
+		const user = userEvent.setup();
+		const queryClient = createHelmorQueryClient();
+		const handleDeferredToolResponse = vi.fn();
+
+		render(
+			<QueryClientProvider client={queryClient}>
+				<WorkspaceComposer
+					contextKey="session:session-1"
+					onSubmit={vi.fn()}
+					disabled={false}
+					submitDisabled={false}
+					sending={true}
+					selectedModelId="opus-1m"
+					modelSections={MODEL_SECTIONS}
+					onSelectModel={vi.fn()}
+					provider="claude"
+					effortLevel="high"
+					onSelectEffort={vi.fn()}
+					permissionMode="acceptEdits"
+					onChangePermissionMode={vi.fn()}
+					restoreImages={[]}
+					restoreFiles={[]}
+					restoreCustomTags={[]}
+					pendingDeferredTool={createGenericDeferredTool()}
+					onDeferredToolResponse={handleDeferredToolResponse}
+				/>
+			</QueryClientProvider>,
+		);
+
+		const allowButton = screen.getByRole("button", { name: "Allow" });
+		const denyButton = screen.getByRole("button", { name: "Deny" });
+
+		expect(allowButton).toBeEnabled();
+		expect(denyButton).toBeEnabled();
+
+		await user.click(allowButton);
+
+		expect(handleDeferredToolResponse).toHaveBeenCalledWith(
+			expect.objectContaining({ toolUseId: "tool-generic-1" }),
+			"allow",
+			expect.objectContaining({
+				updatedInput: {
+					command: "git status --short",
+				},
 			}),
 		);
 	});

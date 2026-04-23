@@ -84,6 +84,7 @@ impl GitRepoHarness {
         git_ops::run_git(["init", "-b", "main"], Some(&root)).unwrap();
         git_ops::run_git(["config", "user.email", "test@helmor.test"], Some(&root)).unwrap();
         git_ops::run_git(["config", "user.name", "Test"], Some(&root)).unwrap();
+        git_ops::run_git(["config", "commit.gpgsign", "false"], Some(&root)).unwrap();
 
         fs::write(root.join("README.md"), "# Test\n").unwrap();
         git_ops::run_git(["add", "."], Some(&root)).unwrap();

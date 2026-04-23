@@ -28,6 +28,9 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { useFileLinkContext } from "@/features/panel/message-components/file-link-context";
+import { isPathWithinRoot } from "@/lib/editor-session";
+import { parseLocalFileLink } from "@/lib/local-file-link";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -54,7 +57,9 @@ export function StreamdownTable({
 				<TableCopyDropdown />
 				<TableDownloadDropdown />
 			</div>
-			<Table className={cn("text-[11px]", className)}>{children}</Table>
+			<div className="overflow-hidden rounded-md border border-border/70">
+				<Table className={cn("text-[0.9em]", className)}>{children}</Table>
+			</div>
 		</div>
 	);
 }
@@ -97,7 +102,12 @@ export function StreamdownTableHead({
 	className?: string;
 }) {
 	return (
-		<TableHead className={cn("h-8 text-[11px] font-semibold", className)}>
+		<TableHead
+			className={cn(
+				"h-8 border-r border-border/60 bg-muted/35 text-[0.9em] font-semibold last:border-r-0",
+				className,
+			)}
+		>
 			{children}
 		</TableHead>
 	);
@@ -111,7 +121,12 @@ export function StreamdownTableCell({
 	className?: string;
 }) {
 	return (
-		<TableCell className={cn("py-1.5 text-[11px]", className)}>
+		<TableCell
+			className={cn(
+				"border-r border-border/60 py-1.5 text-[0.9em] last:border-r-0",
+				className,
+			)}
+		>
 			{children}
 		</TableCell>
 	);
@@ -170,6 +185,8 @@ export function StreamdownAnchor({
 	className?: string;
 	href?: string;
 } & Record<string, unknown>) {
+	const { openInEditor, workspaceRootPath } = useFileLinkContext();
+
 	const handleClick = async (event: MouseEvent<HTMLAnchorElement>) => {
 		if (!href) {
 			return;
@@ -185,6 +202,17 @@ export function StreamdownAnchor({
 			event.shiftKey ||
 			event.altKey
 		) {
+			return;
+		}
+
+		const localTarget = parseLocalFileLink(href, workspaceRootPath);
+		if (
+			localTarget &&
+			openInEditor &&
+			isPathWithinRoot(localTarget.path, workspaceRootPath)
+		) {
+			event.preventDefault();
+			openInEditor(localTarget.path, localTarget.line, localTarget.column);
 			return;
 		}
 

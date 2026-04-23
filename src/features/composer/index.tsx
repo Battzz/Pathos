@@ -34,7 +34,12 @@ import {
 } from "@/components/ui/tooltip";
 import type { PendingDeferredTool } from "@/features/conversation/pending-deferred-tool";
 import type { PendingElicitation } from "@/features/conversation/pending-elicitation";
-import type { AgentModelSection, SlashCommandEntry } from "@/lib/api";
+import { humanizeBranch } from "@/features/navigation/shared";
+import type {
+	AgentModelSection,
+	CandidateDirectory,
+	SlashCommandEntry,
+} from "@/lib/api";
 import type {
 	ComposerCustomTag,
 	ResolvedComposerInsertRequest,
@@ -43,12 +48,20 @@ import { recordComposerRender } from "@/lib/dev-render-debug";
 import { cn } from "@/lib/utils";
 import { clampEffort } from "@/lib/workspace-helpers";
 import { ComposerButton } from "./button";
+import { ContextBar } from "./context-bar";
+import { ContextUsageRing } from "./context-usage-ring";
 import type {
 	DeferredToolResponseHandler,
 	DeferredToolResponseOptions,
 } from "./deferred-tool";
 import { DeferredToolPanel } from "./deferred-tool-panel";
 import { clearPersistedDraft } from "./draft-storage";
+import { $insertAddDirTrigger } from "./editor/add-dir/insert";
+import { AddDirTriggerNode } from "./editor/add-dir/trigger-node";
+import {
+	type AddDirPickerEntry,
+	AddDirTypeaheadPlugin,
+} from "./editor/add-dir/typeahead-plugin";
 import { CustomTagBadgeNode } from "./editor/custom-tag-badge-node";
 import { FileBadgeNode } from "./editor/file-badge-node";
 import { ImageBadgeNode } from "./editor/image-badge-node";
@@ -107,15 +120,31 @@ type WorkspaceComposerProps = {
 	slashCommandsError?: boolean;
 	onRetrySlashCommands?: () => void;
 	workspaceRootPath?: string | null;
+	linkedDirectories?: readonly string[];
+	onRemoveLinkedDirectory?: (path: string) => void;
+	linkedDirectoriesDisabled?: boolean;
+	/** Quick-pick workspace suggestions shown in the /add-dir popup. */
+	addDirCandidates?: readonly CandidateDirectory[];
+	/** Called when the user selects an entry from the /add-dir popup. */
+	onPickAddDir?: (entry: AddDirPickerEntry) => void;
 	pendingElicitation?: PendingElicitation | null;
 	onElicitationResponse?: ElicitationResponseHandler;
 	elicitationResponsePending?: boolean;
 	pendingDeferredTool?: PendingDeferredTool | null;
 	onDeferredToolResponse?: DeferredToolResponseHandler;
 	hasPlanReview?: boolean;
+	/** When true, the ring is always rendered next to the send button.
+	 *  When false (the default), the ring auto-reveals only after usage
+	 *  crosses the threshold defined inside the ring component. */
+	alwaysShowContextUsage?: boolean;
+	/** Helmor session id for the context-usage ring. */
+	sessionId?: string | null;
 };
 
 const EMPTY_SLASH_COMMANDS: readonly SlashCommandEntry[] = [];
+const EMPTY_LINKED_DIRECTORIES: readonly string[] = [];
+const EMPTY_CANDIDATE_DIRECTORIES: readonly CandidateDirectory[] = [];
+const noopPickAddDir = (_entry: AddDirPickerEntry) => {};
 const noopDeferredToolResponse = (
 	_deferred: PendingDeferredTool,
 	_behavior: "allow" | "deny",
@@ -167,12 +196,19 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	slashCommandsError = false,
 	onRetrySlashCommands,
 	workspaceRootPath = null,
+	linkedDirectories = EMPTY_LINKED_DIRECTORIES,
+	onRemoveLinkedDirectory,
+	linkedDirectoriesDisabled = false,
+	addDirCandidates = EMPTY_CANDIDATE_DIRECTORIES,
+	onPickAddDir = noopPickAddDir,
 	pendingElicitation = null,
 	onElicitationResponse = noopElicitationResponse,
 	elicitationResponsePending = false,
 	pendingDeferredTool = null,
 	onDeferredToolResponse = noopDeferredToolResponse,
 	hasPlanReview = false,
+	alwaysShowContextUsage = false,
+	sessionId = null,
 }: WorkspaceComposerProps) {
 	const instanceIdRef = useRef(
 		`composer-${Math.random().toString(36).slice(2, 10)}`,
@@ -231,19 +267,30 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	const toolbarDisabled = disabled || hasPendingInteraction;
 	const composerToolbarTriggerClassName =
 		"cursor-pointer rounded-[9px] px-1 py-0.5 text-[13px] font-medium transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50";
-	const sendDisabled =
-		disabled ||
-		submitDisabled ||
-		sending ||
-		hasPendingInteraction ||
-		!selectedModel ||
-		!hasContent;
+	// Shared gate for Send and Steer — the only difference is whether a
+	// stream is currently running. When sending, ⌘Enter / Enter still
+	// fires `handleSubmit`; the use-streaming hook dispatches to the
+	// steer path based on `sendingContextKeys`.
+	const submitEnabled =
+		!disabled &&
+		!submitDisabled &&
+		!hasPendingInteraction &&
+		Boolean(selectedModel) &&
+		hasContent;
+	const sendDisabled = !submitEnabled || sending;
+	const steerDisabled = !submitEnabled || !sending;
+	const submitDisabledForPlugin = !submitEnabled;
 
 	// Lexical initial config — must be a new object per mount for key resets
 	const initialConfig = useRef({
 		namespace: "WorkspaceComposer",
 		theme: EDITOR_THEME,
-		nodes: [ImageBadgeNode, FileBadgeNode, CustomTagBadgeNode],
+		nodes: [
+			ImageBadgeNode,
+			FileBadgeNode,
+			CustomTagBadgeNode,
+			AddDirTriggerNode,
+		],
 		onError: onEditorError,
 	}).current;
 
@@ -371,11 +418,41 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 			) : hasPendingDeferredTool ? (
 				<DeferredToolPanel
 					deferred={pendingDeferredTool!}
-					disabled={disabled || sending}
+					disabled={disabled}
 					onResponse={onDeferredToolResponse}
 				/>
 			) : (
 				<>
+					{onRemoveLinkedDirectory ? (
+						<ContextBar
+							directories={linkedDirectories.map((path) => {
+								const match = addDirCandidates.find(
+									(c) => c.absolutePath === path,
+								);
+								// Display name follows the sidebar's rule
+								// (`row-item.tsx`): if the workspace has a branch,
+								// show the humanized last segment of the branch
+								// (`natllian/refactor-messages` → `Refactor
+								// Messages`). Otherwise fall back to the workspace
+								// title. For Browse-picked arbitrary paths the
+								// match is absent and ContextBar falls back to the
+								// basename of `path`.
+								const name = match?.branch
+									? humanizeBranch(match.branch)
+									: match?.title;
+								return {
+									path,
+									name,
+									branch: match?.branch ?? null,
+									repoIconSrc: match?.repoIconSrc ?? null,
+									repoInitials: match?.repoInitials ?? null,
+									repoName: match?.repoName ?? null,
+								};
+							})}
+							onRemove={onRemoveLinkedDirectory}
+							disabled={linkedDirectoriesDisabled}
+						/>
+					) : null}
 					<LexicalComposer initialConfig={initialConfig}>
 						<div className="relative">
 							<PlainTextPlugin
@@ -403,13 +480,31 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 							isLoading={slashCommandsLoading}
 							isError={slashCommandsError}
 							onRetry={onRetrySlashCommands}
+							onClientAction={(name, nodeToReplace) => {
+								// Built-in /add-dir: swap the typed `/add-dir` text
+								// for a purple pill decorator node. Subsequent typing
+								// is picked up by AddDirTypeaheadPlugin. Any other
+								// client-action name is a no-op here for now.
+								if (name === "add-dir" && editorRef.current) {
+									$insertAddDirTrigger(editorRef.current, nodeToReplace);
+								}
+							}}
+							popupAnchorRef={composerRootRef}
+						/>
+						<AddDirTypeaheadPlugin
+							candidates={addDirCandidates}
+							linkedDirectories={linkedDirectories}
+							onPick={onPickAddDir}
 							popupAnchorRef={composerRootRef}
 						/>
 						<FileMentionPlugin
 							workspaceRootPath={workspaceRootPath}
 							popupAnchorRef={composerRootRef}
 						/>
-						<SubmitPlugin onSubmit={handleSubmit} disabled={sendDisabled} />
+						<SubmitPlugin
+							onSubmit={handleSubmit}
+							disabled={submitDisabledForPlugin}
+						/>
 						<CompositionGuardPlugin />
 						<PasteImagePlugin />
 						<DropFilePlugin />
@@ -456,7 +551,9 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 												<ClaudeIcon className="size-[13px]" />
 											)}
 											<span>
-												{selectedModel?.label ?? selectedModelId ?? ""}
+												{selectedModel?.label ??
+													selectedModelId ??
+													"Select model"}
 											</span>
 											<ChevronDown
 												className="size-3 opacity-40"
@@ -486,9 +583,9 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 															<div className="flex items-center gap-3">
 																<span className="text-muted-foreground">
 																	{option.provider === "codex" ? (
-																		<OpenAIIcon className="size-[13px]" />
+																		<OpenAIIcon />
 																	) : (
-																		<ClaudeIcon className="size-[13px]" />
+																		<ClaudeIcon />
 																	)}
 																</span>
 																<span className="font-mono tabular-nums">
@@ -622,6 +719,13 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 						</div>
 
 						<div className="flex items-center gap-2">
+							{sessionId ? (
+								<ContextUsageRing
+									sessionId={sessionId}
+									alwaysShow={alwaysShowContextUsage}
+									disabled={disabled}
+								/>
+							) : null}
 							{hasPlanReview && permissionMode === "plan" ? (
 								<>
 									<Button
@@ -648,16 +752,30 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 									</Button>
 								</>
 							) : sending ? (
-								<Button
-									variant="destructive"
-									size="icon"
-									aria-label="Stop"
-									onClick={onStop}
-									disabled={disabled || submitDisabled}
-									className="rounded-[9px]"
-								>
-									<Square className="size-3 fill-current" strokeWidth={0} />
-								</Button>
+								<div className="flex items-center gap-1.5">
+									<Button
+										variant="destructive"
+										size="icon"
+										aria-label="Stop"
+										onClick={onStop}
+										disabled={disabled || submitDisabled}
+										className="rounded-[9px]"
+									>
+										<Square className="size-3 fill-current" strokeWidth={0} />
+									</Button>
+									{hasContent ? (
+										<Button
+											variant="outline"
+											size="icon"
+											aria-label="Steer"
+											onClick={handleSubmit}
+											disabled={steerDisabled}
+											className="rounded-[9px]"
+										>
+											<ArrowUp className="size-[15px]" strokeWidth={2.2} />
+										</Button>
+									) : null}
+								</div>
 							) : (
 								<Button
 									variant="outline"
@@ -685,7 +803,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 });
 
 function EffortBrainIcon({ level }: { level: string }) {
-	const cls = "size-4 shrink-0";
+	const cls = "shrink-0";
 
 	if (level === "minimal") {
 		return (

@@ -14,6 +14,12 @@ impl TestDataDir {
             std::env::temp_dir().join(format!("helmor-test-{name}-{}", uuid::Uuid::new_v4()));
         std::env::set_var("HELMOR_DATA_DIR", root.display().to_string());
         crate::data_dir::ensure_directory_structure().unwrap();
+        // Match production startup order: schema first, pools second.
+        let schema_conn =
+            Connection::open(crate::data_dir::db_path().unwrap()).expect("open schema conn");
+        crate::schema::ensure_schema(&schema_conn).expect("ensure_schema in test setup");
+        drop(schema_conn);
+        crate::models::db::init_pools().expect("failed to init test DB pools");
         Self { root }
     }
 
@@ -41,7 +47,18 @@ pub(crate) struct RestoreTestHarness {
 }
 
 impl RestoreTestHarness {
-    pub(crate) fn new(include_updated_at: bool) -> Self {
+    pub(crate) fn new() -> Self {
+        Self::build(false)
+    }
+
+    /// Variant that installs a `BEFORE UPDATE` trigger on `workspaces`,
+    /// forcing `update_restored_workspace_state` to fail. Used to exercise
+    /// the cleanup path in `restore_workspace_impl`.
+    pub(crate) fn new_with_blocked_workspace_update() -> Self {
+        Self::build(true)
+    }
+
+    fn build(block_workspace_updates: bool) -> Self {
         let test_dir = TestDataDir::new("restore");
         let root = test_dir.root.clone();
         let source_repo_root = root.join("source-repo");
@@ -81,7 +98,7 @@ impl RestoreTestHarness {
         let ws_dir = crate::data_dir::workspace_dir(&repo_name, &directory_name).unwrap();
         fs::create_dir_all(ws_dir.parent().unwrap()).unwrap();
 
-        create_fixture_db(
+        create_archived_fixture_db(
             &test_dir.db_path(),
             &source_repo_root,
             &repo_name,
@@ -90,8 +107,11 @@ impl RestoreTestHarness {
             &session_id,
             &branch,
             &archive_commit,
-            include_updated_at,
         );
+
+        if block_workspace_updates {
+            install_workspace_update_blocker(&test_dir.db_path());
+        }
 
         Self {
             _test_dir: test_dir,
@@ -116,13 +136,6 @@ impl RestoreTestHarness {
     pub(crate) fn source_repo_root(&self) -> PathBuf {
         self.root.join("source-repo")
     }
-
-    pub(crate) fn attachment_path(&self) -> String {
-        self.workspace_dir()
-            .join(".context/attachments/evidence.txt")
-            .display()
-            .to_string()
-    }
 }
 
 pub(crate) struct ArchiveTestHarness {
@@ -136,7 +149,18 @@ pub(crate) struct ArchiveTestHarness {
 }
 
 impl ArchiveTestHarness {
-    pub(crate) fn new(include_updated_at: bool) -> Self {
+    pub(crate) fn new() -> Self {
+        Self::build(false)
+    }
+
+    /// Variant that installs a `BEFORE UPDATE` trigger on `workspaces`,
+    /// forcing `update_archived_workspace_state` to fail. Used to exercise
+    /// the cleanup path in `archive_workspace_impl`.
+    pub(crate) fn new_with_blocked_workspace_update() -> Self {
+        Self::build(true)
+    }
+
+    fn build(block_workspace_updates: bool) -> Self {
         let test_dir = TestDataDir::new("archive");
         let root = test_dir.root.clone();
         let source_repo_root = root.join("source-repo");
@@ -176,8 +200,11 @@ impl ArchiveTestHarness {
             &workspace_id,
             &session_id,
             &branch,
-            include_updated_at,
         );
+
+        if block_workspace_updates {
+            install_workspace_update_blocker(&test_dir.db_path());
+        }
 
         let workspace_dir = crate::data_dir::workspace_dir(&repo_name, &directory_name).unwrap();
         git_ops::point_branch_to_commit(&source_repo_root, &branch, &head_commit).unwrap();
@@ -211,13 +238,6 @@ impl ArchiveTestHarness {
 
     pub(crate) fn source_repo_root(&self) -> PathBuf {
         self.root.join("source-repo")
-    }
-
-    pub(crate) fn attachment_path(&self) -> String {
-        self.workspace_dir()
-            .join(".context/attachments/evidence.txt")
-            .display()
-            .to_string()
     }
 
     pub(crate) fn set_state(&self, state: &str) {
@@ -276,9 +296,9 @@ impl CreateTestHarness {
                 r#"
                 INSERT INTO workspaces (
                   id, repository_id, directory_name, active_session_id, branch,
-                  placeholder_branch_name, state, initialization_parent_branch,
-                  intended_target_branch, derived_status, unread, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, NULL, ?4, ?4, 'ready', 'main', 'main', 'in-progress', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                  state, initialization_parent_branch,
+                  intended_target_branch, derived_status, unread
+                ) VALUES (?1, ?2, ?3, NULL, ?4, 'ready', 'main', 'main', 'in-progress', 0)
                 "#,
                 (
                     format!("workspace-{directory_name}"),
@@ -298,18 +318,21 @@ impl CreateTestHarness {
         hidden: i64,
     ) {
         let connection = Connection::open(self.db_path()).unwrap();
+        // Production schema enforces UNIQUE(repos.root_path), so each
+        // synthetic repo needs its own path even though the test never
+        // touches the filesystem under it.
+        let synthetic_root = self.root.join(format!("synthetic-{repo_id}"));
         connection
             .execute(
                 r#"
                 INSERT INTO repos (
-                  id, remote_url, name, default_branch, root_path, setup_script, created_at,
-                  updated_at, display_order, hidden
-                ) VALUES (?1, NULL, ?2, 'main', ?3, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?4, ?5)
+                  id, remote_url, name, default_branch, root_path, display_order, hidden
+                ) VALUES (?1, NULL, ?2, 'main', ?3, ?4, ?5)
                 "#,
                 (
                     repo_id,
                     repo_name,
-                    self.source_repo_root.to_str().unwrap(),
+                    synthetic_root.to_str().unwrap(),
                     display_order,
                     hidden,
                 ),
@@ -629,26 +652,61 @@ fn init_git_repo(repo_root: &Path) {
     .unwrap();
 }
 
+/// Open a connection to a fixture DB. Schema is already applied by
+/// `TestDataDir::new`, so this is just a thin `Connection::open` wrapper
+/// kept for symmetry with the rest of the fixture helpers.
+fn open_fixture_db(db_path: &Path) -> Connection {
+    Connection::open(db_path).unwrap()
+}
+
+/// Install a trigger that fails only on UPDATEs touching `workspaces.state`.
+/// Lets tests exercise the cleanup path in `update_archived_workspace_state` /
+/// `update_restored_workspace_state` without disturbing the earlier
+/// branch-name UPDATE that runs first in `restore_workspace_impl`.
+fn install_workspace_update_blocker(db_path: &Path) {
+    let connection = Connection::open(db_path).unwrap();
+    connection
+        .execute_batch(
+            r#"
+            CREATE TRIGGER block_workspace_state_update
+            BEFORE UPDATE OF state ON workspaces
+            BEGIN
+                SELECT RAISE(FAIL, 'blocked update');
+            END;
+            "#,
+        )
+        .unwrap();
+}
+
 fn create_workspace_fixture_db(
     db_path: &Path,
     source_repo_root: &Path,
     repo_id: &str,
     repo_name: &str,
 ) {
-    let connection = Connection::open(db_path).unwrap();
-    connection.execute_batch(&fixture_schema_sql(true)).unwrap();
+    let connection = open_fixture_db(db_path);
     connection
         .execute(
-            r#"INSERT INTO repos (id, remote_url, name, default_branch, root_path, setup_script, created_at, updated_at, display_order, hidden) VALUES (?1, NULL, ?2, 'main', ?3, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1, 0)"#,
+            r#"INSERT INTO repos (id, remote_url, name, default_branch, root_path, display_order, hidden) VALUES (?1, NULL, ?2, 'main', ?3, 1, 0)"#,
             (repo_id, repo_name, source_repo_root.to_str().unwrap()),
         )
         .unwrap();
-    connection.execute("INSERT INTO settings (key, value, created_at, updated_at) VALUES ('branch_prefix_type', 'custom', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", []).unwrap();
-    connection.execute("INSERT INTO settings (key, value, created_at, updated_at) VALUES ('branch_prefix_custom', 'testuser/', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", []).unwrap();
+    connection
+        .execute(
+            "INSERT INTO settings (key, value) VALUES ('branch_prefix_type', 'custom')",
+            [],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO settings (key, value) VALUES ('branch_prefix_custom', 'testuser/')",
+            [],
+        )
+        .unwrap();
 }
 
 #[allow(clippy::too_many_arguments)]
-fn create_fixture_db(
+fn create_archived_fixture_db(
     db_path: &Path,
     source_repo_root: &Path,
     repo_name: &str,
@@ -657,46 +715,28 @@ fn create_fixture_db(
     session_id: &str,
     branch: &str,
     archive_commit: &str,
-    include_updated_at: bool,
 ) {
-    let connection = Connection::open(db_path).unwrap();
-    connection
-        .execute_batch(&fixture_schema_sql(include_updated_at))
-        .unwrap();
+    let connection = open_fixture_db(db_path);
     connection
         .execute(
             "INSERT INTO repos (id, name, remote_url, default_branch, root_path) VALUES (?1, ?2, NULL, 'main', ?3)",
             ["repo-1", repo_name, source_repo_root.to_str().unwrap()],
         )
         .unwrap();
-    if include_updated_at {
-        connection.execute(
-            r#"INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status, manual_status, unread, branch, initialization_parent_branch, intended_target_branch, notes, pinned_at, active_session_id, pr_title, pr_description, archive_commit, created_at, updated_at) VALUES (?1, 'repo-1', ?2, 'archived', 'in-progress', NULL, 0, ?3, NULL, NULL, NULL, NULL, ?4, NULL, NULL, ?5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"#,
+    connection
+        .execute(
+            r#"INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status, branch, active_session_id, archive_commit) VALUES (?1, 'repo-1', ?2, 'archived', 'in-progress', ?3, ?4, ?5)"#,
             [workspace_id, directory_name, branch, session_id, archive_commit],
-        ).unwrap();
-    } else {
-        connection.execute(
-            r#"INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status, manual_status, unread, branch, initialization_parent_branch, intended_target_branch, notes, pinned_at, active_session_id, pr_title, pr_description, archive_commit, created_at) VALUES (?1, 'repo-1', ?2, 'archived', 'in-progress', NULL, 0, ?3, NULL, NULL, NULL, NULL, ?4, NULL, NULL, ?5, CURRENT_TIMESTAMP)"#,
-            [workspace_id, directory_name, branch, session_id, archive_commit],
-        ).unwrap();
-    }
-    connection.execute(
-        r#"INSERT INTO sessions (id, workspace_id, title, agent_type, status, model, permission_mode, provider_session_id, unread_count, context_token_count, context_used_percent, thinking_enabled, fast_mode, agent_personality, created_at, updated_at, last_user_message_at, resume_session_at, is_hidden, is_compacting) VALUES (?1, ?2, 'Archived session', 'claude', 'idle', 'opus', 'default', NULL, 0, 0, NULL, 0, 0, 'none', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, 0, 0)"#,
-        [session_id, workspace_id],
-    ).unwrap();
-
-    let archived_attachment_path = crate::data_dir::archived_context_dir(repo_name, directory_name)
-        .unwrap()
-        .join("attachments/evidence.txt")
-        .display()
-        .to_string();
-    connection.execute(
-        "INSERT INTO attachments (id, session_id, session_message_id, type, original_name, path, is_loading, is_draft, created_at) VALUES ('attachment-1', ?1, NULL, 'text', 'evidence.txt', ?2, 0, 0, CURRENT_TIMESTAMP)",
-        [session_id, archived_attachment_path.as_str()],
-    ).unwrap();
+        )
+        .unwrap();
+    connection
+        .execute(
+            r#"INSERT INTO sessions (id, workspace_id, title, agent_type, status, model, permission_mode) VALUES (?1, ?2, 'Archived session', 'claude', 'idle', 'opus', 'default')"#,
+            [session_id, workspace_id],
+        )
+        .unwrap();
 }
 
-#[allow(clippy::too_many_arguments)]
 fn create_ready_fixture_db(
     db_path: &Path,
     source_repo_root: &Path,
@@ -705,63 +745,26 @@ fn create_ready_fixture_db(
     workspace_id: &str,
     session_id: &str,
     branch: &str,
-    include_updated_at: bool,
 ) {
-    let connection = Connection::open(db_path).unwrap();
-    connection
-        .execute_batch(&fixture_schema_sql(include_updated_at))
-        .unwrap();
+    let connection = open_fixture_db(db_path);
     connection
         .execute(
             "INSERT INTO repos (id, name, remote_url, default_branch, root_path) VALUES (?1, ?2, NULL, 'main', ?3)",
             ["repo-1", repo_name, source_repo_root.to_str().unwrap()],
         )
         .unwrap();
-    if include_updated_at {
-        connection.execute(
-            r#"INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status, manual_status, unread, branch, initialization_parent_branch, intended_target_branch, notes, pinned_at, active_session_id, pr_title, pr_description, archive_commit, created_at, updated_at) VALUES (?1, 'repo-1', ?2, 'ready', 'in-progress', NULL, 0, ?3, NULL, NULL, NULL, NULL, ?4, NULL, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"#,
+    connection
+        .execute(
+            r#"INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status, branch, active_session_id) VALUES (?1, 'repo-1', ?2, 'ready', 'in-progress', ?3, ?4)"#,
             (workspace_id, directory_name, branch, session_id),
-        ).unwrap();
-    } else {
-        connection.execute(
-            r#"INSERT INTO workspaces (id, repository_id, directory_name, state, derived_status, manual_status, unread, branch, initialization_parent_branch, intended_target_branch, notes, pinned_at, active_session_id, pr_title, pr_description, archive_commit, created_at) VALUES (?1, 'repo-1', ?2, 'ready', 'in-progress', NULL, 0, ?3, NULL, NULL, NULL, NULL, ?4, NULL, NULL, NULL, CURRENT_TIMESTAMP)"#,
-            (workspace_id, directory_name, branch, session_id),
-        ).unwrap();
-    }
-    connection.execute(
-        r#"INSERT INTO sessions (id, workspace_id, title, agent_type, status, model, permission_mode, provider_session_id, unread_count, context_token_count, context_used_percent, thinking_enabled, fast_mode, agent_personality, created_at, updated_at, last_user_message_at, resume_session_at, is_hidden, is_compacting) VALUES (?1, ?2, 'Ready session', 'claude', 'idle', 'opus', 'default', NULL, 0, 0, NULL, 0, 0, 'none', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, 0, 0)"#,
-        [session_id, workspace_id],
-    ).unwrap();
-
-    let workspace_attachment_path = crate::data_dir::workspace_dir(repo_name, directory_name)
-        .unwrap()
-        .join(".context/attachments/evidence.txt")
-        .display()
-        .to_string();
-    connection.execute(
-        "INSERT INTO attachments (id, session_id, session_message_id, type, original_name, path, is_loading, is_draft, created_at) VALUES ('attachment-1', ?1, NULL, 'text', 'evidence.txt', ?2, 0, 0, CURRENT_TIMESTAMP)",
-        [session_id, workspace_attachment_path.as_str()],
-    ).unwrap();
-}
-
-fn fixture_schema_sql(include_updated_at: bool) -> String {
-    let workspaces_updated_at_column = if include_updated_at {
-        ",\n              updated_at TEXT DEFAULT CURRENT_TIMESTAMP"
-    } else {
-        ""
-    };
-
-    format!(
-        r#"
-        CREATE TABLE repos (id TEXT PRIMARY KEY, remote_url TEXT, name TEXT NOT NULL, default_branch TEXT DEFAULT 'main', root_path TEXT NOT NULL, setup_script TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP, storage_version INTEGER DEFAULT 1, archive_script TEXT, display_order INTEGER DEFAULT 0, run_script TEXT, run_script_mode TEXT DEFAULT 'concurrent', remote TEXT, custom_prompt_code_review TEXT, custom_prompt_create_pr TEXT, custom_prompt_rename_branch TEXT, conductor_config TEXT, custom_prompt_general TEXT, icon TEXT, hidden INTEGER DEFAULT 0, custom_prompt_fix_errors TEXT, custom_prompt_resolve_merge_conflicts TEXT);
-        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
-        CREATE TABLE workspaces (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, directory_name TEXT, active_session_id TEXT, branch TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, state TEXT, derived_status TEXT, manual_status TEXT, unread INTEGER DEFAULT 0, placeholder_branch_name TEXT, initialization_parent_branch TEXT, big_terminal_mode INTEGER DEFAULT 0, initialization_files_copied INTEGER, pinned_at TEXT, linked_workspace_ids TEXT, notes TEXT, intended_target_branch TEXT, pr_title TEXT, pr_description TEXT, archive_commit TEXT, secondary_directory_name TEXT, linked_directory_paths TEXT{workspaces_updated_at_column});
-        CREATE TABLE sessions (id TEXT PRIMARY KEY, status TEXT, provider_session_id TEXT, unread_count INTEGER DEFAULT 0, freshly_compacted INTEGER DEFAULT 0, context_token_count INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP, is_compacting INTEGER DEFAULT 0, model TEXT, permission_mode TEXT, last_user_message_at TEXT, resume_session_at TEXT, workspace_id TEXT NOT NULL, is_hidden INTEGER DEFAULT 0, agent_type TEXT, title TEXT DEFAULT 'Untitled', context_used_percent REAL, thinking_enabled INTEGER DEFAULT 1, codex_thinking_level TEXT, fast_mode INTEGER DEFAULT 0, agent_personality TEXT);
-        CREATE TABLE session_messages (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT, content TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, sent_at TEXT, cancelled_at TEXT, model TEXT, sdk_message_id TEXT, last_assistant_message_id TEXT, turn_id TEXT, is_resumable_message INTEGER);
-        CREATE TABLE attachments (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, session_message_id TEXT, type TEXT, original_name TEXT, path TEXT, is_loading INTEGER DEFAULT 0, is_draft INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
-        CREATE TABLE diff_comments (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, path TEXT NOT NULL, original_line INTEGER NOT NULL, original_line_content TEXT, current_line INTEGER, current_line_content TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
-        "#
-    )
+        )
+        .unwrap();
+    connection
+        .execute(
+            r#"INSERT INTO sessions (id, workspace_id, title, agent_type, status, model, permission_mode) VALUES (?1, ?2, 'Ready session', 'claude', 'idle', 'opus', 'default')"#,
+            [session_id, workspace_id],
+        )
+        .unwrap();
 }
 
 fn init_branch_switch_repo(repo: &Path) {
@@ -795,8 +798,7 @@ fn create_branch_switch_fixture_db(
     workspace_id: &str,
     branch: &str,
 ) {
-    let connection = Connection::open(db_path).unwrap();
-    connection.execute_batch(&fixture_schema_sql(true)).unwrap();
+    let connection = open_fixture_db(db_path);
     connection
         .execute(
             "INSERT INTO repos (id, name, remote_url, default_branch, root_path) VALUES (?1, ?2, NULL, 'main', ?3)",
@@ -807,15 +809,8 @@ fn create_branch_switch_fixture_db(
         .execute(
             r#"INSERT INTO workspaces (
                 id, repository_id, directory_name, state, derived_status,
-                manual_status, unread, branch, initialization_parent_branch,
-                intended_target_branch, notes, pinned_at, active_session_id,
-                pr_title, pr_description, archive_commit, created_at, updated_at
-              ) VALUES (
-                ?1, 'repo-1', ?2, 'ready', 'in-progress',
-                NULL, 0, ?3, 'main',
-                'main', NULL, NULL, NULL,
-                NULL, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-              )"#,
+                branch, initialization_parent_branch, intended_target_branch
+              ) VALUES (?1, 'repo-1', ?2, 'ready', 'in-progress', ?3, 'main', 'main')"#,
             (workspace_id, directory_name, branch),
         )
         .unwrap();

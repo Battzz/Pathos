@@ -1,8 +1,9 @@
 //! Slash-command cache.
 //!
 //! Two-tier cache:
-//! 1. **Workspace tier** — keyed by `(provider, cwd)`. Primary cache — an exact
-//!    hit returns instantly and we revalidate in the background.
+//! 1. **Workspace tier** — keyed by `(provider, cwd, linked-dir-signature)`.
+//!    Primary cache — an exact hit returns instantly and we revalidate in the
+//!    background.
 //! 2. **Repo tier** — keyed by `(provider, repo_id)`. Fallback used when the
 //!    workspace tier misses. Different workspaces on the same repo usually
 //!    share the same `~/.claude/skills/` and `.claude/commands/`, so we can
@@ -13,13 +14,18 @@ use std::sync::{Mutex, RwLock};
 
 use super::queries::SlashCommandEntry;
 
-pub type WorkspaceKey = (String, String); // (provider, cwd)
+pub type WorkspaceKey = (String, String, String); // (provider, cwd, linked-dir-signature)
 pub type RepoKey = (String, String); // (provider, repo_id)
 
-pub fn workspace_key(provider: &str, working_directory: Option<&str>) -> WorkspaceKey {
+pub fn workspace_key(
+    provider: &str,
+    working_directory: Option<&str>,
+    additional_directories: &[String],
+) -> WorkspaceKey {
     (
         provider.to_string(),
         working_directory.unwrap_or_default().to_string(),
+        additional_directories.join("\u{1f}"),
     )
 }
 
@@ -56,6 +62,7 @@ impl SlashCommandCache {
         tracing::debug!(
             provider = %key.0,
             cwd = %key.1,
+            linked_dir_count = key.2.split('\u{1f}').filter(|s| !s.is_empty()).count(),
             count = commands.len(),
             "Slash-command workspace cache hit"
         );

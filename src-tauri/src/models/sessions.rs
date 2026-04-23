@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use anyhow::{bail, Context, Result};
 use rusqlite::{Connection, Transaction};
 use serde::Serialize;
@@ -23,17 +21,11 @@ pub struct WorkspaceSessionSummary {
     pub provider_session_id: Option<String>,
     pub effort_level: Option<String>,
     pub unread_count: i64,
-    pub context_token_count: i64,
-    pub context_used_percent: Option<f64>,
-    pub thinking_enabled: bool,
     pub fast_mode: bool,
-    pub agent_personality: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub last_user_message_at: Option<String>,
-    pub resume_session_at: Option<String>,
     pub is_hidden: bool,
-    pub is_compacting: bool,
     /// Non-null when the session was created as a one-off "action" dispatch
     /// (e.g. "create-pr", "commit-and-push"). The inspector commit button
     /// uses this to drive post-stream verifiers and the auto-close behavior.
@@ -42,23 +34,8 @@ pub struct WorkspaceSessionSummary {
     pub active: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionAttachmentRecord {
-    pub id: String,
-    pub session_id: String,
-    pub session_message_id: Option<String>,
-    pub attachment_type: Option<String>,
-    pub original_name: Option<String>,
-    pub path: Option<String>,
-    pub path_exists: bool,
-    pub is_loading: bool,
-    pub is_draft: bool,
-    pub created_at: String,
-}
-
 pub fn list_workspace_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessionSummary>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let active_session_id: Option<String> = connection.query_row(
         "SELECT active_session_id FROM workspaces WHERE id = ?1",
         [workspace_id],
@@ -78,17 +55,11 @@ pub fn list_workspace_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessio
               s.provider_session_id,
               s.effort_level,
               s.unread_count,
-              s.context_token_count,
-              s.context_used_percent,
-              s.thinking_enabled,
               s.fast_mode,
-              s.agent_personality,
               s.created_at,
               s.updated_at,
               s.last_user_message_at,
-              s.resume_session_at,
               s.is_hidden,
-              s.is_compacting,
               s.action_kind
             FROM sessions s
             WHERE s.workspace_id = ?1 AND COALESCE(s.is_hidden, 0) = 0
@@ -112,18 +83,12 @@ pub fn list_workspace_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessio
             provider_session_id: row.get(7)?,
             effort_level: row.get(8)?,
             unread_count: row.get(9)?,
-            context_token_count: row.get(10)?,
-            context_used_percent: row.get(11)?,
-            thinking_enabled: row.get::<_, i64>(12)? != 0,
-            fast_mode: row.get::<_, i64>(13)? != 0,
-            agent_personality: row.get(14)?,
-            created_at: row.get(15)?,
-            updated_at: row.get(16)?,
-            last_user_message_at: row.get(17)?,
-            resume_session_at: row.get(18)?,
-            is_hidden: row.get::<_, i64>(19)? != 0,
-            is_compacting: row.get::<_, i64>(20)? != 0,
-            action_kind: row.get(21)?,
+            fast_mode: row.get::<_, i64>(10)? != 0,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+            last_user_message_at: row.get(13)?,
+            is_hidden: row.get::<_, i64>(14)? != 0,
+            action_kind: row.get(15)?,
         })
     })?;
 
@@ -131,7 +96,7 @@ pub fn list_workspace_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessio
 }
 
 pub fn list_session_historical_records(session_id: &str) -> Result<Vec<HistoricalRecord>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     list_session_historical_records_with_connection(&connection, session_id)
 }
 
@@ -174,54 +139,10 @@ fn list_session_historical_records_with_connection(
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
 }
 
-pub fn list_session_attachments(session_id: &str) -> Result<Vec<SessionAttachmentRecord>> {
-    let connection = db::open_connection(false)?;
-    let mut statement = connection.prepare(
-        r#"
-            SELECT
-              a.id,
-              a.session_id,
-              a.session_message_id,
-              a.type,
-              a.original_name,
-              a.path,
-              a.is_loading,
-              a.is_draft,
-              a.created_at
-            FROM attachments a
-            WHERE a.session_id = ?1
-            ORDER BY datetime(a.created_at) ASC, a.id ASC
-            "#,
-    )?;
-
-    let rows = statement.query_map([session_id], |row| {
-        let path: Option<String> = row.get(5)?;
-        let path_exists = path
-            .as_deref()
-            .map(|path| Path::new(path).exists())
-            .unwrap_or(false);
-
-        Ok(SessionAttachmentRecord {
-            id: row.get(0)?,
-            session_id: row.get(1)?,
-            session_message_id: row.get(2)?,
-            attachment_type: row.get(3)?,
-            original_name: row.get(4)?,
-            path,
-            path_exists,
-            is_loading: row.get::<_, i64>(6)? != 0,
-            is_draft: row.get::<_, i64>(7)? != 0,
-            created_at: row.get(8)?,
-        })
-    })?;
-
-    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
-}
-
 // ---- Session read/unread functions ----
 
 pub fn mark_session_read(session_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start mark-read transaction")?;
@@ -231,6 +152,42 @@ pub fn mark_session_read(session_id: &str) -> Result<()> {
     transaction
         .commit()
         .context("Failed to commit session read transaction")
+}
+
+pub fn mark_session_unread(session_id: &str) -> Result<()> {
+    let mut connection = db::write_conn()?;
+    let transaction = connection
+        .transaction()
+        .context("Failed to start mark-unread transaction")?;
+
+    mark_session_unread_in_transaction(&transaction, session_id)?;
+
+    transaction
+        .commit()
+        .context("Failed to commit session unread transaction")
+}
+
+pub(crate) fn mark_session_unread_in_transaction(
+    transaction: &Transaction<'_>,
+    session_id: &str,
+) -> Result<()> {
+    // Bump to at least 1 — idempotent for a session that's already marked
+    // unread, and avoids drifting upwards on repeated background completions.
+    // `workspaces.unread` is an independent flag, not mirrored from sessions,
+    // so we don't touch it here; `has_unread` is derived as
+    // `workspaces.unread OR (any session unread_count > 0)`.
+    let updated_rows = transaction
+        .execute(
+            "UPDATE sessions SET unread_count = MAX(COALESCE(unread_count, 0), 1) WHERE id = ?1",
+            [session_id],
+        )
+        .with_context(|| format!("Failed to mark session {session_id} as unread"))?;
+
+    if updated_rows != 1 {
+        bail!("Session unread update affected {updated_rows} rows for session {session_id}");
+    }
+
+    Ok(())
 }
 
 pub(crate) fn mark_session_read_in_transaction(
@@ -256,38 +213,18 @@ pub(crate) fn mark_session_read_in_transaction(
         bail!("Session read update affected {updated_rows} rows for session {session_id}");
     }
 
-    sync_workspace_unread_in_transaction(transaction, &workspace_id)
-}
-
-pub(crate) fn mark_workspace_read_in_transaction(
-    transaction: &Transaction<'_>,
-    workspace_id: &str,
-) -> Result<()> {
-    transaction
-        .execute(
-            "UPDATE sessions SET unread_count = 0 WHERE workspace_id = ?1",
-            [workspace_id],
-        )
-        .with_context(|| format!("Failed to clear unread sessions for workspace {workspace_id}"))?;
-
-    let updated_rows = transaction
-        .execute(
-            "UPDATE workspaces SET unread = 0 WHERE id = ?1",
-            [workspace_id],
-        )
-        .with_context(|| format!("Failed to mark workspace {workspace_id} as read"))?;
-
-    if updated_rows != 1 {
-        bail!("Workspace read update affected {updated_rows} rows for workspace {workspace_id}");
-    }
-
-    Ok(())
+    // Clearing a session only drops the workspace flag when nothing else in
+    // the workspace is still unread; otherwise the workspace stays marked.
+    clear_workspace_unread_if_no_session_unread_in_transaction(transaction, &workspace_id)
 }
 
 pub(crate) fn mark_workspace_unread_in_transaction(
     transaction: &Transaction<'_>,
     workspace_id: &str,
 ) -> Result<()> {
+    // `workspaces.unread` is an independent flag. Setting it directly is
+    // enough — sessions are left alone. `has_unread` is derived as
+    // `workspaces.unread OR (any session unread_count > 0)`.
     let updated_rows = transaction
         .execute(
             "UPDATE workspaces SET unread = 1 WHERE id = ?1",
@@ -302,33 +239,33 @@ pub(crate) fn mark_workspace_unread_in_transaction(
     Ok(())
 }
 
-pub(crate) fn sync_workspace_unread_in_transaction(
+/// Clears `workspaces.unread` only if every session in the workspace is
+/// already read. Called from `mark_session_read_in_transaction` so the
+/// workspace flag disappears together with the last unread session, but is
+/// preserved while any session still has unread content.
+pub(crate) fn clear_workspace_unread_if_no_session_unread_in_transaction(
     transaction: &Transaction<'_>,
     workspace_id: &str,
 ) -> Result<()> {
-    let updated_rows = transaction
+    transaction
         .execute(
             r#"
             UPDATE workspaces
-            SET unread = CASE
-              WHEN EXISTS (
+            SET unread = 0
+            WHERE id = ?1
+              AND NOT EXISTS (
                 SELECT 1
                 FROM sessions
                 WHERE workspace_id = ?1
                   AND COALESCE(unread_count, 0) > 0
-              ) THEN 1
-              ELSE 0
-            END
-            WHERE id = ?1
+              )
             "#,
             [workspace_id],
         )
-        .with_context(|| format!("Failed to sync unread state for workspace {workspace_id}"))?;
+        .with_context(|| format!("Failed to clear workspace unread for {workspace_id}"))?;
 
-    if updated_rows != 1 {
-        bail!("Unread sync affected {updated_rows} rows for workspace {workspace_id}");
-    }
-
+    // Idempotent: zero rows updated is fine — it just means the workspace
+    // still has unread sessions (or the flag was already 0).
     Ok(())
 }
 
@@ -350,7 +287,7 @@ pub fn create_session(
     action_kind: Option<ActionKind>,
     permission_mode: Option<&str>,
 ) -> Result<CreateSessionResponse> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
 
     // `model` is left NULL on create: the frontend owns model selection via
     // `settings.defaultModelId` (kept valid by `useEnsureDefaultModel`), and
@@ -422,7 +359,7 @@ pub fn create_session(
 
 /// Read the `model` column from a session row.
 pub fn get_session_model(session_id: &str) -> Result<Option<String>> {
-    let conn = db::open_connection(false)?;
+    let conn = db::read_conn()?;
     let model: Option<String> = conn
         .query_row(
             "SELECT model FROM sessions WHERE id = ?1",
@@ -433,8 +370,35 @@ pub fn get_session_model(session_id: &str) -> Result<Option<String>> {
     Ok(model.filter(|s| !s.is_empty()))
 }
 
+/// Read the opaque `context_usage_meta` JSON for the composer's
+/// context-usage ring. Returns `Ok(None)` for missing rows OR empty meta —
+/// the ring renders a placeholder either way and the frontend RPC contract
+/// promises null on "not recorded yet". This matters for the create→fetch
+/// race and the delete-while-mounted race.
+pub fn get_session_context_usage(session_id: &str) -> Result<Option<String>> {
+    let conn = db::read_conn()?;
+    read_session_context_usage(&conn, session_id)
+}
+
+fn read_session_context_usage(conn: &Connection, session_id: &str) -> Result<Option<String>> {
+    let meta: Option<String> = match conn.query_row(
+        "SELECT context_usage_meta FROM sessions WHERE id = ?1",
+        [session_id],
+        |row| row.get(0),
+    ) {
+        Ok(value) => value,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+        Err(err) => {
+            return Err(err).with_context(|| {
+                format!("Failed to read context_usage_meta for session {session_id}")
+            });
+        }
+    };
+    Ok(meta.filter(|s| !s.is_empty()))
+}
+
 pub fn rename_session(session_id: &str, title: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
 
     let updated_rows = connection
         .execute(
@@ -451,7 +415,7 @@ pub fn rename_session(session_id: &str, title: &str) -> Result<()> {
 }
 
 pub fn hide_session(session_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start hide-session transaction")?;
@@ -471,6 +435,11 @@ pub fn hide_session(session_id: &str) -> Result<()> {
             [session_id],
         )
         .with_context(|| format!("Failed to hide session {session_id}"))?;
+
+    // A hidden session can no longer contribute to the workspace unread dot —
+    // the user can't reach it to clear it. Drop its unread_count so the
+    // workspace flag can fall off too when this was the last unread session.
+    mark_session_read_in_transaction(&transaction, session_id)?;
 
     // If this was the workspace's active session, switch to the next visible one
     let current_active: Option<String> = transaction
@@ -509,7 +478,7 @@ pub fn hide_session(session_id: &str) -> Result<()> {
 }
 
 pub fn unhide_session(session_id: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     connection
         .execute(
             "UPDATE sessions SET is_hidden = 0 WHERE id = ?1",
@@ -520,7 +489,7 @@ pub fn unhide_session(session_id: &str) -> Result<()> {
 }
 
 pub fn delete_session(session_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let transaction = connection.transaction()?;
 
     // Resolve workspace before deleting, so we can fix active_session_id
@@ -532,12 +501,6 @@ pub fn delete_session(session_id: &str) -> Result<()> {
         )
         .ok();
 
-    transaction
-        .execute(
-            "DELETE FROM attachments WHERE session_id = ?1",
-            [session_id],
-        )
-        .context("Failed to delete attachments")?;
     transaction
         .execute(
             "DELETE FROM session_messages WHERE session_id = ?1",
@@ -565,17 +528,15 @@ pub fn delete_session(session_id: &str) -> Result<()> {
 }
 
 pub fn list_hidden_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessionSummary>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement = connection
         .prepare(
             r#"
             SELECT
               s.id, s.workspace_id, s.title, s.agent_type, s.status, s.model,
-              s.permission_mode, s.provider_session_id, s.effort_level, s.unread_count,
-              s.context_token_count, s.context_used_percent, s.thinking_enabled,
-              s.fast_mode, s.agent_personality,
-              s.created_at, s.updated_at, s.last_user_message_at,
-              s.resume_session_at, s.is_hidden, s.is_compacting, s.action_kind
+              s.permission_mode, s.provider_session_id, s.effort_level,
+              s.unread_count, s.fast_mode, s.created_at, s.updated_at,
+              s.last_user_message_at, s.is_hidden, s.action_kind
             FROM sessions s
             WHERE s.workspace_id = ?1 AND s.is_hidden = 1
             ORDER BY datetime(s.created_at) ASC
@@ -598,18 +559,12 @@ pub fn list_hidden_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessionSu
                 provider_session_id: row.get(7)?,
                 effort_level: row.get(8)?,
                 unread_count: row.get(9)?,
-                context_token_count: row.get(10)?,
-                context_used_percent: row.get(11)?,
-                thinking_enabled: row.get::<_, i64>(12)? != 0,
-                fast_mode: row.get::<_, i64>(13)? != 0,
-                agent_personality: row.get(14)?,
-                created_at: row.get(15)?,
-                updated_at: row.get(16)?,
-                last_user_message_at: row.get(17)?,
-                resume_session_at: row.get(18)?,
-                is_hidden: row.get::<_, i64>(19)? != 0,
-                is_compacting: row.get::<_, i64>(20)? != 0,
-                action_kind: row.get(21)?,
+                fast_mode: row.get::<_, i64>(10)? != 0,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
+                last_user_message_at: row.get(13)?,
+                is_hidden: row.get::<_, i64>(14)? != 0,
+                action_kind: row.get(15)?,
             })
         })
         .context("Failed to query hidden sessions")?;
@@ -697,15 +652,6 @@ mod tests {
             text_record.parsed_content.is_none(),
             "non-JSON content should leave parsed_content None instead of erroring"
         );
-    }
-
-    #[test]
-    fn attachment_table_empty_by_default() {
-        let (conn, _dir) = test_db();
-        let count: i64 = conn
-            .query_row("SELECT count(*) FROM attachments", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(count, 0);
     }
 
     fn seed_with_active_session(conn: &Connection) {
@@ -813,8 +759,6 @@ mod tests {
         assert_eq!(get_active_session_id(&conn, "w1"), Some("s1".to_string()));
 
         // Delete s1 — simulates the transactional logic in delete_session()
-        conn.execute("DELETE FROM attachments WHERE session_id = 's1'", [])
-            .unwrap();
         conn.execute("DELETE FROM session_messages WHERE session_id = 's1'", [])
             .unwrap();
         conn.execute("DELETE FROM sessions WHERE id = 's1'", [])
@@ -965,5 +909,49 @@ mod tests {
             .filter_map(Result::ok)
             .collect();
         assert_eq!(roles, vec!["user", "assistant"]);
+    }
+
+    #[test]
+    fn read_session_context_usage_handles_missing_session() {
+        let (conn, _dir) = test_db();
+        seed(&conn);
+        // No row for "ghost" — must be Ok(None), NOT an error.
+        let meta = read_session_context_usage(&conn, "ghost").unwrap();
+        assert_eq!(meta, None);
+    }
+
+    #[test]
+    fn read_session_context_usage_returns_none_for_null_meta() {
+        let (conn, _dir) = test_db();
+        seed(&conn);
+        // Seeded session has context_usage_meta NULL by default.
+        let meta = read_session_context_usage(&conn, "s1").unwrap();
+        assert_eq!(meta, None);
+    }
+
+    #[test]
+    fn read_session_context_usage_returns_stored_string() {
+        let (conn, _dir) = test_db();
+        seed(&conn);
+        conn.execute(
+            "UPDATE sessions SET context_usage_meta = ?1 WHERE id = 's1'",
+            [r#"{"totalTokens":7}"#],
+        )
+        .unwrap();
+        let meta = read_session_context_usage(&conn, "s1").unwrap();
+        assert_eq!(meta.as_deref(), Some(r#"{"totalTokens":7}"#));
+    }
+
+    #[test]
+    fn read_session_context_usage_filters_empty_string_to_none() {
+        let (conn, _dir) = test_db();
+        seed(&conn);
+        conn.execute(
+            "UPDATE sessions SET context_usage_meta = '' WHERE id = 's1'",
+            [],
+        )
+        .unwrap();
+        let meta = read_session_context_usage(&conn, "s1").unwrap();
+        assert_eq!(meta, None);
     }
 }

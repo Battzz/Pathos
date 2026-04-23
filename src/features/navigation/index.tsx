@@ -2,7 +2,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	Archive,
 	ChevronRight,
+	Folder,
 	FolderPlus,
+	Globe,
 	LoaderCircle,
 	Plus,
 } from "lucide-react";
@@ -24,6 +26,12 @@ import {
 	CommandList,
 } from "@/components/ui/command";
 import { CommandPopoverContent } from "@/components/ui/command-popover";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import {
 	Tooltip,
@@ -38,6 +46,7 @@ import type {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { WorkspaceAvatar } from "./avatar";
+import { CloneFromUrlDialog } from "./clone-from-url-dialog";
 import {
 	createInitialSectionOpenState,
 	readStoredSectionOpenState,
@@ -90,10 +99,14 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	addingRepository,
 	selectedWorkspaceId,
 	sendingWorkspaceIds,
-	completedWorkspaceIds,
 	interactionRequiredWorkspaceIds,
 	creatingWorkspaceRepoId,
 	onAddRepository,
+	onOpenCloneDialog,
+	isCloneDialogOpen,
+	onCloneDialogOpenChange,
+	cloneDefaultDirectory,
+	onSubmitClone,
 	onSelectWorkspace,
 	onPrefetchWorkspace,
 	onCreateWorkspace,
@@ -113,10 +126,17 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	addingRepository?: boolean;
 	selectedWorkspaceId?: string | null;
 	sendingWorkspaceIds?: Set<string>;
-	completedWorkspaceIds?: Set<string>;
 	interactionRequiredWorkspaceIds?: Set<string>;
 	creatingWorkspaceRepoId?: string | null;
 	onAddRepository?: () => void;
+	onOpenCloneDialog?: () => void;
+	isCloneDialogOpen?: boolean;
+	onCloneDialogOpenChange?: (open: boolean) => void;
+	cloneDefaultDirectory?: string | null;
+	onSubmitClone?: (args: {
+		gitUrl: string;
+		cloneDirectory: string;
+	}) => Promise<void>;
 	onSelectWorkspace?: (workspaceId: string) => void;
 	onPrefetchWorkspace?: (workspaceId: string) => void;
 	onCreateWorkspace?: (repoId: string) => void;
@@ -405,7 +425,6 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 						row={item.row}
 						selected={selectedWorkspaceId === item.row.id}
 						isSending={sendingWorkspaceIds?.has(item.row.id)}
-						isCompleted={completedWorkspaceIds?.has(item.row.id)}
 						isInteractionRequired={interactionRequiredWorkspaceIds?.has(
 							item.row.id,
 						)}
@@ -436,7 +455,6 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			toggleSection,
 			selectedWorkspaceId,
 			sendingWorkspaceIds,
-			completedWorkspaceIds,
 			interactionRequiredWorkspaceIds,
 			onSelectWorkspace,
 			onPrefetchWorkspace,
@@ -455,6 +473,17 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 
 	return (
 		<div className="flex h-full min-h-0 flex-col overflow-hidden">
+			<CloneFromUrlDialog
+				open={isCloneDialogOpen ?? false}
+				onOpenChange={(nextOpen) => onCloneDialogOpenChange?.(nextOpen)}
+				defaultCloneDirectory={cloneDefaultDirectory ?? null}
+				onSubmit={async (args) => {
+					if (!onSubmitClone) {
+						return;
+					}
+					await onSubmitClone(args);
+				}}
+			/>
 			<div
 				data-slot="window-safe-top"
 				className="flex h-9 shrink-0 items-center pr-3"
@@ -464,13 +493,13 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			</div>
 
 			<div className="flex items-center justify-between px-3">
-				<h2 className="text-[13px] font-medium tracking-[-0.01em] text-muted-foreground">
+				<h2 className="text-[14px] font-medium tracking-[-0.01em] text-muted-foreground">
 					Workspaces
 				</h2>
 
 				<div className="flex items-center gap-1 text-muted-foreground">
-					<Tooltip>
-						<TooltipTrigger asChild>
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
 							<Button
 								type="button"
 								aria-label="Add repository"
@@ -485,30 +514,38 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 										? "cursor-not-allowed opacity-60"
 										: undefined,
 								)}
-								onClick={() => {
-									if (addRepositoryBusy || createBusy || workspaceActionsBusy) {
-										return;
-									}
-
+							>
+								{addRepositoryBusy ? (
+									<LoaderCircle
+										className="size-4 animate-spin"
+										strokeWidth={2.1}
+									/>
+								) : (
+									<FolderPlus className="size-4" strokeWidth={2} />
+								)}
+							</Button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="end" className="min-w-40">
+							<DropdownMenuItem
+								onSelect={() => {
 									setIsRepoPickerOpen(false);
 									onAddRepository?.();
 								}}
 							>
-								{addRepositoryBusy ? (
-									<LoaderCircle className="animate-spin" strokeWidth={2.1} />
-								) : (
-									<FolderPlus strokeWidth={2} />
-								)}
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent
-							side="top"
-							sideOffset={8}
-							className="flex h-[22px] items-center rounded-md px-1.5 text-[11px] leading-none"
-						>
-							<span>Add repository</span>
-						</TooltipContent>
-					</Tooltip>
+								<Folder strokeWidth={2} />
+								<span>Open project</span>
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onSelect={() => {
+									setIsRepoPickerOpen(false);
+									onOpenCloneDialog?.();
+								}}
+							>
+								<Globe strokeWidth={2} />
+								<span>Clone from URL</span>
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
 
 					<Popover open={isRepoPickerOpen} onOpenChange={setIsRepoPickerOpen}>
 						<PopoverAnchor asChild>
@@ -539,11 +576,11 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 										>
 											{createBusy ? (
 												<LoaderCircle
-													className="animate-spin"
+													className="size-4 animate-spin"
 													strokeWidth={2.1}
 												/>
 											) : (
-												<Plus strokeWidth={2.4} />
+												<Plus className="size-4" strokeWidth={2.4} />
 											)}
 										</Button>
 									</TooltipTrigger>
@@ -607,7 +644,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			<div
 				ref={scrollContainerRef}
 				data-slot="workspace-groups-scroll"
-				className="scrollbar-stable relative mt-4 min-h-0 flex-1 overflow-y-auto px-2 pr-1"
+				className="scrollbar-stable relative mt-2 min-h-0 flex-1 overflow-y-auto px-2 pr-1"
 			>
 				<div
 					style={{

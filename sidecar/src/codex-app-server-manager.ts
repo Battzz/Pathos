@@ -14,7 +14,9 @@ import {
 	type JsonRpcRequest,
 } from "./codex-app-server.js";
 import type { SidecarEmitter } from "./emitter.js";
+import { resolveGitAccessDirectories } from "./git-access.js";
 import { parseImageRefs } from "./images.js";
+import { prependLinkedDirectoriesContext } from "./linked-directories-context.js";
 import { errorDetails, logger } from "./logger.js";
 import { sortCodexModels } from "./model-sort.js";
 import {
@@ -80,6 +82,22 @@ interface AppServerContext {
 	activeTurnId: string | null;
 	turnResolve: (() => void) | null;
 	turnReject: ((err: Error) => void) | null;
+	/** Request id for the currently streaming sendMessage invocation —
+	 *  used by `steer()` to route a synthetic user passthrough event into
+	 *  the right Channel so the pipeline renders the steer bubble at the
+	 *  correct streaming position (not at the tail). */
+	activeRequestId: string | null;
+	/** Emitter owning the active stream — `steer()` uses it to fan a
+	 *  synthetic `user` passthrough alongside the RPC. */
+	activeEmitter: SidecarEmitter | null;
+	/** When non-null, BOTH `handleNotification` and `handleRequest` await
+	 *  this promise before dispatching. `steer()` installs one for the
+	 *  duration of the `turn/steer` RPC so any post-steer deltas OR
+	 *  server-initiated tool/user-input requests that arrive before the
+	 *  RPC reply are queued at the dispatch boundary and don't reach
+	 *  the frontend pipeline/UI until after the synthetic user_prompt
+	 *  event lands. Microtask FIFO preserves their relative ordering. */
+	notificationGate: Promise<void> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,9 +206,14 @@ export class CodexAppServerManager implements SessionManager {
 			effortLevel,
 			permissionMode,
 			fastMode,
+			additionalDirectories,
 		} = params;
 		const workDir = cwd ?? process.cwd();
 		const effectiveFastMode = fastMode === true && codexSupportsFastMode(model);
+		const resolvedAdditionalDirectories = await mergeAdditionalDirectories(
+			workDir,
+			additionalDirectories,
+		);
 
 		logger.debug(`[${requestId}] codex sendMessage`, {
 			sessionId,
@@ -209,7 +232,19 @@ export class CodexAppServerManager implements SessionManager {
 			effectiveFastMode,
 		);
 
-		const input = buildTurnInput(prompt);
+		// Codex, unlike Claude, has no `additionalDirectoriesForClaudeMd`
+		// equivalent — `sandboxPolicy.writableRoots` only grants write
+		// permission, it doesn't tell the agent "these paths are part of
+		// your working context". To close that gap we prepend a small
+		// context preamble to the user's prompt when there are linked
+		// directories, so Codex knows it can reach into them without the
+		// user re-stating paths every turn. Claude doesn't need this
+		// because `--add-dir` covers both facets in the CLI.
+		const promptWithContext = prependLinkedDirectoriesContext(
+			prompt,
+			resolvedAdditionalDirectories,
+		);
+		const input = buildTurnInput(promptWithContext);
 		const turnStartParams: Record<string, unknown> = {
 			threadId: ctx.providerThreadId,
 			input,
@@ -221,8 +256,24 @@ export class CodexAppServerManager implements SessionManager {
 		if (codexMode) turnStartParams.collaborationMode = codexMode;
 		const codexApproval = toCodexApprovalPolicy(permissionMode);
 		if (codexApproval) turnStartParams.approvalPolicy = codexApproval;
+		// Always send an explicit per-turn sandbox policy. Codex applies
+		// turn-level overrides as the new default for later turns on the
+		// thread, which lets us switch cleanly between plan mode
+		// (`workspaceWrite`) and normal execution (`dangerFullAccess`)
+		// without reopening the thread.
+		const sandboxPolicy = buildTurnSandboxPolicy(
+			permissionMode,
+			workDir,
+			resolvedAdditionalDirectories,
+		);
+		turnStartParams.sandboxPolicy = sandboxPolicy;
 
 		let aborted = false;
+
+		// Stash the active stream's routing info so `steer()` can fire a
+		// synthetic user passthrough on the correct request id / emitter.
+		ctx.activeRequestId = requestId;
+		ctx.activeEmitter = emitter;
 
 		return new Promise<void>((resolve, reject) => {
 			ctx.turnResolve = resolve;
@@ -235,7 +286,18 @@ export class CodexAppServerManager implements SessionManager {
 				emitter.passthrough(requestId, event);
 			};
 
-			const handleNotification = (n: JsonRpcNotification) => {
+			const handleNotification = async (n: JsonRpcNotification) => {
+				// Steer gate: if `steer()` is mid-RPC, hold this
+				// notification until the RPC resolves and the synthetic
+				// user_prompt event has been emitted. JS microtask FIFO
+				// keeps concurrent notifications in their arrival order,
+				// and the gate guarantees they all land AFTER the
+				// synthetic event — fixes the delta-before-RPC-reply race
+				// flagged in review.
+				if (ctx.notificationGate) {
+					await ctx.notificationGate;
+				}
+
 				// Codex sends errors as {method:"error", params:{error:{message:"..."}}}
 				// Extract the nested message and emit a proper error event.
 				if (n.method === "error") {
@@ -271,6 +333,42 @@ export class CodexAppServerManager implements SessionManager {
 					}
 				}
 
+				// Forward Codex token usage to the context-usage ring.
+				if (n.method === "thread/tokenUsage/updated") {
+					const tokenUsage = deepGet(n.params, "tokenUsage");
+					if (tokenUsage && typeof tokenUsage === "object") {
+						try {
+							emitter.contextUsageUpdated(
+								requestId,
+								sessionId,
+								JSON.stringify(tokenUsage),
+							);
+						} catch (err) {
+							logger.debug("contextUsageUpdated emit failed", {
+								sessionId,
+								...errorDetails(err),
+							});
+						}
+					}
+				}
+
+				// Forward Codex account-global rate limits (5h / 7d windows).
+				if (n.method === "account/rateLimits/updated") {
+					const rateLimits = deepGet(n.params, "rateLimits");
+					if (rateLimits && typeof rateLimits === "object") {
+						try {
+							emitter.codexRateLimitsUpdated(
+								requestId,
+								JSON.stringify(rateLimits),
+							);
+						} catch (err) {
+							logger.debug("codexRateLimitsUpdated emit failed", {
+								...errorDetails(err),
+							});
+						}
+					}
+				}
+
 				if (n.method === "turn/completed") {
 					const completedTurnId =
 						deepGet(n.params, "turn", "id") ?? deepGet(n.params, "turnId");
@@ -291,7 +389,18 @@ export class CodexAppServerManager implements SessionManager {
 				}
 			};
 
-			const handleRequest = (req: JsonRpcRequest) => {
+			const handleRequest = async (req: JsonRpcRequest) => {
+				// Same gate as handleNotification: server-initiated
+				// requests (tool approvals, user-input prompts) that
+				// arrive during a `steer()` RPC window must not reach
+				// the frontend UI before the synthetic user_prompt
+				// event lands. Otherwise the permission/input panel
+				// could pop before the steer bubble shows up, making
+				// the interaction order look inconsistent.
+				if (ctx.notificationGate) {
+					await ctx.notificationGate;
+				}
+
 				if (APPROVAL_METHODS.has(req.method)) {
 					const p = (req.params ?? {}) as Record<string, unknown>;
 					const permissionId = `codex-${crypto.randomUUID()}`;
@@ -362,6 +471,7 @@ export class CodexAppServerManager implements SessionManager {
 	async generateTitle(
 		requestId: string,
 		userMessage: string,
+		branchRenamePrompt: string | null,
 		emitter: SidecarEmitter,
 		timeoutMs = TITLE_GENERATION_TIMEOUT_MS,
 	): Promise<void> {
@@ -417,7 +527,7 @@ export class CodexAppServerManager implements SessionManager {
 				input: [
 					{
 						type: "text",
-						text: buildTitlePrompt(userMessage),
+						text: buildTitlePrompt(userMessage, branchRenamePrompt),
 						text_elements: [],
 					},
 				],
@@ -537,6 +647,88 @@ export class CodexAppServerManager implements SessionManager {
 		pendingReject?.(abortErr);
 	}
 
+	/**
+	 * Real mid-turn steer via Codex's native `turn/steer` RPC — appends
+	 * user input to the active turn without starting a new one. Emits a
+	 * `user_prompt` passthrough so the accumulator places the bubble at
+	 * the current position AND streaming.rs persists it once (same DB
+	 * shape as initial prompts; adapter reads it identically on reload).
+	 *
+	 * Two correctness properties this method enforces:
+	 *
+	 *   1. **No ghost steer on rejection.** RPC goes first; the synthetic
+	 *      event is only emitted after the RPC resolves successfully. A
+	 *      thrown RPC error (expectedTurnId mismatch, timeout, server
+	 *      error) propagates up WITHOUT ever touching the pipeline.
+	 *
+	 *   2. **Strict ordering with post-steer notifications.** We install
+	 *      a `notificationGate` promise for the RPC window. Any
+	 *      server-side deltas that arrive before the RPC reply (possible
+	 *      if the server buffers the reply and streams tokens first) hit
+	 *      `handleNotification`, await the gate, and only flow into the
+	 *      pipeline AFTER the synthetic user_prompt event is emitted.
+	 *      JS microtask FIFO preserves their relative order.
+	 *
+	 * Returns `true` when accepted, `false` when no active turn exists.
+	 */
+	async steer(
+		sessionId: string,
+		prompt: string,
+		files: readonly string[],
+	): Promise<boolean> {
+		const ctx = this.sessions.get(sessionId);
+		if (!ctx?.providerThreadId || !ctx.activeTurnId) {
+			return false;
+		}
+		logger.info(`steer ${sessionId}`, {
+			threadId: ctx.providerThreadId,
+			turnId: ctx.activeTurnId,
+			preview: prompt.slice(0, 60),
+			fileCount: files.length,
+		});
+
+		let releaseGate: () => void = () => {};
+		ctx.notificationGate = new Promise<void>((resolve) => {
+			releaseGate = resolve;
+		});
+
+		try {
+			// RPC first. Thrown errors (reject, timeout, expectedTurnId
+			// mismatch) propagate WITHOUT emitting the synthetic event.
+			await ctx.server.sendRequest(
+				"turn/steer",
+				{
+					threadId: ctx.providerThreadId,
+					input: [{ type: "text", text: prompt }],
+					expectedTurnId: ctx.activeTurnId,
+				},
+				5_000,
+			);
+
+			// Provider accepted. Emit the synthetic event BEFORE releasing
+			// the gate so queued notifications land after it in FIFO.
+			if (ctx.activeEmitter && ctx.activeRequestId) {
+				const event: {
+					type: "user_prompt";
+					text: string;
+					steer: true;
+					files?: string[];
+				} = { type: "user_prompt", text: prompt, steer: true };
+				if (files.length > 0) event.files = [...files];
+				ctx.activeEmitter.passthrough(ctx.activeRequestId, event);
+			}
+			return true;
+		} finally {
+			// Always release the gate — rejection path lets queued
+			// notifications flow through normally (no synthetic ahead of
+			// them; Codex shouldn't have sent deltas for a rejected
+			// steer anyway, and if it did, treating them as main-stream
+			// events is the conservative choice).
+			ctx.notificationGate = null;
+			releaseGate();
+		}
+	}
+
 	async shutdown(): Promise<void> {
 		for (const [_id, ctx] of this.sessions) {
 			try {
@@ -638,6 +830,9 @@ export class CodexAppServerManager implements SessionManager {
 			activeTurnId: null,
 			turnResolve: null,
 			turnReject: null,
+			activeRequestId: null,
+			activeEmitter: null,
+			notificationGate: null,
 		};
 
 		this.sessions.set(sessionId, ctx);
@@ -837,4 +1032,70 @@ function toCodexApprovalPolicy(
 	if (permissionMode === "acceptEdits") return "untrusted";
 	// plan mode: don't override — Codex plan mode is inherently read-only
 	return undefined;
+}
+
+async function mergeAdditionalDirectories(
+	cwd: string | undefined,
+	userDirectories: readonly string[] | undefined,
+): Promise<string[]> {
+	const seen = new Set<string>();
+	const merged: string[] = [];
+	for (const raw of userDirectories ?? []) {
+		const trimmed = raw.trim();
+		if (!trimmed || seen.has(trimmed)) continue;
+		seen.add(trimmed);
+		merged.push(trimmed);
+	}
+	const gitDirs = await resolveGitAccessDirectories(cwd);
+	for (const dir of gitDirs) {
+		if (seen.has(dir)) continue;
+		seen.add(dir);
+		merged.push(dir);
+	}
+	return merged;
+}
+
+/**
+ * Build the explicit per-turn sandbox policy for Codex. We always send a
+ * policy so a thread that previously ran in plan mode can switch back to
+ * full access on the next turn without being recreated.
+ *
+ * For plan mode we keep Codex in `workspaceWrite` and include cwd plus any
+ * linked directories in `writableRoots`. For all other modes we explicitly
+ * restore `dangerFullAccess`.
+ */
+export function buildTurnSandboxPolicy(
+	permissionMode: string | undefined,
+	cwd: string | undefined,
+	additionalDirectories: readonly string[] | undefined,
+):
+	| {
+			type: "dangerFullAccess";
+	  }
+	| {
+			type: "workspaceWrite";
+			writableRoots: string[];
+			networkAccess: false;
+	  } {
+	if (permissionMode !== "plan") {
+		return { type: "dangerFullAccess" };
+	}
+	const seen = new Set<string>();
+	const out: string[] = [];
+	const cwdTrimmed = cwd?.trim();
+	if (cwdTrimmed) {
+		seen.add(cwdTrimmed);
+		out.push(cwdTrimmed);
+	}
+	for (const raw of additionalDirectories ?? []) {
+		const trimmed = raw.trim();
+		if (!trimmed || seen.has(trimmed)) continue;
+		seen.add(trimmed);
+		out.push(trimmed);
+	}
+	return {
+		type: "workspaceWrite",
+		writableRoots: out,
+		networkAccess: false,
+	};
 }

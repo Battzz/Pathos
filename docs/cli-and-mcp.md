@@ -1,21 +1,30 @@
 # Helmor CLI & MCP Server
 
-Helmor ships a standalone CLI binary (`helmor`) that manages workspaces, sessions, and repositories from the terminal — and doubles as an MCP server for AI-native tool integration.
+Helmor ships a companion CLI inside the desktop app bundle. Release builds
+install `helmor`; debug builds install `helmor-dev`. The terminal entrypoint
+always points at the currently installed desktop app so CLI and desktop
+versions stay aligned.
 
 ## Install
-
-### Development
-
-```bash
-bun run dev:cli:build                         # compile (debug)
-bun run dev:cli:install                       # compile + copy to /usr/local/bin/helmor
-```
-
-The debug build reads `~/helmor-dev/` — same database as `bun run dev`.
 
 ### Settings UI
 
 Open the desktop app → Settings → Experimental → **Command Line Tool** → Install.
+This installs a symlink to the app bundle's `helmor-cli`:
+
+- Release build: `/usr/local/bin/helmor`
+- Debug build: `/usr/local/bin/helmor-dev`
+
+### Development
+
+```bash
+bun run dev:cli:build
+./src-tauri/target/debug/helmor-cli cli-status
+bun run dev:cli:install
+helmor-dev cli-status
+```
+
+The debug build reads `~/helmor-dev/` — same database as `bun run dev`.
 
 ## CLI Usage
 
@@ -31,6 +40,8 @@ helmor session new --workspace helmor/earth
 helmor send --workspace helmor/earth "Refactor the auth module"
 ```
 
+Debug builds use the same commands under `helmor-dev`.
+
 `--json` on any command outputs machine-readable JSON. `--data-dir <path>` overrides the data directory.
 
 ### Workspace References
@@ -44,7 +55,7 @@ helmor workspace show ai-shipany-template/draco                 # shorthand
 
 ## MCP Server
 
-Run `helmor mcp` to start a stdio MCP server implementing JSON-RPC 2.0.
+Run `helmor mcp` (or `helmor-dev mcp` in debug) to start a stdio MCP server implementing JSON-RPC 2.0.
 
 ### Exposed Tools
 
@@ -102,10 +113,10 @@ Edit `~/.cursor/mcp.json`:
 
 ### Dev Mode
 
-Point to the debug binary instead:
+Use the debug entrypoint instead:
 
 ```bash
-claude mcp add helmor -- ./src-tauri/target/debug/helmor-cli mcp
+claude mcp add helmor-dev -- /usr/local/bin/helmor-dev mcp
 ```
 
 ## Testing the MCP Server

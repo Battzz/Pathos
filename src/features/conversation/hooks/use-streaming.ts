@@ -1,5 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import {
 	buildPendingDeferredTool,
 	getDeferredToolResumeModelId,
@@ -13,11 +20,13 @@ import { stabilizeStreamingMessages } from "@/features/conversation/streaming-ta
 import type { AgentModelOption, ThreadMessageLike } from "@/lib/api";
 import {
 	generateSessionTitle,
+	loadRepoPreferences,
 	renameSession,
 	respondToDeferredTool,
 	respondToElicitationRequest,
 	respondToPermissionRequest,
 	startAgentMessageStream,
+	steerAgentStream,
 	stopAgentStream,
 } from "@/lib/api";
 import type { ComposerCustomTag } from "@/lib/composer-insert";
@@ -26,6 +35,7 @@ import {
 	helmorQueryKeys,
 	sessionThreadMessagesQueryOptions,
 } from "@/lib/query-client";
+import { prependGeneralPreferencePrompt } from "@/lib/repo-preferences-prompts";
 import {
 	appendUserMessage,
 	readSessionThread,
@@ -35,6 +45,8 @@ import {
 	sessionThreadCacheKey,
 	shareMessages,
 } from "@/lib/session-thread-cache";
+import type { FollowUpBehavior } from "@/lib/settings";
+import type { SubmitQueueApi } from "@/lib/use-submit-queue";
 import {
 	createLiveThreadMessage,
 	findModelOption,
@@ -91,14 +103,28 @@ type SubmitPayload = {
 	effortLevel: string;
 	permissionMode: string;
 	fastMode: boolean;
+	/** When true, route to the follow-up queue instead of steering if a
+	 *  turn is already streaming — regardless of the user's
+	 *  `followUpBehavior` setting. Set by host-triggered submits (e.g.
+	 *  git-pull conflict resolution) that must never interrupt the turn. */
+	forceQueue?: boolean;
 };
 
 type UseConversationStreamingArgs = {
 	composerContextKey: string;
 	displayedSessionId: string | null;
 	displayedWorkspaceId: string | null;
+	repoId?: string | null;
 	displayedSelectedModelId: string | null;
 	selectionPending: boolean;
+	/** Follow-up behavior when submitting while the agent is already
+	 *  responding: `'queue'` stashes the message locally to auto-fire
+	 *  as a new turn once the agent finishes; `'steer'` injects into
+	 *  the active turn (provider-native mid-turn steer). */
+	followUpBehavior: FollowUpBehavior;
+	/** App-level queue handle (read + mutate). Shared across session /
+	 *  workspace switches so the queue survives navigation. */
+	submitQueue: SubmitQueueApi;
 	onSendingWorkspacesChange?: (workspaceIds: Set<string>) => void;
 	onSendingSessionsChange?: (sessionIds: Set<string>) => void;
 	onInteractionSessionsChange?: (
@@ -112,8 +138,11 @@ export function useConversationStreaming({
 	composerContextKey,
 	displayedSessionId,
 	displayedWorkspaceId,
+	repoId,
 	displayedSelectedModelId,
 	selectionPending,
+	followUpBehavior,
+	submitQueue,
 	onSendingWorkspacesChange,
 	onSendingSessionsChange,
 	onInteractionSessionsChange,
@@ -942,33 +971,168 @@ export function useConversationStreaming({
 	);
 
 	const handleComposerSubmit = useCallback(
-		async ({
-			prompt,
-			imagePaths,
-			filePaths,
-			customTags,
-			model,
-			workingDirectory,
-			effortLevel,
-			permissionMode,
-			fastMode,
-		}: SubmitPayload) => {
+		async (
+			{
+				prompt,
+				imagePaths,
+				filePaths,
+				customTags,
+				model,
+				workingDirectory,
+				effortLevel,
+				permissionMode,
+				fastMode,
+				forceQueue,
+			}: SubmitPayload,
+			// Override for drain / queued-steer. When present, all
+			// session/workspace lookups use the override instead of the
+			// currently displayed view. This is how a queued message from
+			// session A fires against A even when the user has since
+			// navigated to session B.
+			override?: {
+				sessionId: string;
+				workspaceId: string | null;
+				contextKey: string;
+			},
+		) => {
+			const isOverride = override !== undefined;
+			const targetSessionId = override?.sessionId ?? displayedSessionId;
+			const targetWorkspaceId = override?.workspaceId ?? displayedWorkspaceId;
+			const targetContextKey = override?.contextKey ?? composerContextKey;
+
 			const trimmedPrompt = prompt.trim();
-			if (!trimmedPrompt || selectionPending || !displayedSessionId) {
+			// `selectionPending` is a UI-only guard (user clicked a session
+			// that hasn't loaded yet); drain / queued-steer bypass it.
+			if (
+				!trimmedPrompt ||
+				(!isOverride && selectionPending) ||
+				!targetSessionId
+			) {
 				return;
 			}
 
-			const contextKey = composerContextKey;
+			const contextKey = targetContextKey;
 
-			const now = new Date().toISOString();
-			const userMessageId = crypto.randomUUID();
-			const optimisticUserMessage = createLiveThreadMessage({
-				id: userMessageId,
-				role: "user",
-				text: trimmedPrompt,
-				createdAt: now,
-				files: filePaths,
-			});
+			// Follow-up branch: if a stream is already running for this
+			// context, either inject mid-turn (`steer`) or stash locally
+			// to fire as a fresh turn when the agent finishes (`queue`).
+			// The choice is user-controlled via the Follow-up behavior
+			// setting. Plan-review takes precedence over both: submitting
+			// a free-form message while a plan is pending means "abandon
+			// the plan and start fresh," so fall through to normal send.
+			const liveStream = activeSessionByContext[contextKey];
+			const hasPlanReviewForContext = planReviewByContext[contextKey] ?? false;
+			if (
+				sendingContextKeys.has(contextKey) &&
+				liveStream &&
+				!hasPlanReviewForContext
+			) {
+				// `forceQueue` is a caller-supplied override that pins
+				// the routing to the queue regardless of the user's
+				// `followUpBehavior` setting — used for host-triggered
+				// prompts (e.g. git-pull) that must never steer.
+				const effectiveBehavior = forceQueue ? "queue" : followUpBehavior;
+				if (effectiveBehavior === "queue" && !isOverride) {
+					// App-level queue: capture the current (session,
+					// workspace, contextKey) so drain can replay faithfully
+					// even if the user has navigated away. Without this,
+					// a queued message from session A would fire into
+					// whatever session is currently displayed.
+					submitQueue.enqueue(
+						{
+							sessionId: targetSessionId,
+							workspaceId: targetWorkspaceId,
+							contextKey: targetContextKey,
+						},
+						{
+							prompt: trimmedPrompt,
+							imagePaths,
+							filePaths,
+							customTags,
+							model,
+							workingDirectory,
+							effortLevel,
+							permissionMode,
+							fastMode,
+						},
+					);
+					setComposerRestoreState(null);
+					return;
+				}
+
+				// Real mid-turn steer. The sidecar routes to the provider's
+				// native steer API AND (only after provider ack) emits a
+				// `user_prompt` passthrough event into the active stream.
+				// The accumulator picks that up, splits the assistant turn,
+				// and streaming.rs persists via `persist_turn_message` —
+				// one event, one DB row, no separate persistence path.
+				const cacheSessionId = targetSessionId;
+				const steerMessageId = crypto.randomUUID();
+				const optimisticSteer = createLiveThreadMessage({
+					id: steerMessageId,
+					role: "user",
+					text: trimmedPrompt,
+					createdAt: new Date().toISOString(),
+					files: filePaths,
+				});
+				const rollback = appendUserMessage(
+					queryClient,
+					cacheSessionId,
+					optimisticSteer,
+				);
+				setComposerRestoreState(null);
+
+				// Composer clears its editor synchronously after onSubmit.
+				// On steer failure we must seed `composerRestoreState` with
+				// the draft so the user's input isn't silently lost — same
+				// contract the normal send path upholds on its error path.
+				// Skip when this is a drain / queued-steer (isOverride): the
+				// composer the user currently sees may belong to a different
+				// session, and restoring the draft there would be confusing.
+				const restoreDraftOnFailure = () => {
+					restoreSnapshot(queryClient, cacheSessionId, rollback);
+					if (isOverride) return;
+					setComposerRestoreState({
+						contextKey,
+						draft: trimmedPrompt,
+						images: imagePaths,
+						files: filePaths,
+						customTags,
+						nonce: Date.now(),
+					});
+				};
+
+				try {
+					const response = await steerAgentStream({
+						sessionId: liveStream.stopSessionId,
+						provider: liveStream.provider,
+						prompt: trimmedPrompt,
+						files: filePaths,
+					});
+					if (!response.accepted) {
+						// Turn already completed / provider rejected —
+						// restore the draft so the user can resend it as
+						// a fresh turn (or edit before resending).
+						restoreDraftOnFailure();
+						if (response.reason) {
+							setSendErrorsByContext((current) => ({
+								...current,
+								[contextKey]: `Steer rejected: ${response.reason}`,
+							}));
+						}
+					}
+					return;
+				} catch (err) {
+					console.warn("[conversation] steer failed:", err);
+					restoreDraftOnFailure();
+					setSendErrorsByContext((current) => ({
+						...current,
+						[contextKey]: err instanceof Error ? err.message : String(err),
+					}));
+					return;
+				}
+			}
+
 			const previousLiveSession = liveSessionsByContext[contextKey];
 			const providerSessionId =
 				previousLiveSession?.provider === model.provider
@@ -977,15 +1141,15 @@ export function useConversationStreaming({
 			// Always use the real session ID — never fall back to a
 			// workspace-level contextKey, which would share cache entries
 			// across sessions and leak provider session IDs on resume.
-			const cacheSessionId = displayedSessionId;
+			const cacheSessionId = targetSessionId;
 			const currentThread = readSessionThread(queryClient, cacheSessionId);
-			const currentSessions = displayedWorkspaceId
+			const currentSessions = targetWorkspaceId
 				? queryClient.getQueryData<Array<Record<string, unknown>>>(
-						helmorQueryKeys.workspaceSessions(displayedWorkspaceId),
+						helmorQueryKeys.workspaceSessions(targetWorkspaceId),
 					)
 				: undefined;
 			const currentSession = currentSessions?.find(
-				(session) => session.id === displayedSessionId,
+				(session) => session.id === targetSessionId,
 			);
 			const currentTitle =
 				typeof currentSession?.title === "string"
@@ -994,11 +1158,24 @@ export function useConversationStreaming({
 			const isFirstUserMessage =
 				(currentThread ?? []).every((message) => message.role !== "user") &&
 				(currentTitle == null || currentTitle === "Untitled");
+			const repoPreferences = repoId ? await loadRepoPreferences(repoId) : null;
+			const finalPrompt = isFirstUserMessage
+				? prependGeneralPreferencePrompt(trimmedPrompt, repoPreferences)
+				: trimmedPrompt;
+			const now = new Date().toISOString();
+			const userMessageId = crypto.randomUUID();
+			const optimisticUserMessage = createLiveThreadMessage({
+				id: userMessageId,
+				role: "user",
+				text: finalPrompt,
+				createdAt: now,
+				files: filePaths,
+			});
 			let titleSeed: string | null = null;
 			if (isFirstUserMessage) {
 				titleSeed = buildTitleSeed(trimmedPrompt);
-				seedSessionTitle(displayedSessionId, displayedWorkspaceId, titleSeed);
-				void renameSession(displayedSessionId, titleSeed).catch((error) => {
+				seedSessionTitle(targetSessionId, targetWorkspaceId, titleSeed);
+				void renameSession(targetSessionId, titleSeed).catch((error) => {
 					console.warn("[conversation] failed to seed session title:", error);
 				});
 			}
@@ -1007,7 +1184,9 @@ export function useConversationStreaming({
 				cacheSessionId,
 				optimisticUserMessage,
 			);
-			setComposerRestoreState(null);
+			if (!isOverride) {
+				setComposerRestoreState(null);
+			}
 			setSendErrorsByContext((current) => ({
 				...current,
 				[contextKey]: null,
@@ -1019,9 +1198,9 @@ export function useConversationStreaming({
 				[contextKey]: null,
 			}));
 			clearPendingElicitation(contextKey);
-			rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
-			if (displayedWorkspaceId) {
-				sendingWorkspaceMapRef.current.set(contextKey, displayedWorkspaceId);
+			rememberInteractionWorkspace(contextKey, targetWorkspaceId);
+			if (targetWorkspaceId) {
+				sendingWorkspaceMapRef.current.set(contextKey, targetWorkspaceId);
 			}
 			setSendingContextKeys((current) => {
 				const next = new Set(current);
@@ -1035,9 +1214,9 @@ export function useConversationStreaming({
 			}
 
 			try {
-				if (displayedSessionId) {
+				if (targetSessionId) {
 					void generateSessionTitle(
-						displayedSessionId,
+						targetSessionId,
 						trimmedPrompt,
 						titleSeed,
 					).then((result) => {
@@ -1046,16 +1225,16 @@ export function useConversationStreaming({
 								queryClient.invalidateQueries({
 									queryKey: helmorQueryKeys.workspaceGroups,
 								}),
-								displayedWorkspaceId
+								targetWorkspaceId
 									? queryClient.invalidateQueries({
 											queryKey:
-												helmorQueryKeys.workspaceSessions(displayedWorkspaceId),
+												helmorQueryKeys.workspaceSessions(targetWorkspaceId),
 										})
 									: undefined,
-								displayedWorkspaceId
+								targetWorkspaceId
 									? queryClient.invalidateQueries({
 											queryKey:
-												helmorQueryKeys.workspaceDetail(displayedWorkspaceId),
+												helmorQueryKeys.workspaceDetail(targetWorkspaceId),
 										})
 									: undefined,
 							]);
@@ -1063,7 +1242,7 @@ export function useConversationStreaming({
 					});
 				}
 
-				const stopSessionId = displayedSessionId;
+				const stopSessionId = targetSessionId;
 				setActiveSessionByContext((current) => ({
 					...current,
 					[contextKey]: {
@@ -1115,9 +1294,9 @@ export function useConversationStreaming({
 					{
 						provider: model.provider,
 						modelId: model.id,
-						prompt: trimmedPrompt,
+						prompt: finalPrompt,
 						sessionId: providerSessionId,
-						helmorSessionId: displayedSessionId,
+						helmorSessionId: targetSessionId,
 						workingDirectory,
 						effortLevel,
 						permissionMode,
@@ -1140,7 +1319,7 @@ export function useConversationStreaming({
 						}
 
 						if (event.kind === "permissionRequest") {
-							rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
+							rememberInteractionWorkspace(contextKey, targetWorkspaceId);
 							appendPendingPermission(contextKey, {
 								permissionId: event.permissionId,
 								toolName: event.toolName,
@@ -1152,13 +1331,13 @@ export function useConversationStreaming({
 						}
 
 						if (event.kind === "planCaptured") {
-							rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
+							rememberInteractionWorkspace(contextKey, targetWorkspaceId);
 							setPlanReviewActive(contextKey);
 							return;
 						}
 
 						if (event.kind === "elicitationRequest") {
-							rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
+							rememberInteractionWorkspace(contextKey, targetWorkspaceId);
 							const nextElicitation = buildPendingElicitation(event, model.id);
 							if (!nextElicitation) {
 								setSendErrorsByContext((current) => ({
@@ -1173,7 +1352,7 @@ export function useConversationStreaming({
 						}
 
 						if (event.kind === "deferredToolUse") {
-							rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
+							rememberInteractionWorkspace(contextKey, targetWorkspaceId);
 							const nextDeferred = buildPendingDeferredTool(event, model.id);
 							if (frameId !== null) {
 								window.cancelAnimationFrame(frameId);
@@ -1207,9 +1386,9 @@ export function useConversationStreaming({
 							clearFastPrelude(contextKey);
 
 							if (event.kind === "done") {
-								const sid = event.sessionId ?? displayedSessionId;
-								if (sid && displayedWorkspaceId) {
-									onSessionCompletedRef.current?.(sid, displayedWorkspaceId);
+								const sid = event.sessionId ?? targetSessionId;
+								if (sid && targetWorkspaceId) {
+									onSessionCompletedRef.current?.(sid, targetWorkspaceId);
 								}
 							}
 
@@ -1234,7 +1413,7 @@ export function useConversationStreaming({
 								// here. The streaming snapshot IS the correct data
 								// and its message IDs differ from DB IDs, so a
 								// refetch would cause a full re-render flicker.
-								void invalidateConversationQueries(displayedWorkspaceId, null);
+								void invalidateConversationQueries(targetWorkspaceId, null);
 							}
 							return;
 						}
@@ -1263,19 +1442,21 @@ export function useConversationStreaming({
 								// DB may have partial data that the snapshot doesn't
 								// reflect correctly.
 								void invalidateConversationQueries(
-									displayedWorkspaceId,
-									displayedSessionId,
+									targetWorkspaceId,
+									targetSessionId,
 								);
 							} else {
 								restoreSnapshot(queryClient, cacheSessionId, rollbackSnapshot);
-								setComposerRestoreState({
-									contextKey,
-									draft: trimmedPrompt,
-									images: imagePaths,
-									files: filePaths,
-									customTags,
-									nonce: Date.now(),
-								});
+								if (!isOverride) {
+									setComposerRestoreState({
+										contextKey,
+										draft: trimmedPrompt,
+										images: imagePaths,
+										files: filePaths,
+										customTags,
+										nonce: Date.now(),
+									});
+								}
 							}
 						}
 					},
@@ -1287,14 +1468,16 @@ export function useConversationStreaming({
 					...current,
 					[contextKey]: errorMsg,
 				}));
-				setComposerRestoreState({
-					contextKey,
-					draft: trimmedPrompt,
-					images: imagePaths,
-					files: filePaths,
-					customTags,
-					nonce: Date.now(),
-				});
+				if (!isOverride) {
+					setComposerRestoreState({
+						contextKey,
+						draft: trimmedPrompt,
+						images: imagePaths,
+						files: filePaths,
+						customTags,
+						nonce: Date.now(),
+					});
+				}
 				restoreSnapshot(queryClient, cacheSessionId, rollbackSnapshot);
 				clearFastPrelude(contextKey);
 				clearSendingState(contextKey);
@@ -1315,11 +1498,109 @@ export function useConversationStreaming({
 			liveSessionsByContext,
 			pushToast,
 			queryClient,
+			repoId,
 			rememberInteractionWorkspace,
 			selectionPending,
 			refreshSessionThreadFromDb,
 			setFastPreludeActive,
+			activeSessionByContext,
+			sendingContextKeys,
+			planReviewByContext,
+			followUpBehavior,
+			submitQueue,
 		],
+	);
+
+	// Queue drain — pops the first queued entry for any session whose
+	// stream just terminated and replays it through `handleComposerSubmit`
+	// using the queued item's stored context (not the currently displayed
+	// one). Ref indirection keeps the effect dep list to sending-state
+	// only; `queueMicrotask` defers the replay so it doesn't call
+	// `setSendingContextKeys` inside a React commit phase.
+	const handleComposerSubmitRef = useRef(handleComposerSubmit);
+	handleComposerSubmitRef.current = handleComposerSubmit;
+	const previousSendingRef = useRef<Set<string>>(new Set());
+	useEffect(() => {
+		const previous = previousSendingRef.current;
+		const current = sendingContextKeys;
+		const justFinished: string[] = [];
+		for (const key of previous) {
+			if (!current.has(key)) justFinished.push(key);
+		}
+		previousSendingRef.current = new Set(current);
+
+		for (const key of justFinished) {
+			if (!key.startsWith("session:")) continue;
+			const sessionId = key.slice("session:".length);
+			const next = submitQueue.popNext(sessionId);
+			if (!next) continue;
+			queueMicrotask(() => {
+				handleComposerSubmitRef.current(next.payload, next.context);
+			});
+		}
+	}, [sendingContextKeys, submitQueue]);
+
+	// Row actions: Steer now / Remove. Both key off the item's stored
+	// context (NOT the currently displayed session) so row clicks from
+	// session A's queue always target A even if the user has navigated.
+	const handleSteerQueued = useCallback(
+		async (itemId: string) => {
+			const item = submitQueue.findById(itemId);
+			if (!item) return;
+
+			const ctx = item.context;
+			const liveStream = activeSessionByContext[ctx.contextKey] ?? null;
+
+			if (!liveStream) {
+				// No active turn to steer into — the turn must have ended
+				// between user click and handler run. Fall back to
+				// replaying the payload as a fresh turn so the prompt
+				// isn't lost.
+				submitQueue.remove(ctx.sessionId, itemId);
+				handleComposerSubmitRef.current(item.payload, ctx);
+				return;
+			}
+
+			// Optimistically remove so the UI reacts instantly; put back
+			// on rejection / RPC failure. Without the re-enqueue, a
+			// provider-rejected steer silently drops the user's prompt
+			// (common race: user clicks Steer just as the turn ends).
+			submitQueue.remove(ctx.sessionId, itemId);
+			try {
+				const response = await steerAgentStream({
+					sessionId: liveStream.stopSessionId,
+					provider: liveStream.provider,
+					prompt: item.payload.prompt,
+					files: item.payload.filePaths,
+				});
+				if (!response.accepted) {
+					submitQueue.enqueue(ctx, item.payload);
+					setSendErrorsByContext((current) => ({
+						...current,
+						[ctx.contextKey]: response.reason
+							? `Steer rejected: ${response.reason}`
+							: "Steer rejected — added back to the queue.",
+					}));
+				}
+			} catch (err) {
+				console.warn("[conversation] steer-from-queue failed:", err);
+				submitQueue.enqueue(ctx, item.payload);
+				setSendErrorsByContext((current) => ({
+					...current,
+					[ctx.contextKey]: err instanceof Error ? err.message : String(err),
+				}));
+			}
+		},
+		[activeSessionByContext, submitQueue],
+	);
+
+	const handleRemoveQueued = useCallback(
+		(itemId: string) => {
+			const item = submitQueue.findById(itemId);
+			if (!item) return;
+			submitQueue.remove(item.context.sessionId, itemId);
+		},
+		[submitQueue],
 	);
 
 	const restoreActive = composerRestoreState?.contextKey === composerContextKey;
@@ -1335,6 +1616,8 @@ export function useConversationStreaming({
 		handleElicitationResponse,
 		handlePermissionResponse,
 		handleStopStream,
+		handleSteerQueued,
+		handleRemoveQueued,
 		hasPlanReview,
 		isSending,
 		pendingElicitation,

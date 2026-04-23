@@ -56,6 +56,7 @@ import {
 import { useWorkspaceToast } from "@/lib/workspace-toast-context";
 import { seedNewSessionInCache } from "./session-cache";
 import { closeWorkspaceSession } from "./session-close";
+import type { SessionCloseRequest } from "./use-confirm-session-close";
 
 type WorkspacePanelHeaderProps = {
 	workspace: WorkspaceDetail | null;
@@ -65,7 +66,6 @@ type WorkspacePanelHeaderProps = {
 	sessionDisplayProviders?: Record<string, AgentProvider>;
 	sending: boolean;
 	sendingSessionIds?: Set<string>;
-	completedSessionIds?: Set<string>;
 	interactionRequiredSessionIds?: Set<string>;
 	loadingWorkspace: boolean;
 	headerActions?: React.ReactNode;
@@ -75,6 +75,7 @@ type WorkspacePanelHeaderProps = {
 	onSessionsChanged?: () => void;
 	onSessionRenamed?: (sessionId: string, title: string) => void;
 	onWorkspaceChanged?: () => void;
+	onRequestCloseSession?: (request: SessionCloseRequest) => void;
 };
 
 export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
@@ -85,7 +86,6 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 	sessionDisplayProviders,
 	sending,
 	sendingSessionIds,
-	completedSessionIds,
 	interactionRequiredSessionIds,
 	loadingWorkspace,
 	headerActions,
@@ -95,6 +95,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 	onSessionsChanged,
 	onSessionRenamed,
 	onWorkspaceChanged,
+	onRequestCloseSession,
 }: WorkspacePanelHeaderProps) {
 	const branchTone = getWorkspaceBranchTone({
 		workspaceState: workspace?.state,
@@ -214,6 +215,26 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 			if (!workspace) {
 				return;
 			}
+			const targetSession =
+				sessions.find((session) => session.id === sessionId) ?? null;
+			if (!targetSession) {
+				return;
+			}
+
+			// When the caller provided a shared confirm-close hook
+			// (`onRequestCloseSession`), delegate — it handles the running-
+			// session confirmation dialog itself. Otherwise fall back to an
+			// unconditional close.
+			if (onRequestCloseSession) {
+				onRequestCloseSession({
+					workspace,
+					sessions,
+					session: targetSession,
+					provider: sessionDisplayProviders?.[targetSession.id] ?? null,
+					onSessionsChanged,
+				});
+				return;
+			}
 
 			await closeWorkspaceSession({
 				queryClient,
@@ -226,10 +247,12 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 			});
 		},
 		[
+			onRequestCloseSession,
 			onSelectSession,
 			onSessionsChanged,
 			pushToast,
 			queryClient,
+			sessionDisplayProviders,
 			sessions,
 			workspace,
 		],
@@ -442,6 +465,12 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 										void updateIntendedTargetBranch(workspace.id, branch)
 											.then(({ reset }) => {
 												onWorkspaceChanged?.();
+												// Recompute sync status vs. new target now; don't wait for 10s poll.
+												void queryClient.invalidateQueries({
+													queryKey: helmorQueryKeys.workspaceGitActionStatus(
+														workspace.id,
+													),
+												});
 												if (workspace.rootPath) {
 													void queryClient.invalidateQueries({
 														queryKey: helmorQueryKeys.workspaceChanges(
@@ -524,15 +553,12 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 											? sendingSessionIds.has(session.id)
 											: selected && sending;
 										const hasUnread = session.unreadCount > 0;
-										const isCompleted =
-											completedSessionIds?.has(session.id) ?? false;
 										const isInteractionRequired =
 											interactionRequiredSessionIds?.has(session.id) ?? false;
 										const isActive =
 											isActivelySending && !isInteractionRequired;
 										const hasStatusDot =
-											isInteractionRequired ||
-											(!selected && (hasUnread || isCompleted));
+											isInteractionRequired || (!selected && hasUnread);
 										const isEditing = editingSessionId === session.id;
 
 										return (
@@ -594,9 +620,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 																	aria-label={
 																		isInteractionRequired
 																			? "Interaction required"
-																			: isCompleted
-																				? "Session completed"
-																				: "Unread session"
+																			: "Unread session"
 																	}
 																	className={cn(
 																		"size-1.5 shrink-0 rounded-full",

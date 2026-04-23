@@ -232,6 +232,13 @@ pub fn disconnect_github_identity(
     emit_github_identity_snapshot(&app, &GithubIdentitySnapshot::Disconnected)
 }
 
+/// CLI-friendly disconnect that skips the Tauri event emit. Used by
+/// `helmor github auth logout` where no `AppHandle` is available.
+pub fn disconnect_github_identity_headless() -> Result<()> {
+    let secret_store = active_secret_store();
+    clear_stored_identity(&secret_store)
+}
+
 /// Load the currently-valid GitHub access token, refreshing it on the fly if
 /// the stored copy has expired. Returns `Ok(None)` when the user is not
 /// connected, when the refresh token is missing / expired, or when the refresh

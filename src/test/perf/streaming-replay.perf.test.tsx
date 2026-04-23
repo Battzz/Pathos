@@ -98,12 +98,10 @@ function makeWorkspace(id: string): WorkspaceDetail {
 		state: "ready",
 		hasUnread: false,
 		workspaceUnread: 0,
-		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 		derivedStatus: "in-progress",
 		sessionCount: 1,
 		messageCount: 0,
-		attachmentCount: 0,
 	};
 }
 
@@ -120,13 +118,10 @@ function makeSession(
 		status: "idle",
 		permissionMode: "ask",
 		unreadCount: 0,
-		contextTokenCount: 0,
-		thinkingEnabled: false,
 		fastMode: false,
 		createdAt: new Date(0).toISOString(),
 		updatedAt: new Date(0).toISOString(),
 		isHidden: false,
-		isCompacting: false,
 		active: false,
 	};
 }

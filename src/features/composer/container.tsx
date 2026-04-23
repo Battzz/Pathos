@@ -1,6 +1,8 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { open as openDirectoryDialog } from "@tauri-apps/plugin-dialog";
 import { CircleAlert, TimerReset } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
+import { toast } from "sonner";
 import { ActionRow, ActionRowButton } from "@/components/action-row";
 import { ShimmerText } from "@/components/ui/shimmer-text";
 import { ShineBorder } from "@/components/ui/shine-border";
@@ -10,9 +12,14 @@ import type {
 	AgentModelOption,
 	AgentModelSection,
 	AgentProvider,
+	CandidateDirectory,
 	SlashCommandEntry,
 } from "@/lib/api";
-import { createSession, saveAutoCloseActionKinds } from "@/lib/api";
+import {
+	createSession,
+	saveAutoCloseActionKinds,
+	setWorkspaceLinkedDirectories,
+} from "@/lib/api";
 import type {
 	ComposerCustomTag,
 	ResolvedComposerInsertRequest,
@@ -22,10 +29,13 @@ import {
 	autoCloseActionKindsQueryOptions,
 	helmorQueryKeys,
 	slashCommandsQueryOptions,
+	workspaceCandidateDirectoriesQueryOptions,
 	workspaceDetailQueryOptions,
+	workspaceLinkedDirectoriesQueryOptions,
 	workspaceSessionsQueryOptions,
 } from "@/lib/query-client";
 import { useSettings } from "@/lib/settings";
+import type { QueuedSubmit } from "@/lib/use-submit-queue";
 import { cn } from "@/lib/utils";
 import {
 	clampEffortToModel,
@@ -35,11 +45,30 @@ import {
 	resolveSessionSelectedModelId,
 } from "@/lib/workspace-helpers";
 import type { DeferredToolResponseHandler } from "./deferred-tool";
+import type { AddDirPickerEntry } from "./editor/add-dir/typeahead-plugin";
 import type { ElicitationResponseHandler } from "./elicitation";
 import { WorkspaceComposer } from "./index";
+import { SubmitQueueList } from "./submit-queue-list";
 
 const EMPTY_MODEL_SECTIONS: AgentModelSection[] = [];
 const EMPTY_SLASH_COMMANDS: SlashCommandEntry[] = [];
+const EMPTY_LINKED_DIRECTORIES: readonly string[] = [];
+const EMPTY_CANDIDATE_DIRECTORIES: readonly CandidateDirectory[] = [];
+const EMPTY_QUEUE_ITEMS: readonly QueuedSubmit[] = [];
+
+/**
+ * Host-app built-in slash commands. Prepended to the agent-supplied list
+ * so they always appear at the top of the popup. `source: "client-action"`
+ * tells the plugin to fire an in-app handler instead of inserting the
+ * command as prompt text.
+ */
+const BUILTIN_CLIENT_COMMANDS: readonly SlashCommandEntry[] = [
+	{
+		name: "add-dir",
+		description: "Link extra directories to this workspace",
+		source: "client-action",
+	},
+];
 
 type WorkspaceComposerContainerProps = {
 	displayedWorkspaceId: string | null;
@@ -79,6 +108,8 @@ type WorkspaceComposerContainerProps = {
 		effortLevel: string;
 		permissionMode: string;
 		fastMode: boolean;
+		/** Force queue (bypass `followUpBehavior`) if a turn is streaming. */
+		forceQueue?: boolean;
 	}) => void;
 	/** Prompt queued by an external caller to auto-submit once the displayed
 	 * session matches `sessionId`. */
@@ -87,12 +118,18 @@ type WorkspaceComposerContainerProps = {
 		prompt: string;
 		modelId?: string | null;
 		permissionMode?: string | null;
+		/** Force queue (bypass `followUpBehavior`) if a turn is streaming. */
+		forceQueue?: boolean;
 	} | null;
 	/** Called after the pending prompt has been dispatched, so the caller can
 	 * clear the queue. */
 	onPendingPromptConsumed?: () => void;
 	pendingInsertRequests?: ResolvedComposerInsertRequest[];
 	onPendingInsertRequestsConsumed?: (ids: string[]) => void;
+	/** Follow-up queue rendered above composer when `followUpBehavior === 'queue'`. */
+	queueItems?: readonly QueuedSubmit[];
+	onSteerQueued?: (itemId: string) => void;
+	onRemoveQueued?: (itemId: string) => void;
 };
 
 const noopDeferredToolResponse: DeferredToolResponseHandler = () => {};
@@ -132,6 +169,9 @@ export const WorkspaceComposerContainer = memo(
 		onPendingPromptConsumed,
 		pendingInsertRequests = [],
 		onPendingInsertRequestsConsumed,
+		queueItems = EMPTY_QUEUE_ITEMS,
+		onSteerQueued,
+		onRemoveQueued,
 	}: WorkspaceComposerContainerProps) {
 		const queryClient = useQueryClient();
 		const { settings } = useSettings();
@@ -144,6 +184,111 @@ export const WorkspaceComposerContainer = memo(
 			...workspaceSessionsQueryOptions(displayedWorkspaceId ?? "__none__"),
 			enabled: Boolean(displayedWorkspaceId),
 		});
+		const linkedDirectoriesQuery = useQuery({
+			...workspaceLinkedDirectoriesQueryOptions(
+				displayedWorkspaceId ?? "__none__",
+			),
+			enabled: Boolean(displayedWorkspaceId),
+		});
+		const linkedDirectories =
+			linkedDirectoriesQuery.data ?? EMPTY_LINKED_DIRECTORIES;
+
+		// Candidate workspaces the /add-dir popup offers as quick picks.
+		// Excludes the currently-active workspace (you're already in it —
+		// linking self to self is a no-op).
+		const candidateDirectoriesQuery = useQuery({
+			...workspaceCandidateDirectoriesQueryOptions(
+				displayedWorkspaceId ?? null,
+			),
+			enabled: Boolean(displayedWorkspaceId),
+		});
+		const candidateDirectories =
+			candidateDirectoriesQuery.data ?? EMPTY_CANDIDATE_DIRECTORIES;
+
+		const linkedDirectoriesMutation = useMutation({
+			mutationFn: async (next: string[]) => {
+				if (!displayedWorkspaceId) {
+					throw new Error("No workspace selected");
+				}
+				return setWorkspaceLinkedDirectories(displayedWorkspaceId, next);
+			},
+			// Write the server's canonical (trimmed + deduped) list into
+			// the query cache immediately so any back-to-back mutation
+			// computes its next value from fresh state, not the stale
+			// pre-mutation list. Prevents the obvious race when the user
+			// removes two chips in quick succession.
+			onSuccess: (returned) => {
+				if (!displayedWorkspaceId) return;
+				queryClient.setQueryData(
+					helmorQueryKeys.workspaceLinkedDirectories(displayedWorkspaceId),
+					returned,
+				);
+				void queryClient.invalidateQueries({
+					predicate: (query) =>
+						query.queryKey[0] === "slashCommands" &&
+						query.queryKey[3] === displayedWorkspaceId,
+				});
+			},
+			onError: (error) => {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Failed to update linked directories",
+				);
+			},
+		});
+
+		const handleRemoveLinkedDirectory = useCallback(
+			(path: string) => {
+				if (!displayedWorkspaceId) return;
+				// `mutate` (not `mutateAsync`) sends errors through the
+				// `onError` callback configured above — no need to catch.
+				linkedDirectoriesMutation.mutate(
+					linkedDirectories.filter((d) => d !== path),
+				);
+			},
+			[displayedWorkspaceId, linkedDirectories, linkedDirectoriesMutation],
+		);
+
+		// Handle a pick from the AddDirTypeaheadPlugin popup. For
+		// candidate entries we toggle linking by path (adds if new,
+		// removes if already linked — matches the "linked" badge in
+		// the popup). For "browse" we open the native directory picker.
+		const handlePickAddDir = useCallback(
+			async (entry: AddDirPickerEntry) => {
+				if (!displayedWorkspaceId) return;
+				if (entry.kind === "browse") {
+					let picked: string | null = null;
+					try {
+						const selected = await openDirectoryDialog({
+							directory: true,
+							multiple: false,
+						});
+						picked = typeof selected === "string" ? selected : null;
+					} catch (error) {
+						toast.error(
+							error instanceof Error
+								? error.message
+								: "Could not open directory picker",
+						);
+						return;
+					}
+					if (!picked) return;
+					if (linkedDirectories.includes(picked)) return;
+					linkedDirectoriesMutation.mutate([...linkedDirectories, picked]);
+					return;
+				}
+				const path = entry.candidate.absolutePath;
+				if (entry.alreadyLinked) {
+					linkedDirectoriesMutation.mutate(
+						linkedDirectories.filter((d) => d !== path),
+					);
+				} else {
+					linkedDirectoriesMutation.mutate([...linkedDirectories, path]);
+				}
+			},
+			[displayedWorkspaceId, linkedDirectories, linkedDirectoriesMutation],
+		);
 
 		const modelSections = modelSectionsQuery.data ?? EMPTY_MODEL_SECTIONS;
 		const modelsLoading =
@@ -359,11 +504,20 @@ export const WorkspaceComposerContainer = memo(
 				slashProvider,
 				workingDirectory,
 				workspaceDetailQuery.data?.repoId ?? null,
+				displayedWorkspaceId,
 			),
 			enabled: Boolean(workingDirectory),
 		});
-		const slashCommands =
-			slashCommandsQuery.data?.commands ?? EMPTY_SLASH_COMMANDS;
+		const slashCommandsResponse = slashCommandsQuery.data;
+		const agentSlashCommands =
+			slashCommandsResponse?.commands ?? EMPTY_SLASH_COMMANDS;
+		// Prepend Helmor's host-app commands (e.g. /add-dir) so they always
+		// show at the top of the popup, even before the agent-supplied list
+		// has loaded.
+		const slashCommands = useMemo<readonly SlashCommandEntry[]>(
+			() => [...BUILTIN_CLIENT_COMMANDS, ...agentSlashCommands],
+			[agentSlashCommands],
+		);
 		// Pending only (`isPending`) covers the very first fetch with no data
 		// yet; once we have data, `isFetching` covers background refetches but
 		// users don't need a spinner for those — the cached list is fine.
@@ -439,6 +593,7 @@ export const WorkspaceComposerContainer = memo(
 				pendingPromptForSession.prompt,
 				pendingPromptForSession.modelId ?? "",
 				pendingPromptForSession.permissionMode ?? "",
+				pendingPromptForSession.forceQueue ? "q" : "",
 			].join("|");
 			if (dispatchedPromptKeyRef.current === dispatchKey) {
 				return;
@@ -455,6 +610,7 @@ export const WorkspaceComposerContainer = memo(
 				effortLevel,
 				permissionMode: effectivePermissionMode,
 				fastMode: supportsFastMode ? fastMode : false,
+				forceQueue: pendingPromptForSession.forceQueue,
 			});
 			onPendingPromptConsumed?.();
 		}, [
@@ -573,8 +729,18 @@ export const WorkspaceComposerContainer = memo(
 				) : null}
 
 				<div className="relative z-10">
+					<div className="pointer-events-none absolute inset-x-0 bottom-[calc(100%-1px)] z-20 flex justify-center">
+						<SubmitQueueList
+							items={queueItems}
+							onSteer={(id) => onSteerQueued?.(id)}
+							onRemove={(id) => onRemoveQueued?.(id)}
+							disabled={composerUnavailable}
+						/>
+					</div>
 					<WorkspaceComposer
 						contextKey={composerContextKey}
+						sessionId={displayedSessionId}
+						alwaysShowContextUsage={settings.alwaysShowContextUsage}
 						onSubmit={handleComposerSubmit}
 						disabled={composerUnavailable}
 						submitDisabled={
@@ -615,6 +781,11 @@ export const WorkspaceComposerContainer = memo(
 						slashCommandsError={slashCommandsError}
 						onRetrySlashCommands={refetchSlashCommands}
 						workspaceRootPath={workingDirectory}
+						linkedDirectories={linkedDirectories}
+						onRemoveLinkedDirectory={handleRemoveLinkedDirectory}
+						linkedDirectoriesDisabled={linkedDirectoriesMutation.isPending}
+						addDirCandidates={candidateDirectories}
+						onPickAddDir={handlePickAddDir}
 					/>
 				</div>
 			</div>

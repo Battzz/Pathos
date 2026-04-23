@@ -11,7 +11,6 @@ const apiMocks = vi.hoisted(() => ({
 	loadWorkspaceDetail: vi.fn(),
 	loadWorkspaceSessions: vi.fn(),
 	loadSessionThreadMessages: vi.fn(),
-	loadSessionAttachments: vi.fn(),
 	listRepositories: vi.fn(),
 }));
 
@@ -42,7 +41,6 @@ vi.mock("./lib/api", async (importOriginal) => {
 		loadWorkspaceSessions: apiMocks.loadWorkspaceSessions,
 		loadSessionMessages: apiMocks.loadSessionThreadMessages,
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
-		loadSessionAttachments: apiMocks.loadSessionAttachments,
 		listRepositories: apiMocks.listRepositories,
 	};
 });
@@ -61,7 +59,6 @@ describe("App add repository flow", () => {
 		apiMocks.loadWorkspaceDetail.mockReset();
 		apiMocks.loadWorkspaceSessions.mockReset();
 		apiMocks.loadSessionThreadMessages.mockReset();
-		apiMocks.loadSessionAttachments.mockReset();
 		apiMocks.listRepositories.mockReset();
 		dialogMocks.open.mockReset();
 
@@ -139,7 +136,6 @@ describe("App add repository flow", () => {
 						state: "ready",
 						hasUnread: false,
 						workspaceUnread: 0,
-						sessionUnreadTotal: 0,
 						unreadSessionCount: 0,
 						derivedStatus: "in-progress",
 						manualStatus: null,
@@ -150,14 +146,11 @@ describe("App add repository flow", () => {
 						branch: "testuser/acamar",
 						initializationParentBranch: "main",
 						intendedTargetBranch: "main",
-						notes: null,
 						pinnedAt: null,
 						prTitle: null,
-						prDescription: null,
 						archiveCommit: null,
 						sessionCount: 1,
 						messageCount: 0,
-						attachmentCount: 0,
 					};
 				}
 
@@ -170,7 +163,6 @@ describe("App add repository flow", () => {
 					state: "ready",
 					hasUnread: false,
 					workspaceUnread: 0,
-					sessionUnreadTotal: 0,
 					unreadSessionCount: 0,
 					derivedStatus: "in-progress",
 					manualStatus: null,
@@ -181,14 +173,11 @@ describe("App add repository flow", () => {
 					branch: "main",
 					initializationParentBranch: "main",
 					intendedTargetBranch: "main",
-					notes: null,
 					pinnedAt: null,
 					prTitle: null,
-					prDescription: null,
 					archiveCommit: null,
 					sessionCount: 1,
 					messageCount: 0,
-					attachmentCount: 0,
 				};
 			},
 		);
@@ -206,18 +195,12 @@ describe("App add repository flow", () => {
 							permissionMode: "default",
 							providerSessionId: null,
 							unreadCount: 0,
-							contextTokenCount: 0,
-							contextUsedPercent: null,
-							thinkingEnabled: true,
 							codexThinkingLevel: null,
 							fastMode: false,
-							agentPersonality: null,
 							createdAt: "2026-04-03T00:00:00Z",
 							updatedAt: "2026-04-03T00:00:00Z",
 							lastUserMessageAt: null,
-							resumeSessionAt: null,
 							isHidden: false,
-							isCompacting: false,
 							active: true,
 						},
 					];
@@ -234,25 +217,18 @@ describe("App add repository flow", () => {
 						permissionMode: "default",
 						providerSessionId: null,
 						unreadCount: 0,
-						contextTokenCount: 0,
-						contextUsedPercent: null,
-						thinkingEnabled: true,
 						codexThinkingLevel: null,
 						fastMode: false,
-						agentPersonality: null,
 						createdAt: "2026-04-03T00:00:00Z",
 						updatedAt: "2026-04-03T00:00:00Z",
 						lastUserMessageAt: null,
-						resumeSessionAt: null,
 						isHidden: false,
-						isCompacting: false,
 						active: true,
 					},
 				];
 			},
 		);
 		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
-		apiMocks.loadSessionAttachments.mockResolvedValue([]);
 		apiMocks.addRepositoryFromLocalPath.mockImplementation(async () => {
 			addRepoRuntime.added = true;
 
@@ -277,6 +253,9 @@ describe("App add repository flow", () => {
 		await screen.findByRole("main", { name: "Application shell" });
 
 		await user.click(screen.getByRole("button", { name: "Add repository" }));
+		await user.click(
+			await screen.findByRole("menuitem", { name: "Open project" }),
+		);
 
 		await waitFor(() => {
 			expect(dialogMocks.open).toHaveBeenCalledWith({
@@ -312,6 +291,9 @@ describe("App add repository flow", () => {
 		await screen.findByRole("main", { name: "Application shell" });
 
 		await user.click(screen.getByRole("button", { name: "Add repository" }));
+		await user.click(
+			await screen.findByRole("menuitem", { name: "Open project" }),
+		);
 
 		await waitFor(() => {
 			expect(dialogMocks.open).toHaveBeenCalled();
@@ -334,6 +316,9 @@ describe("App add repository flow", () => {
 		await screen.findByRole("main", { name: "Application shell" });
 
 		await user.click(screen.getByRole("button", { name: "Add repository" }));
+		await user.click(
+			await screen.findByRole("menuitem", { name: "Open project" }),
+		);
 
 		await waitFor(() => {
 			expect(apiMocks.addRepositoryFromLocalPath).toHaveBeenCalledWith(
@@ -354,6 +339,9 @@ describe("App add repository flow", () => {
 		await screen.findByRole("main", { name: "Application shell" });
 
 		await user.click(screen.getByRole("button", { name: "Add repository" }));
+		await user.click(
+			await screen.findByRole("menuitem", { name: "Open project" }),
+		);
 
 		await waitFor(() => {
 			expect(

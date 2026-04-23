@@ -123,9 +123,15 @@ pub enum MessagePart {
     Reasoning {
         id: String,
         text: String,
-        /// Per-part streaming state — only the active thinking block is streaming.
+        /// Live state: `Some(true)` active, `Some(false)` just finished in
+        /// this session, `None` historical / unknown. Only partials and the
+        /// live handler on `handle_assistant` set this; persistence strips it.
         #[serde(skip_serializing_if = "Option::is_none")]
         streaming: Option<bool>,
+        /// Backend-measured duration in ms for a completed block, persisted
+        /// so "Thought for Ns" also survives a reload.
+        #[serde(skip_serializing_if = "Option::is_none", rename = "durationMs")]
+        duration_ms: Option<u64>,
     },
 
     /// Tool invocation with optional result.

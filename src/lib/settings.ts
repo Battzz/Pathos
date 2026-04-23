@@ -3,6 +3,12 @@ import { createContext, useContext } from "react";
 
 export type ThemeMode = "system" | "light" | "dark";
 
+/** Behavior when submitting a message while the agent is still responding.
+ *  - `steer`: inject into the active turn (provider-native mid-turn steer).
+ *  - `queue`: stash locally; auto-fire as a new turn once the agent finishes.
+ */
+export type FollowUpBehavior = "steer" | "queue";
+
 export type AppSettings = {
 	fontSize: number;
 	branchPrefixType: "github" | "custom" | "none";
@@ -16,7 +22,19 @@ export type AppSettings = {
 	defaultFastMode: boolean;
 	/** Webview zoom factor. 1.0 = 100%. Range 0.5–2.0. */
 	zoomLevel: number;
+	followUpBehavior: FollowUpBehavior;
+	/** Force the context-usage ring to always be visible. When false (the
+	 *  default), the ring auto-hides until usage crosses
+	 *  `CONTEXT_USAGE_AUTO_REVEAL_THRESHOLD`. */
+	alwaysShowContextUsage: boolean;
 };
+
+/**
+ * Percentage of the context window above which the ring auto-reveals
+ * even when `alwaysShowContextUsage` is off. Picked to match the
+ * settings copy ("…only shown when more than 70% is used").
+ */
+export const CONTEXT_USAGE_AUTO_REVEAL_THRESHOLD = 70;
 
 export const DEFAULT_SETTINGS: AppSettings = {
 	fontSize: 14,
@@ -30,6 +48,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	defaultEffort: "high",
 	defaultFastMode: false,
 	zoomLevel: 1.0,
+	followUpBehavior: "steer",
+	alwaysShowContextUsage: false,
 };
 
 export const THEME_STORAGE_KEY = "helmor-theme";
@@ -46,6 +66,8 @@ const SETTINGS_KEY_MAP: Record<Exclude<keyof AppSettings, "theme">, string> = {
 	defaultEffort: "app.default_effort",
 	defaultFastMode: "app.default_fast_mode",
 	zoomLevel: "app.zoom_level",
+	followUpBehavior: "app.follow_up_behavior",
+	alwaysShowContextUsage: "app.always_show_context_usage",
 };
 
 export async function loadSettings(): Promise<AppSettings> {
@@ -86,6 +108,16 @@ export async function loadSettings(): Promise<AppSettings> {
 			zoomLevel: raw[SETTINGS_KEY_MAP.zoomLevel]
 				? Number(raw[SETTINGS_KEY_MAP.zoomLevel])
 				: DEFAULT_SETTINGS.zoomLevel,
+			followUpBehavior: (() => {
+				const v = raw[SETTINGS_KEY_MAP.followUpBehavior];
+				return v === "queue" || v === "steer"
+					? v
+					: DEFAULT_SETTINGS.followUpBehavior;
+			})(),
+			alwaysShowContextUsage:
+				raw[SETTINGS_KEY_MAP.alwaysShowContextUsage] !== undefined
+					? raw[SETTINGS_KEY_MAP.alwaysShowContextUsage] === "true"
+					: DEFAULT_SETTINGS.alwaysShowContextUsage,
 		};
 	} catch {
 		return { ...DEFAULT_SETTINGS };

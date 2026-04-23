@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ThreadMessageLike } from "@/lib/api";
 import { MemoConversationMessage } from "./message-components";
@@ -9,6 +15,7 @@ let writeTextMock: ReturnType<typeof vi.fn>;
 
 afterEach(() => {
 	cleanup();
+	vi.useRealTimers();
 });
 
 beforeEach(() => {
@@ -184,5 +191,179 @@ describe("MemoConversationMessage plan review", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
 
 		expect(writeTextMock).toHaveBeenCalledWith("Real assistant reply");
+	});
+
+	it("copies a user message from the bubble action slot", () => {
+		const userMessage: ThreadMessageLike = {
+			id: "user-copy-source",
+			role: "user",
+			createdAt: "2026-04-12T12:01:00.000Z",
+			content: [
+				{
+					type: "text",
+					id: "user-copy-source:text-0",
+					text: "Ship the action slot.",
+				},
+			],
+		};
+
+		render(
+			<MemoConversationMessage
+				message={userMessage}
+				sessionId="session-1"
+				itemIndex={2}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+
+		expect(writeTextMock).toHaveBeenCalledWith("Ship the action slot.");
+	});
+
+	it("keeps a completed reasoning block open and shows elapsed time", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-04-20T12:00:00.000Z"));
+
+		const streamingMessage: ThreadMessageLike = {
+			id: "assistant-reasoning-1",
+			role: "assistant",
+			createdAt: "2026-04-20T12:00:00.000Z",
+			streaming: true,
+			content: [
+				{
+					type: "reasoning",
+					id: "assistant-reasoning-1:blk:0",
+					text: "Inspecting the streamed reasoning block.",
+					streaming: true,
+				},
+			],
+		};
+
+		const { rerender } = render(
+			<MemoConversationMessage
+				message={streamingMessage}
+				sessionId="session-1"
+				itemIndex={0}
+			/>,
+		);
+
+		expect(screen.getByText("Thinking...")).toBeInTheDocument();
+		expect(
+			screen.getByText("Inspecting the streamed reasoning block."),
+		).toBeInTheDocument();
+
+		act(() => {
+			vi.advanceTimersByTime(2_000);
+		});
+
+		const completedMessage: ThreadMessageLike = {
+			...streamingMessage,
+			streaming: undefined,
+			content: [
+				{
+					type: "reasoning",
+					id: "assistant-reasoning-1:blk:0",
+					text: "Inspecting the streamed reasoning block.",
+					streaming: false,
+				},
+				{
+					type: "text",
+					id: "assistant-reasoning-1:blk:1",
+					text: "Done.",
+				},
+			],
+		};
+
+		rerender(
+			<MemoConversationMessage
+				message={completedMessage}
+				sessionId="session-1"
+				itemIndex={0}
+			/>,
+		);
+
+		expect(screen.getByText("Thought for 2s")).toBeInTheDocument();
+		expect(
+			screen.getByText("Inspecting the streamed reasoning block."),
+		).toBeInTheDocument();
+		expect(screen.getByText("Done.")).toBeInTheDocument();
+	});
+
+	it("shows duration for a fast reasoning block that mounts already completed", () => {
+		// Fast thinking blocks (sub-frame) never reach the UI with
+		// streaming=true — the first render the Reasoning component sees
+		// already has the block in its completed state. The backend-
+		// provided duration on the reasoning part still has to surface
+		// as "Thought for Ns" instead of falling back to a generic
+		// "Thinking" label that leaves the user with no signal the
+		// reasoning finished.
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-04-20T12:00:00.000Z"));
+
+		const completedMessage: ThreadMessageLike = {
+			id: "assistant-reasoning-fast",
+			role: "assistant",
+			createdAt: "2026-04-20T12:00:00.000Z",
+			streaming: true,
+			content: [
+				{
+					type: "reasoning",
+					id: "assistant-reasoning-fast:blk:0",
+					text: "Figured it out quickly.",
+					streaming: false,
+					durationMs: 3200,
+				},
+				{
+					type: "text",
+					id: "assistant-reasoning-fast:blk:1",
+					text: "Answer.",
+				},
+			],
+		};
+
+		render(
+			<MemoConversationMessage
+				message={completedMessage}
+				sessionId="session-1"
+				itemIndex={0}
+			/>,
+		);
+
+		expect(screen.getByText("Thought for 4s")).toBeInTheDocument();
+		// The block should be open (not auto-collapsed) because the
+		// pipeline signaled a just-completed live reasoning run.
+		expect(screen.getByText("Figured it out quickly.")).toBeInTheDocument();
+	});
+
+	it("keeps a historical reasoning block collapsed without a duration", () => {
+		const historicalMessage: ThreadMessageLike = {
+			id: "assistant-reasoning-history",
+			role: "assistant",
+			createdAt: "2026-04-19T12:00:00.000Z",
+			content: [
+				{
+					type: "reasoning",
+					id: "assistant-reasoning-history:blk:0",
+					text: "Old thinking content.",
+				},
+				{
+					type: "text",
+					id: "assistant-reasoning-history:blk:1",
+					text: "Old answer.",
+				},
+			],
+		};
+
+		render(
+			<MemoConversationMessage
+				message={historicalMessage}
+				sessionId="session-1"
+				itemIndex={0}
+			/>,
+		);
+
+		expect(screen.getByText("Thinking")).toBeInTheDocument();
+		// Historical blocks default closed, so the body is not rendered.
+		expect(screen.queryByText("Old thinking content.")).toBeNull();
 	});
 });

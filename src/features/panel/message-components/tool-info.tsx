@@ -11,6 +11,7 @@ import {
 	Pencil,
 	Plug,
 	Search,
+	Sparkles,
 	Terminal,
 } from "lucide-react";
 import type { FileChangeInfo, ToolInfo } from "./shared";
@@ -217,6 +218,19 @@ export function getToolInfo(
 				/>
 			),
 			body: text ?? undefined,
+		};
+	}
+
+	if (name === "Skill") {
+		const skillName =
+			str(input.name) ??
+			str(input.skill) ??
+			str(input.command) ??
+			str(input.id);
+		return {
+			action: "Skill",
+			icon: <Sparkles className={neutralToolIconClassName} strokeWidth={1.8} />,
+			detail: skillName ? truncate(skillName, 50) : undefined,
 		};
 	}
 

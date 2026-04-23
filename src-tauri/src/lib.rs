@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod cli;
 pub(crate) mod commands;
 pub mod data_dir;
 pub mod error;
@@ -9,10 +10,11 @@ pub mod logging;
 pub mod mcp;
 pub mod models;
 pub mod pipeline;
-mod schema;
+pub mod schema;
 pub mod service;
 mod shell_env;
 pub mod sidecar;
+pub mod ui_sync;
 pub mod updater;
 pub mod workspace;
 
@@ -34,10 +36,11 @@ pub use workspace::helpers;
 pub use workspace::state as workspace_state;
 pub use workspace::workspaces;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// Initialise the database schema (call once at startup).
 pub fn schema_init(conn: &rusqlite::Connection) {
+    db::init_connection(conn, true).expect("Failed to apply PRAGMA init");
     schema::ensure_schema(conn).expect("Failed to initialize database schema");
 }
 
@@ -61,6 +64,7 @@ pub fn run() {
         .manage(workspace::archive::ArchiveJobManager::new())
         .manage(git_watcher::GitWatcherManager::new())
         .manage(workspace::scripts::ScriptProcessManager::new())
+        .manage(ui_sync::UiSyncManager::new())
         .setup(|app| {
             // Ensure data directory structure exists
             data_dir::ensure_directory_structure()?;
@@ -71,10 +75,17 @@ pub fn run() {
             let logs_dir = data_dir::logs_dir()?;
             logging::init(&logs_dir)?;
 
-            // Initialize database schema
+            // Initialize database schema. We apply the same PRAGMA init as
+            // the pools to get WAL mode persisted to the file before any
+            // pool connection opens.
             let db_path = data_dir::db_path()?;
             let connection = rusqlite::Connection::open(&db_path)?;
+            db::init_connection(&connection, true)?;
             schema::ensure_schema(&connection)?;
+            drop(connection);
+
+            // Build read/write connection pools (must happen after schema).
+            db::init_pools()?;
 
             tracing::info!(
                 mode = data_dir::data_mode_label(),
@@ -128,12 +139,24 @@ pub fn run() {
                 tracing::error!(error = %error, "Failed to spawn git watcher init thread");
             }
 
+            if let Err(error) = ui_sync::start_listener(app.handle().clone()) {
+                tracing::error!(error = %error, "Failed to start UI sync listener");
+            }
+
+            // On macOS, the default app-menu Quit item goes straight to
+            // NSApplication.terminate:, which bypasses our event loop.
+            // Install a custom menu so Cmd+Q flows through the same
+            // confirmation dialog as the close button.
+            #[cfg(target_os = "macos")]
+            install_macos_menu(app.handle())?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             agents::list_agent_model_sections,
             agents::send_agent_message_stream,
             agents::stop_agent_stream,
+            agents::steer_agent_stream,
             agents::respond_to_permission_request,
             agents::respond_to_deferred_tool,
             agents::respond_to_elicitation_request,
@@ -152,6 +175,7 @@ pub fn run() {
             commands::github_commands::disconnect_github_identity,
             commands::repository_commands::get_add_repository_defaults,
             commands::settings_commands::get_app_settings,
+            commands::settings_commands::get_codex_rate_limits,
             commands::system_commands::get_cli_status,
             commands::system_commands::get_data_info,
             commands::system_commands::install_cli,
@@ -160,6 +184,7 @@ pub fn run() {
             commands::github_commands::get_github_identity_session,
             commands::workspace_commands::get_workspace,
             commands::repository_commands::add_repository_from_local_path,
+            commands::repository_commands::clone_repository_from_url,
             commands::github_commands::list_github_accessible_repositories,
             commands::workspace_commands::list_archived_workspaces,
             commands::repository_commands::list_repositories,
@@ -167,13 +192,15 @@ pub fn run() {
             commands::repository_commands::update_repository_remote,
             commands::repository_commands::list_repo_remotes,
             commands::repository_commands::load_repo_scripts,
+            commands::repository_commands::load_repo_preferences,
             commands::repository_commands::update_repo_scripts,
+            commands::repository_commands::update_repo_auto_run_setup,
+            commands::repository_commands::update_repo_preferences,
             commands::repository_commands::delete_repository,
             commands::script_commands::execute_repo_script,
             commands::script_commands::stop_repo_script,
             commands::script_commands::write_repo_script_stdin,
             commands::script_commands::resize_repo_script,
-            commands::session_commands::list_session_attachments,
             commands::session_commands::list_session_thread_messages,
             commands::workspace_commands::list_workspace_groups,
             commands::session_commands::list_workspace_sessions,
@@ -183,14 +210,15 @@ pub fn run() {
             commands::session_commands::unhide_session,
             commands::session_commands::delete_session,
             commands::session_commands::list_hidden_sessions,
+            commands::session_commands::get_session_context_usage,
             commands::session_commands::mark_session_read,
+            commands::session_commands::mark_session_unread,
             commands::workspace_commands::list_remote_branches,
             commands::workspace_commands::rename_workspace_branch,
             commands::workspace_commands::update_intended_target_branch,
             commands::workspace_commands::prefetch_remote_refs,
             commands::workspace_commands::push_workspace_to_remote,
             commands::workspace_commands::sync_workspace_with_target_branch,
-            commands::workspace_commands::mark_workspace_read,
             commands::workspace_commands::mark_workspace_unread,
             commands::workspace_commands::pin_workspace,
             commands::workspace_commands::unpin_workspace,
@@ -212,6 +240,9 @@ pub fn run() {
             commands::editor_commands::read_editor_file,
             commands::editor_commands::read_file_at_ref,
             commands::workspace_commands::set_workspace_manual_status,
+            commands::workspace_commands::list_workspace_linked_directories,
+            commands::workspace_commands::set_workspace_linked_directories,
+            commands::workspace_commands::list_workspace_candidate_directories,
             commands::workspace_commands::trigger_workspace_fetch,
             commands::editors::detect_installed_editors,
             commands::editors::open_workspace_in_editor,
@@ -232,6 +263,7 @@ pub fn run() {
             commands::settings_commands::save_auto_close_action_kinds,
             commands::settings_commands::load_auto_close_opt_in_asked,
             commands::settings_commands::save_auto_close_opt_in_asked,
+            ui_sync::subscribe_ui_mutations,
             commands::updater_commands::get_app_update_status,
             commands::updater_commands::check_for_app_update,
             commands::updater_commands::install_downloaded_app_update,
@@ -240,19 +272,139 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    // The frontend's onCloseRequested always calls preventDefault(), so
-    // the JS layer never destroys the window on its own.  All quit logic
-    // lives in the `request_quit` Tauri command (called from the frontend
-    // quit-confirmation dialog).  Nothing to do here.
+    // Every user-initiated app-exit path is intercepted here and routed
+    // through a single `helmor://quit-requested` event. The frontend's
+    // QuitConfirmDialog listens for that event, checks for in-flight
+    // tasks, and calls back into the `request_quit` IPC command — which
+    // cleans up (stops git watchers, SIGTERM's the sidecar) and then
+    // invokes `app.exit(0)`.
+    //
+    //   Source                                  | Rust branch
+    //   ----------------------------------------|-------------------------
+    //   Red close button / Cmd+W (main window)  | WindowEvent::CloseRequested
+    //   Cmd+Q, app-menu Quit (macOS)            | on_menu_event helmor-quit
+    //   Dock Quit / system shutdown / SIGINT    | RunEvent::ExitRequested { code: None }
+    //   Our own request_quit -> app.exit(0)     | ExitRequested { code: Some(_) }  (passthrough)
+    //
+    // Note: the `ExitRequested { code: None }` branch is a pure safety
+    // net for non-frontend-driven exits. The custom macOS menu above
+    // means Cmd+Q never actually takes this path; it exists so a
+    // Dock-menu Quit or unexpected OS-level exit can't slip through
+    // without confirmation on macOS.
     app.run(|app_handle, event| match event {
         tauri::RunEvent::Resumed => {
             updater::maybe_trigger_on_resume(app_handle.clone());
         }
-        tauri::RunEvent::WindowEvent { label, event, .. }
-            if label == "main" && matches!(event, tauri::WindowEvent::Focused(true)) =>
-        {
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::Focused(true),
+            ..
+        } if label == "main" => {
             updater::maybe_trigger_on_focus(app_handle.clone());
+        }
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::CloseRequested { api, .. },
+            ..
+        } if label == "main" => {
+            api.prevent_close();
+            emit_quit_requested(app_handle);
+        }
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::ExitRequested {
+            code: None, api, ..
+        } => {
+            api.prevent_exit();
+            emit_quit_requested(app_handle);
         }
         _ => {}
     });
+}
+
+// Route a user-initiated exit through the frontend quit-confirm flow.
+// If the emit fails the webview is almost certainly gone, so falling
+// back to a direct exit is safer than leaving the process hanging with
+// no UI and no way to quit.
+fn emit_quit_requested(app_handle: &tauri::AppHandle) {
+    if let Err(e) = app_handle.emit("helmor://quit-requested", ()) {
+        tracing::warn!(
+            error = %e,
+            "Failed to emit quit-requested event; exiting directly",
+        );
+        app_handle.exit(0);
+    }
+}
+
+const HELMOR_QUIT_MENU_ID: &str = "helmor-quit";
+const HELMOR_CLOSE_CURRENT_SESSION_MENU_ID: &str = "helmor-close-current-session";
+
+#[cfg(target_os = "macos")]
+fn install_macos_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{AboutMetadataBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+
+    let close_current_session_item = MenuItemBuilder::with_id(
+        HELMOR_CLOSE_CURRENT_SESSION_MENU_ID,
+        "Close Current Session",
+    )
+    .accelerator("Cmd+W")
+    .build(app)?;
+
+    let quit_item = MenuItemBuilder::with_id(HELMOR_QUIT_MENU_ID, "Quit Helmor")
+        .accelerator("Cmd+Q")
+        .build(app)?;
+
+    let about_metadata = AboutMetadataBuilder::new()
+        .name(Some("Helmor"))
+        .version(Some(env!("CARGO_PKG_VERSION")))
+        .build();
+
+    let app_submenu = SubmenuBuilder::new(app, "Helmor")
+        .about(Some(about_metadata))
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .item(&quit_item)
+        .build()?;
+
+    let edit_submenu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+
+    let window_submenu = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize()
+        .separator()
+        .item(&close_current_session_item)
+        .build()?;
+
+    let menu = MenuBuilder::new(app)
+        .items(&[&app_submenu, &edit_submenu, &window_submenu])
+        .build()?;
+
+    app.set_menu(menu)?;
+
+    let handle = app.clone();
+    app.on_menu_event(move |_, event| match event.id().0.as_str() {
+        HELMOR_QUIT_MENU_ID => emit_quit_requested(&handle),
+        HELMOR_CLOSE_CURRENT_SESSION_MENU_ID => emit_close_current_session_requested(&handle),
+        _ => {}
+    });
+
+    Ok(())
+}
+
+fn emit_close_current_session_requested(app_handle: &tauri::AppHandle) {
+    if let Err(e) = app_handle.emit("helmor://close-current-session", ()) {
+        tracing::warn!(error = %e, "Failed to emit close-current-session event");
+    }
 }

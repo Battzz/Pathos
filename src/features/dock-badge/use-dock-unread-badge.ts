@@ -7,9 +7,9 @@ import { selectUnreadSessionCount } from "./selector";
 /**
  * Drive the macOS Dock badge from the sidebar's workspace groups query cache.
  *
- * The badge count equals the number of sessions that currently have any unread
- * activity (summed across every non-archived workspace). When the count drops
- * to 0 we clear the badge by passing `undefined` to `setBadgeCount`.
+ * The badge count equals the unread quantity currently visible in the sidebar
+ * query cache (summed across every non-archived workspace). When the count
+ * drops to 0 we clear the badge by passing `undefined` to `setBadgeCount`.
  *
  * Design notes:
  * - Read-only against the existing `workspaceGroups` query — no new IPC, no new
@@ -33,12 +33,22 @@ export function useDockUnreadBadge(): void {
 		// error and tear down the parent subtree.
 		try {
 			const win = getCurrentWindow();
+			const nextValue = count > 0 ? count : undefined;
 			// `undefined` removes the badge on macOS; any positive integer sets
 			// it. macOS renders huge numbers itself (99+), so we don't cap.
-			void win.setBadgeCount?.(count > 0 ? count : undefined)?.catch(() => {
-				// Platforms without dock-badge support (Windows) or a missing
-				// capability should never surface as a user-visible error.
-			});
+			void win
+				.setBadgeCount?.(nextValue)
+				?.catch(() =>
+					// Some macOS dev-runtime combinations appear to ignore the
+					// numeric path while the string badge label still works.
+					win.setBadgeLabel?.(
+						nextValue === undefined ? undefined : String(nextValue),
+					),
+				)
+				?.catch(() => {
+					// Platforms without dock-badge support (Windows) or a missing
+					// capability should never surface as a user-visible error.
+				});
 		} catch {
 			// Missing Tauri runtime altogether — silently no-op.
 		}

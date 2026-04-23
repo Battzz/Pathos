@@ -9,10 +9,12 @@ import { useDockUnreadBadge } from "./use-dock-unread-badge";
 // Captured at module scope so each test can reset call history without
 // rebuilding the module mock (setup.ts does not stub setBadgeCount).
 const setBadgeCount = vi.fn(async () => {});
+const setBadgeLabel = vi.fn(async () => {});
 
 vi.mock("@tauri-apps/api/window", () => ({
 	getCurrentWindow: vi.fn(() => ({
 		setBadgeCount,
+		setBadgeLabel,
 		// Preserve the shape used by other app-wide consumers.
 		onCloseRequested: vi.fn(async () => () => {}),
 	})),
@@ -30,18 +32,23 @@ vi.mock("@/lib/api", async () => {
 	};
 });
 
-function makeGroups(unreadPerRow: number[]): WorkspaceGroup[] {
+function makeGroups(
+	rows: Array<{
+		workspaceUnread?: number;
+		unreadSessionCount?: number;
+	}>,
+): WorkspaceGroup[] {
 	return [
 		{
 			id: "progress",
 			label: "In progress",
 			tone: "progress",
-			rows: unreadPerRow.map((unreadSessionCount, i) => ({
+			rows: rows.map((row, i) => ({
 				id: `ws-${i}`,
 				title: `Workspace ${i}`,
 				state: "ready",
 				derivedStatus: "in-progress",
-				unreadSessionCount,
+				...row,
 			})),
 		},
 	];
@@ -68,11 +75,16 @@ function wrapperFor(client: QueryClient) {
 describe("useDockUnreadBadge", () => {
 	beforeEach(() => {
 		setBadgeCount.mockClear();
+		setBadgeLabel.mockClear();
 	});
 
 	it("clears the badge (passes undefined) when total is 0", async () => {
 		renderHook(() => useDockUnreadBadge(), {
-			wrapper: wrapperFor(makeClient(makeGroups([0, 0]))),
+			wrapper: wrapperFor(
+				makeClient(
+					makeGroups([{ unreadSessionCount: 0 }, { unreadSessionCount: 0 }]),
+				),
+			),
 		});
 		await waitFor(() => {
 			expect(setBadgeCount).toHaveBeenLastCalledWith(undefined);
@@ -81,15 +93,39 @@ describe("useDockUnreadBadge", () => {
 
 	it("writes the summed unreadSessionCount across workspaces", async () => {
 		renderHook(() => useDockUnreadBadge(), {
-			wrapper: wrapperFor(makeClient(makeGroups([2, 3, 0]))),
+			wrapper: wrapperFor(
+				makeClient(
+					makeGroups([
+						{ unreadSessionCount: 2 },
+						{ unreadSessionCount: 3 },
+						{ unreadSessionCount: 0 },
+					]),
+				),
+			),
 		});
 		await waitFor(() => {
 			expect(setBadgeCount).toHaveBeenLastCalledWith(5);
 		});
 	});
 
+	it("ignores workspaceUnread because it is purely derived from sessions", async () => {
+		renderHook(() => useDockUnreadBadge(), {
+			wrapper: wrapperFor(
+				makeClient(
+					makeGroups([
+						{ workspaceUnread: 1, unreadSessionCount: 0 },
+						{ workspaceUnread: 1, unreadSessionCount: 0 },
+					]),
+				),
+			),
+		});
+		await waitFor(() => {
+			expect(setBadgeCount).toHaveBeenLastCalledWith(undefined);
+		});
+	});
+
 	it("reacts to cache updates — the core reason this hook exists", async () => {
-		const client = makeClient(makeGroups([2]));
+		const client = makeClient(makeGroups([{ unreadSessionCount: 2 }]));
 		renderHook(() => useDockUnreadBadge(), { wrapper: wrapperFor(client) });
 
 		// Initial steady state reflects the seeded cache.
@@ -100,7 +136,10 @@ describe("useDockUnreadBadge", () => {
 		// Simulate a later mutation (e.g. user opens a workspace → optimistic
 		// reset, or a refetch brings in new unread counts).
 		act(() => {
-			client.setQueryData(helmorQueryKeys.workspaceGroups, makeGroups([0, 4]));
+			client.setQueryData(
+				helmorQueryKeys.workspaceGroups,
+				makeGroups([{ unreadSessionCount: 0 }, { unreadSessionCount: 4 }]),
+			);
 		});
 		await waitFor(() => {
 			expect(setBadgeCount).toHaveBeenLastCalledWith(4);
@@ -108,7 +147,10 @@ describe("useDockUnreadBadge", () => {
 
 		// Clearing all unread should drop back to the "no badge" sentinel.
 		act(() => {
-			client.setQueryData(helmorQueryKeys.workspaceGroups, makeGroups([0, 0]));
+			client.setQueryData(
+				helmorQueryKeys.workspaceGroups,
+				makeGroups([{ unreadSessionCount: 0 }, { unreadSessionCount: 0 }]),
+			);
 		});
 		await waitFor(() => {
 			expect(setBadgeCount).toHaveBeenLastCalledWith(undefined);
@@ -116,7 +158,7 @@ describe("useDockUnreadBadge", () => {
 	});
 
 	it("does not re-invoke setBadgeCount when the count is unchanged", async () => {
-		const client = makeClient(makeGroups([3]));
+		const client = makeClient(makeGroups([{ unreadSessionCount: 3 }]));
 		renderHook(() => useDockUnreadBadge(), { wrapper: wrapperFor(client) });
 		await waitFor(() => {
 			expect(setBadgeCount).toHaveBeenLastCalledWith(3);
@@ -126,12 +168,15 @@ describe("useDockUnreadBadge", () => {
 		// New WorkspaceGroup object with the same total — the hook should not
 		// redundantly hit the OS for an identical value.
 		act(() => {
-			client.setQueryData(helmorQueryKeys.workspaceGroups, makeGroups([1, 2]));
+			client.setQueryData(
+				helmorQueryKeys.workspaceGroups,
+				makeGroups([{ unreadSessionCount: 1 }, { unreadSessionCount: 2 }]),
+			);
 		});
 		// Give React Query + effects a chance to settle before asserting.
 		await waitFor(() => {
 			expect(client.getQueryData(helmorQueryKeys.workspaceGroups)).toEqual(
-				makeGroups([1, 2]),
+				makeGroups([{ unreadSessionCount: 1 }, { unreadSessionCount: 2 }]),
 			);
 		});
 		expect(setBadgeCount.mock.calls.length).toBe(callsBefore);
@@ -140,13 +185,29 @@ describe("useDockUnreadBadge", () => {
 	it("swallows rejections from setBadgeCount so a failed OS call cannot crash the app", async () => {
 		setBadgeCount.mockRejectedValueOnce(new Error("unsupported platform"));
 		renderHook(() => useDockUnreadBadge(), {
-			wrapper: wrapperFor(makeClient(makeGroups([1]))),
+			wrapper: wrapperFor(makeClient(makeGroups([{ unreadSessionCount: 1 }]))),
 		});
 		// If the rejection were not caught, vitest would flag an unhandled
 		// rejection and fail the test run. Reaching the assertion is itself
 		// evidence the swallow is in place.
 		await waitFor(() => {
 			expect(setBadgeCount).toHaveBeenLastCalledWith(1);
+		});
+		await waitFor(() => {
+			expect(setBadgeLabel).toHaveBeenLastCalledWith("1");
+		});
+	});
+
+	it("falls back to setBadgeLabel when setBadgeCount rejects", async () => {
+		setBadgeCount.mockRejectedValueOnce(new Error("count badge unsupported"));
+		renderHook(() => useDockUnreadBadge(), {
+			wrapper: wrapperFor(makeClient(makeGroups([{ unreadSessionCount: 3 }]))),
+		});
+		await waitFor(() => {
+			expect(setBadgeCount).toHaveBeenLastCalledWith(3);
+		});
+		await waitFor(() => {
+			expect(setBadgeLabel).toHaveBeenLastCalledWith("3");
 		});
 	});
 
@@ -166,7 +227,7 @@ describe("useDockUnreadBadge", () => {
 		} as unknown as ReturnType<typeof getCurrentWindow>);
 
 		renderHook(() => useDockUnreadBadge(), {
-			wrapper: wrapperFor(makeClient(makeGroups([3]))),
+			wrapper: wrapperFor(makeClient(makeGroups([{ unreadSessionCount: 3 }]))),
 		});
 
 		// Let the async effect queue drain so any uncaught error surfaces.

@@ -10,38 +10,15 @@ const STORAGE_KEY = "helmor-marketing-theme";
 // Paired with Magic Card spotlight — keep the tilt subtle so the spotlight
 // reads as the primary hover affordance.
 const MAX_TILT_DEG = 4;
-const LIGHT_RAY_COUNT = 7;
-
-type RayParams = {
-	x: number; // % across viewport
-	w: number; // px
-	tilt: number; // deg
-	dur: number; // s
-	delay: number; // s (negative, to pre-seed animation phase)
-};
+// Atmospheric FX — backlit dust mote count. 18 is the sweet spot from the
+// v2 prototype: enough to read as "air has particles in it" without turning
+// into confetti or stealing focus from the smoke plumes.
+const DUST_COUNT = 18;
 
 export function MarketingShell({ data }: { data: RepoData }) {
 	// SSR default mirrors <html class="dark"> in layout; a useEffect reconciles
 	// against localStorage to avoid hydration mismatch.
 	const [theme, setTheme] = useState<Theme>("dark");
-
-	// Light rays — randomized params. Seeded on mount only; render nothing
-	// on the server to avoid Math.random() hydration mismatch.
-	const [rays, setRays] = useState<RayParams[]>([]);
-	useEffect(() => {
-		const seeded: RayParams[] = [];
-		for (let i = 0; i < LIGHT_RAY_COUNT; i++) {
-			const dur = 10 + Math.random() * 10;
-			seeded.push({
-				x: 8 + (i / (LIGHT_RAY_COUNT - 1)) * 84 + (Math.random() * 6 - 3),
-				w: 180 + Math.random() * 220,
-				tilt: -8 + Math.random() * 16,
-				dur,
-				delay: -Math.random() * dur,
-			});
-		}
-		setRays(seeded);
-	}, []);
 
 	// Mount: read persisted theme + sync <html class>. Matches the
 	// pre-hydration bootstrap in layout.tsx: stored LS > system prefs > dark.
@@ -106,11 +83,53 @@ export function MarketingShell({ data }: { data: RepoData }) {
 		return () => document.removeEventListener("keydown", onKey);
 	}, []);
 
-	// 3D tilt + Magic Card spotlight — both cursor-driven. Tilt is gated on
-	// prefers-reduced-motion; the spotlight runs for everyone (its fade uses
-	// CSS transitions that the global reduced-motion rule already neuters).
+	// 3D tilt + Magic Card spotlight + atmospheric smoke swirl — all cursor-
+	// driven. Tilt is gated on prefers-reduced-motion; the spotlight + smoke
+	// swirl runs for everyone (their fades use CSS transitions that the global
+	// reduced-motion rule already neuters).
 	const wrapRef = useRef<HTMLDivElement | null>(null);
 	const stageRef = useRef<HTMLDivElement | null>(null);
+	const smokeRef = useRef<HTMLDivElement | null>(null);
+	const dustRef = useRef<HTMLDivElement | null>(null);
+
+	// Spawn backlit dust motes — 18 tiny particles scattered across the right
+	// half of the stage that drift toward upper-left. Randomized per mount so
+	// Math.random doesn't cause hydration issues (render nothing on SSR).
+	useEffect(() => {
+		const host = dustRef.current;
+		if (!host) return;
+		host.replaceChildren();
+		for (let i = 0; i < DUST_COUNT; i++) {
+			const d = document.createElement("i");
+			const startX = 55 + Math.random() * 45;
+			const startY = 10 + Math.random() * 80;
+			const tx = -60 - Math.random() * 120;
+			const ty = -30 + (Math.random() * 60 - 30);
+			const dur = 12 + Math.random() * 16;
+			const del = -Math.random() * dur;
+			d.style.left = `${startX}%`;
+			d.style.top = `${startY}%`;
+			d.style.setProperty("--tx", `${tx}px`);
+			d.style.setProperty("--ty", `${ty}px`);
+			d.style.setProperty("--d", `${dur}s`);
+			d.style.setProperty("--del", `${del}s`);
+			d.style.animationDelay = `${del}s`;
+			host.appendChild(d);
+		}
+
+		// Reduced-motion: also kill the SMIL <animate> inside each feTurbulence
+		// filter. CSS can't pause SMIL, so we endElement() them explicitly.
+		const prefersReduced = window.matchMedia(
+			"(prefers-reduced-motion: reduce)",
+		).matches;
+		if (prefersReduced && smokeRef.current) {
+			const smil = smokeRef.current.querySelectorAll("animate");
+			smil.forEach((el) => {
+				const anim = el as unknown as SVGAnimationElement;
+				if (typeof anim.endElement === "function") anim.endElement();
+			});
+		}
+	}, []);
 
 	useEffect(() => {
 		const wrap = wrapRef.current;
@@ -151,6 +170,29 @@ export function MarketingShell({ data }: { data: RepoData }) {
 			stage.style.setProperty("--my", `${e.clientY - rect.top}px`);
 			stage.classList.add("hovering");
 
+			// Smoke swirl — write 0..1 cursor position within the mock-wrap so
+			// each plume's --swirl-offset translates toward the cursor. Swirl
+			// strength peaks near the horizontal midline of the product frame.
+			const smoke = smokeRef.current;
+			if (smoke && !prefersReduced) {
+				const wrapRect = wrap.getBoundingClientRect();
+				const wx = Math.max(
+					0,
+					Math.min(1, (e.clientX - wrapRect.left) / wrapRect.width),
+				);
+				const wy = Math.max(
+					0,
+					Math.min(1, (e.clientY - wrapRect.top) / wrapRect.height),
+				);
+				smoke.style.setProperty("--cursor-x", wx.toFixed(3));
+				smoke.style.setProperty("--cursor-y", wy.toFixed(3));
+				const prox = 1 - Math.min(1, Math.hypot(wx - 0.5, wy - 0.5) * 1.6);
+				smoke.style.setProperty(
+					"--swirl-strength",
+					(0.4 + prox * 1.2).toFixed(3),
+				);
+			}
+
 			if (prefersReduced) return;
 
 			const cx = rect.left + rect.width / 2;
@@ -165,6 +207,14 @@ export function MarketingShell({ data }: { data: RepoData }) {
 			stage.style.setProperty("--mx", "-500px");
 			stage.style.setProperty("--my", "-500px");
 			stage.classList.remove("hovering");
+
+			// Smoke swirl — ease plumes back to center.
+			const smoke = smokeRef.current;
+			if (smoke) {
+				smoke.style.setProperty("--cursor-x", "0.5");
+				smoke.style.setProperty("--cursor-y", "0.5");
+				smoke.style.setProperty("--swirl-strength", "0.4");
+			}
 
 			if (prefersReduced) return;
 
@@ -183,147 +233,454 @@ export function MarketingShell({ data }: { data: RepoData }) {
 	}, []);
 
 	return (
-		<>
-			{/* ============== LIGHT RAYS BACKGROUND ============== */}
-			<div className="light-rays" aria-hidden="true">
-				{rays.map((r, i) => (
-					<div
-						// Rays are purely decorative and positional; index is a fine key.
-						key={i}
-						className="ray"
-						style={
-							{
-								"--x": `${r.x}%`,
-								"--w": `${r.w}px`,
-								"--tilt": `${r.tilt}deg`,
-								"--dur": `${r.dur}s`,
-								"--delay": `${r.delay}s`,
-							} as React.CSSProperties
-						}
+		<div className="page">
+			{/* ============== TOP RAIL ============== */}
+			<div className="rail">
+				<a className="brand" href="/">
+					{/* Both logo variants render; CSS on <html class> picks the right
+					 * one. Keeps the first paint correct for system-light visitors
+					 * without a React-driven src swap flashing the dark logo. */}
+					{/* eslint-disable-next-line @next/next/no-img-element */}
+					<img
+						className="brand-mark-dark"
+						src="/helmor-logo-dark.svg"
+						alt=""
+						aria-hidden="true"
 					/>
-				))}
+					{/* eslint-disable-next-line @next/next/no-img-element */}
+					<img
+						className="brand-mark-light"
+						src="/helmor-logo-light.svg"
+						alt=""
+						aria-hidden="true"
+					/>
+					Helmor
+				</a>
+				<span className="version">{data.version}</span>
+				<div className="links">
+					<a href={`${data.repoUrl}#readme`}>Docs</a>
+					<a href={data.releasesUrl}>Changelog</a>
+					<a href={`${data.repoUrl}/discussions`}>Discussions</a>
+				</div>
+				<div className="spacer" />
+				<div className="theme-toggle" role="tablist" aria-label="Theme">
+					<button
+						type="button"
+						aria-label="Light"
+						aria-pressed={theme === "light"}
+						className={theme === "light" ? "active" : undefined}
+						onClick={() => toggleTheme("light")}
+					>
+						<SunIcon />
+					</button>
+					<button
+						type="button"
+						aria-label="Dark"
+						aria-pressed={theme === "dark"}
+						className={theme === "dark" ? "active" : undefined}
+						onClick={() => toggleTheme("dark")}
+					>
+						<MoonIcon />
+					</button>
+				</div>
 			</div>
-			<div className="page">
-				{/* ============== TOP RAIL ============== */}
-				<div className="rail">
-					<a className="brand" href="/">
-						{/* Both logo variants render; CSS on <html class> picks the right
-						 * one. Keeps the first paint correct for system-light visitors
-						 * without a React-driven src swap flashing the dark logo. */}
-						{/* eslint-disable-next-line @next/next/no-img-element */}
-						<img
-							className="brand-mark-dark"
-							src="/helmor-logo-dark.svg"
-							alt=""
-							aria-hidden="true"
-						/>
-						{/* eslint-disable-next-line @next/next/no-img-element */}
-						<img
-							className="brand-mark-light"
-							src="/helmor-logo-light.svg"
-							alt=""
-							aria-hidden="true"
-						/>
-						Helmor
+
+			{/* ============== STAGE ============== */}
+			<div className="stage">
+				{/* Atmospheric FX — spans BOTH columns so smoke drifts behind
+				 * the pitch text AND around the product screenshot. Sits under
+				 * .pitch (z:2) and .mock-wrap (z:3) via z-index stacking. */}
+				<div className="atmos" aria-hidden="true">
+					<div className="light-burst" />
+					<div className="smoke" ref={smokeRef}>
+						{/* Back plume — largest, slowest, coolest-toned */}
+						<div className="plume plume-back">
+							<div className="smoke-swirl">
+								<svg
+									viewBox="0 0 800 600"
+									preserveAspectRatio="xMidYMid slice"
+									aria-hidden="true"
+								>
+									<defs>
+										<filter
+											id="turb-back"
+											x="-10%"
+											y="-10%"
+											width="120%"
+											height="120%"
+										>
+											<feTurbulence
+												type="fractalNoise"
+												baseFrequency="0.008 0.014"
+												numOctaves={3}
+												seed={3}
+												result="noise"
+											>
+												<animate
+													attributeName="baseFrequency"
+													dur="48s"
+													values="0.008 0.014; 0.012 0.010; 0.008 0.014"
+													repeatCount="indefinite"
+												/>
+											</feTurbulence>
+											<feDisplacementMap
+												in="SourceGraphic"
+												in2="noise"
+												scale={90}
+												xChannelSelector="R"
+												yChannelSelector="G"
+											/>
+										</filter>
+										<radialGradient id="grad-back" cx="72%" cy="50%" r="55%">
+											<stop
+												offset="0%"
+												stopColor="oklch(0.95 0.05 245)"
+												stopOpacity={1}
+											/>
+											<stop
+												offset="30%"
+												stopColor="oklch(0.75 0.12 250)"
+												stopOpacity={0.85}
+											/>
+											<stop
+												offset="60%"
+												stopColor="oklch(0.50 0.13 258)"
+												stopOpacity={0.5}
+											/>
+											<stop
+												offset="100%"
+												stopColor="oklch(0.25 0.08 265)"
+												stopOpacity={0}
+											/>
+										</radialGradient>
+									</defs>
+									<g filter="url(#turb-back)">
+										<ellipse
+											cx={560}
+											cy={280}
+											rx={320}
+											ry={230}
+											fill="url(#grad-back)"
+										/>
+										<ellipse
+											cx={420}
+											cy={350}
+											rx={260}
+											ry={190}
+											fill="url(#grad-back)"
+											opacity={0.85}
+										/>
+										<ellipse
+											cx={620}
+											cy={420}
+											rx={220}
+											ry={160}
+											fill="url(#grad-back)"
+											opacity={0.75}
+										/>
+										<ellipse
+											cx={300}
+											cy={290}
+											rx={180}
+											ry={140}
+											fill="url(#grad-back)"
+											opacity={0.6}
+										/>
+										<ellipse
+											cx={500}
+											cy={170}
+											rx={200}
+											ry={130}
+											fill="url(#grad-back)"
+											opacity={0.65}
+										/>
+									</g>
+								</svg>
+							</div>
+						</div>
+
+						{/* Mid plume — brightest, medium turbulence */}
+						<div className="plume plume-mid">
+							<div className="smoke-swirl">
+								<svg
+									viewBox="0 0 800 600"
+									preserveAspectRatio="xMidYMid slice"
+									aria-hidden="true"
+								>
+									<defs>
+										<filter
+											id="turb-mid"
+											x="-10%"
+											y="-10%"
+											width="120%"
+											height="120%"
+										>
+											<feTurbulence
+												type="fractalNoise"
+												baseFrequency="0.018 0.028"
+												numOctaves={4}
+												seed={7}
+												result="noise"
+											>
+												<animate
+													attributeName="baseFrequency"
+													dur="30s"
+													values="0.018 0.028; 0.028 0.018; 0.018 0.028"
+													repeatCount="indefinite"
+												/>
+											</feTurbulence>
+											<feDisplacementMap
+												in="SourceGraphic"
+												in2="noise"
+												scale={65}
+												xChannelSelector="R"
+												yChannelSelector="G"
+											/>
+										</filter>
+										<radialGradient id="grad-mid" cx="70%" cy="48%" r="50%">
+											<stop
+												offset="0%"
+												stopColor="oklch(0.98 0.03 245)"
+												stopOpacity={1}
+											/>
+											<stop
+												offset="25%"
+												stopColor="oklch(0.85 0.09 245)"
+												stopOpacity={0.9}
+											/>
+											<stop
+												offset="55%"
+												stopColor="oklch(0.58 0.13 252)"
+												stopOpacity={0.45}
+											/>
+											<stop
+												offset="100%"
+												stopColor="oklch(0.28 0.08 258)"
+												stopOpacity={0}
+											/>
+										</radialGradient>
+									</defs>
+									<g filter="url(#turb-mid)">
+										<ellipse
+											cx={540}
+											cy={300}
+											rx={240}
+											ry={180}
+											fill="url(#grad-mid)"
+										/>
+										<ellipse
+											cx={420}
+											cy={220}
+											rx={170}
+											ry={130}
+											fill="url(#grad-mid)"
+											opacity={0.85}
+										/>
+										<ellipse
+											cx={600}
+											cy={390}
+											rx={190}
+											ry={140}
+											fill="url(#grad-mid)"
+											opacity={0.85}
+										/>
+										<ellipse
+											cx={340}
+											cy={380}
+											rx={150}
+											ry={110}
+											fill="url(#grad-mid)"
+											opacity={0.75}
+										/>
+										<ellipse
+											cx={260}
+											cy={260}
+											rx={130}
+											ry={100}
+											fill="url(#grad-mid)"
+											opacity={0.55}
+										/>
+									</g>
+								</svg>
+							</div>
+						</div>
+
+						{/* Front plume — tightest curls, highest frequency */}
+						<div className="plume plume-front">
+							<div className="smoke-swirl">
+								<svg
+									viewBox="0 0 800 600"
+									preserveAspectRatio="xMidYMid slice"
+									aria-hidden="true"
+								>
+									<defs>
+										<filter
+											id="turb-front"
+											x="-10%"
+											y="-10%"
+											width="120%"
+											height="120%"
+										>
+											<feTurbulence
+												type="fractalNoise"
+												baseFrequency="0.035 0.050"
+												numOctaves={5}
+												seed={11}
+												result="noise"
+											>
+												<animate
+													attributeName="baseFrequency"
+													dur="21s"
+													values="0.035 0.050; 0.050 0.038; 0.035 0.050"
+													repeatCount="indefinite"
+												/>
+											</feTurbulence>
+											<feDisplacementMap
+												in="SourceGraphic"
+												in2="noise"
+												scale={45}
+												xChannelSelector="R"
+												yChannelSelector="G"
+											/>
+										</filter>
+										<radialGradient id="grad-front" cx="68%" cy="45%" r="42%">
+											<stop
+												offset="0%"
+												stopColor="oklch(1 0 0)"
+												stopOpacity={1}
+											/>
+											<stop
+												offset="20%"
+												stopColor="oklch(0.93 0.05 245)"
+												stopOpacity={0.95}
+											/>
+											<stop
+												offset="50%"
+												stopColor="oklch(0.68 0.12 250)"
+												stopOpacity={0.5}
+											/>
+											<stop
+												offset="100%"
+												stopColor="oklch(0.32 0.09 255)"
+												stopOpacity={0}
+											/>
+										</radialGradient>
+									</defs>
+									<g filter="url(#turb-front)">
+										<ellipse
+											cx={520}
+											cy={290}
+											rx={180}
+											ry={140}
+											fill="url(#grad-front)"
+										/>
+										<ellipse
+											cx={400}
+											cy={340}
+											rx={130}
+											ry={100}
+											fill="url(#grad-front)"
+											opacity={0.85}
+										/>
+										<ellipse
+											cx={580}
+											cy={360}
+											rx={140}
+											ry={105}
+											fill="url(#grad-front)"
+											opacity={0.8}
+										/>
+										<ellipse
+											cx={460}
+											cy={200}
+											rx={110}
+											ry={85}
+											fill="url(#grad-front)"
+											opacity={0.75}
+										/>
+										<ellipse
+											cx={300}
+											cy={280}
+											rx={100}
+											ry={75}
+											fill="url(#grad-front)"
+											opacity={0.55}
+										/>
+									</g>
+								</svg>
+							</div>
+						</div>
+					</div>
+					{/* Backlit dust motes — populated in useEffect */}
+					<div className="dust" ref={dustRef} />
+				</div>
+
+				{/* LEFT — pitch */}
+				<div className="pitch">
+					<a className="changelog-chip" href={data.latestReleaseUrl}>
+						<span className="tag">{data.versionShort}</span>
+						Codex 1.0 and Claude Code 2.0 now supported
+						<span className="arrow">→</span>
 					</a>
-					<span className="version">{data.version}</span>
-					<div className="links">
-						<a href={`${data.repoUrl}#readme`}>Docs</a>
-						<a href={data.releasesUrl}>Changelog</a>
-						<a href={`${data.repoUrl}/discussions`}>Discussions</a>
+
+					<h1 className="hero">
+						<span className="line2">AI made coding faster.</span>
+						<span className="and" />
+						Helmor is about finishing the rest of the loop.
+					</h1>
+
+					<p className="sub">
+						An open-source local workbench for multi-agent software development.
+						Built for orchestration, review, testing, merge, and everything
+						around the code.
+					</p>
+
+					<div className="cta">
+						<DownloadDropdown data={data} />
+						<a className="btn outline" href={data.repoUrl}>
+							<GithubIcon />
+							View on GitHub
+						</a>
 					</div>
-					<div className="spacer" />
-					<div className="theme-toggle" role="tablist" aria-label="Theme">
-						<button
-							type="button"
-							aria-label="Light"
-							aria-pressed={theme === "light"}
-							className={theme === "light" ? "active" : undefined}
-							onClick={() => toggleTheme("light")}
-						>
-							<SunIcon />
-						</button>
-						<button
-							type="button"
-							aria-label="Dark"
-							aria-pressed={theme === "dark"}
-							className={theme === "dark" ? "active" : undefined}
-							onClick={() => toggleTheme("dark")}
-						>
-							<MoonIcon />
-						</button>
+
+					<div className="meta">
+						<span>
+							<span className="ok">●</span> {data.branch} · {data.shortSha}
+						</span>
+						<span className="sep" />
+						<span>{data.license}</span>
+						<span className="sep" />
+						<span>macOS</span>
 					</div>
 				</div>
 
-				{/* ============== STAGE ============== */}
-				<div className="stage">
-					{/* LEFT — pitch */}
-					<div className="pitch">
-						<a className="changelog-chip" href={data.latestReleaseUrl}>
-							<span className="tag">{data.versionShort}</span>
-							Codex 1.0 and Claude Code 2.0 now supported
-							<span className="arrow">→</span>
-						</a>
-
-						<h1 className="hero">
-							<span className="line2">AI made you 10×.</span>
-							<span className="and" />
-							Helmor takes you 100×.
-						</h1>
-
-						<p className="sub">
-							The local-first IDE for coding agent orchestration. Run Claude
-							Code and Codex side-by-side across worktrees, on your machine.
-							Plan. Run. Review — without handing your source tree to a vendor.
-						</p>
-
-						<div className="cta">
-							<DownloadDropdown data={data} />
-							<a className="btn outline" href={data.repoUrl}>
-								<GithubIcon />
-								View on GitHub
-							</a>
+				{/* RIGHT — interactive product screenshot */}
+				<div className="mock-wrap" ref={wrapRef}>
+					<div
+						className="mock-stage"
+						aria-label="Helmor product preview"
+						ref={stageRef}
+					>
+						<div className="shot dark-layer">
+							{/* eslint-disable-next-line @next/next/no-img-element */}
+							<img
+								src="/helmor-screenshot-dark.png"
+								alt="Helmor (dark)"
+								draggable={false}
+							/>
 						</div>
-
-						<div className="meta">
-							<span>
-								<span className="ok">●</span> {data.branch} · {data.shortSha}
-							</span>
-							<span className="sep" />
-							<span>{data.license}</span>
-							<span className="sep" />
-							<span>macOS</span>
-						</div>
-					</div>
-
-					{/* RIGHT — interactive product screenshot */}
-					<div className="mock-wrap" ref={wrapRef}>
-						<div
-							className="mock-stage"
-							aria-label="Helmor product preview"
-							ref={stageRef}
-						>
-							<div className="shot dark-layer">
-								{/* eslint-disable-next-line @next/next/no-img-element */}
-								<img
-									src="/helmor-screenshot-dark.png"
-									alt="Helmor (dark)"
-									draggable={false}
-								/>
-							</div>
-							<div className="shot light-layer">
-								{/* eslint-disable-next-line @next/next/no-img-element */}
-								<img
-									src="/helmor-screenshot-light.png"
-									alt="Helmor (light)"
-									draggable={false}
-								/>
-							</div>
+						<div className="shot light-layer">
+							{/* eslint-disable-next-line @next/next/no-img-element */}
+							<img
+								src="/helmor-screenshot-light.png"
+								alt="Helmor (light)"
+								draggable={false}
+							/>
 						</div>
 					</div>
 				</div>
 			</div>
-		</>
+		</div>
 	);
 }
 

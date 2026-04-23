@@ -13,6 +13,7 @@ import {
 	type DerivedStatus,
 	hideSession,
 	loadAutoCloseActionKinds,
+	loadRepoPreferences,
 	lookupWorkspacePr,
 	mergeWorkspacePr,
 	type PullRequestInfo,
@@ -26,16 +27,13 @@ import {
 	deriveCommitButtonMode,
 	deriveCommitButtonState,
 } from "@/lib/commit-button-logic";
-import { COMMIT_BUTTON_PROMPTS } from "@/lib/commit-button-prompts";
+import {
+	buildCommitButtonPrompt,
+	isActionSessionMode,
+} from "@/lib/commit-button-prompts";
 import { helmorQueryKeys } from "@/lib/query-client";
 import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import type { CommitButtonState, WorkspaceCommitButtonMode } from "../button";
-
-function isActionSessionMode(
-	mode: WorkspaceCommitButtonMode,
-): mode is keyof typeof COMMIT_BUTTON_PROMPTS {
-	return mode in COMMIT_BUTTON_PROMPTS;
-}
 
 function getActionFailureTitle(mode: WorkspaceCommitButtonMode): string {
 	switch (mode) {
@@ -77,12 +75,18 @@ export type PendingPromptForSession = {
 	prompt: string;
 	modelId?: string | null;
 	permissionMode?: string | null;
+	/** When true, submit must queue if a turn is already streaming —
+	 *  regardless of the user's `followUpBehavior` setting. Used for
+	 *  host-triggered prompts (e.g. git-pull conflict resolution) that
+	 *  must never interrupt the active turn. */
+	forceQueue?: boolean;
 };
 
 export function useWorkspaceCommitLifecycle({
 	queryClient,
 	selectedWorkspaceId,
 	selectedWorkspaceIdRef,
+	selectedRepoId,
 	workspaceManualStatus,
 	workspacePrInfo,
 	workspacePrActionStatus,
@@ -96,6 +100,7 @@ export function useWorkspaceCommitLifecycle({
 	queryClient: QueryClient;
 	selectedWorkspaceId: string | null;
 	selectedWorkspaceIdRef: MutableRefObject<string | null>;
+	selectedRepoId: string | null;
 	workspaceManualStatus: DerivedStatus | null;
 	workspacePrInfo: PullRequestInfo | null;
 	workspacePrActionStatus: WorkspacePrActionStatus | null;
@@ -279,12 +284,14 @@ export function useWorkspaceCommitLifecycle({
 				setCommitLifecycle(null);
 				return;
 			}
-			const prompt = COMMIT_BUTTON_PROMPTS[mode];
-
 			try {
 				const { sessionId } = await createSession(workspaceId, {
 					actionKind: mode,
 				});
+				const repoPreferences = selectedRepoId
+					? await loadRepoPreferences(selectedRepoId)
+					: null;
+				const prompt = buildCommitButtonPrompt(mode, repoPreferences);
 				console.log("[commitButton] session created", { sessionId });
 
 				await queryClient.invalidateQueries({
@@ -315,6 +322,7 @@ export function useWorkspaceCommitLifecycle({
 			onSelectSession,
 			pushToast,
 			queryClient,
+			selectedRepoId,
 			selectedWorkspaceIdRef,
 			workspaceManualStatus,
 		],

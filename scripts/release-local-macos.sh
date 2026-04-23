@@ -87,6 +87,10 @@ xcrun notarytool --version >/dev/null
 echo "Building Helmor macOS release..."
 bun x tauri build --bundles app,dmg --ci
 
+APP_BUNDLE="${ROOT_DIR}/src-tauri/target/release/bundle/macos/Helmor.app"
+echo "Verifying bundled CLI..."
+bash "${ROOT_DIR}/scripts/verify-bundled-cli.sh" "${APP_BUNDLE}"
+
 echo "macOS release build finished."
 echo
 echo "Expected artifacts:"

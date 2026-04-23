@@ -122,7 +122,7 @@ jobs:
       - name: Setup Rust Tauri
         uses: ./.github/actions/setup-rust-tauri
 
-      - name: Build + stage sidecar
+      - name: Build + stage bundle binaries
         uses: ./.github/actions/build-sidecar
         with:
           target-triple: ${{ matrix.target-triple }}
@@ -142,6 +142,7 @@ jobs:
         id: tauri
         uses: tauri-apps/tauri-action@v0.6
         env:
+          TAURI_TARGET_TRIPLE: ${{ matrix.target-triple }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
@@ -165,6 +166,12 @@ jobs:
           args: ${{ matrix.tauri-args }}
           # Force tauri-action to use bun instead of auto-detecting (it only knows npm/yarn/pnpm)
           tauriScript: bun run tauri
+
+      - name: Verify bundled CLI (${{ matrix.target-triple }})
+        shell: bash
+        run: |
+          bash scripts/verify-bundled-cli.sh \
+            "src-tauri/target/${{ matrix.target-triple }}/release/bundle/macos/Helmor.app"
 
       - name: Cleanup macOS signing keychain
         if: always()

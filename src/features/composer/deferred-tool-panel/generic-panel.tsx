@@ -1,29 +1,31 @@
-import { Check, MessageSquareMore, Settings2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Check, Settings2, X } from "lucide-react";
+import { useMemo } from "react";
 import { CodeBlock } from "@/components/ai/code-block";
 import { Button } from "@/components/ui/button";
-import {
-	InteractionFooter,
-	InteractionHeader,
-	InteractionOptionalInput,
-} from "../interaction";
+import { InteractionFooter, InteractionHeader } from "../interaction";
 import { DeferredToolCard, type DeferredToolPanelProps } from "./shared";
 
-/**
- * If the tool looks shell-shaped (Bash tool with a `command` string),
- * render the command with bash highlighting. Everything else falls back
- * to a JSON view of `toolInput` with JSON highlighting.
- */
+function looksLikeCommand(
+	toolName: string,
+	toolInput: Record<string, unknown>,
+) {
+	const lowerName = toolName.toLowerCase();
+	return (
+		typeof toolInput.command === "string" &&
+		toolInput.command.length > 0 &&
+		(lowerName === "bash" || lowerName === "shell" || lowerName === "exec")
+	);
+}
+
 function getCodePreview(deferred: DeferredToolPanelProps["deferred"]): {
 	code: string;
 	language: string;
 } {
-	const lowerName = deferred.toolName.toLowerCase();
 	const command = deferred.toolInput?.command;
 	if (
 		typeof command === "string" &&
 		command.length > 0 &&
-		(lowerName === "bash" || lowerName === "shell" || lowerName === "exec")
+		looksLikeCommand(deferred.toolName, deferred.toolInput)
 	) {
 		return { code: command, language: "bash" };
 	}
@@ -38,12 +40,6 @@ export function GenericDeferredToolPanel({
 	disabled,
 	onResponse,
 }: DeferredToolPanelProps) {
-	const [reason, setReason] = useState("");
-
-	useEffect(() => {
-		setReason("");
-	}, [deferred.toolUseId]);
-
 	const preview = useMemo(() => getCodePreview(deferred), [deferred]);
 
 	return (
@@ -54,8 +50,6 @@ export function GenericDeferredToolPanel({
 				description="This tool needs your approval before it can run."
 				truncateTitle
 			/>
-
-			{/* Tool input — syntax-highlighted via shiki */}
 			<div className="mx-1 max-h-56 overflow-y-auto rounded-xl bg-muted/20">
 				<CodeBlock
 					code={preview.code}
@@ -65,24 +59,12 @@ export function GenericDeferredToolPanel({
 				/>
 			</div>
 
-			<InteractionOptionalInput
-				icon={MessageSquareMore}
-				placeholder="Optional reason"
-				value={reason}
-				onChange={setReason}
-				disabled={disabled}
-			/>
-
 			<InteractionFooter>
 				<Button
 					variant="outline"
 					size="sm"
 					disabled={disabled}
-					onClick={() =>
-						onResponse(deferred, "deny", {
-							...(reason.trim() ? { reason: reason.trim() } : {}),
-						})
-					}
+					onClick={() => onResponse(deferred, "deny")}
 				>
 					<X className="size-3.5" strokeWidth={2} />
 					<span>Deny</span>
@@ -94,7 +76,6 @@ export function GenericDeferredToolPanel({
 					onClick={() =>
 						onResponse(deferred, "allow", {
 							updatedInput: deferred.toolInput,
-							...(reason.trim() ? { reason: reason.trim() } : {}),
 						})
 					}
 				>

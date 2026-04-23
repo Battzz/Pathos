@@ -11,17 +11,34 @@ import type {
 } from "@/lib/api";
 import { helmorQueryKeys } from "@/lib/query-client";
 import { sessionThreadCacheKey } from "@/lib/session-thread-cache";
+import type {
+	QueuedSubmitContext,
+	SubmitQueueApi,
+} from "@/lib/use-submit-queue";
 import { WorkspaceToastProvider } from "@/lib/workspace-toast-context";
 import { useConversationStreaming } from "./use-streaming";
 
+// Tests that don't exercise the queue branch can share this no-op
+// stub — matches the shape of `SubmitQueueApi` without side effects.
+const noopSubmitQueue: SubmitQueueApi = {
+	getQueue: () => [],
+	findById: () => undefined,
+	enqueue: () => "",
+	remove: () => {},
+	popNext: () => undefined,
+	clear: () => {},
+};
+
 const apiMocks = vi.hoisted(() => ({
 	generateSessionTitle: vi.fn(),
+	loadRepoPreferences: vi.fn(),
 	loadSessionThreadMessages: vi.fn(),
 	renameSession: vi.fn(),
 	respondToDeferredTool: vi.fn(),
 	respondToElicitationRequest: vi.fn(),
 	respondToPermissionRequest: vi.fn(),
 	startAgentMessageStream: vi.fn(),
+	steerAgentStream: vi.fn(),
 	stopAgentStream: vi.fn(),
 }));
 
@@ -31,12 +48,14 @@ vi.mock("@/lib/api", async (importOriginal) => {
 	return {
 		...actual,
 		generateSessionTitle: apiMocks.generateSessionTitle,
+		loadRepoPreferences: apiMocks.loadRepoPreferences,
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
 		renameSession: apiMocks.renameSession,
 		respondToDeferredTool: apiMocks.respondToDeferredTool,
 		respondToElicitationRequest: apiMocks.respondToElicitationRequest,
 		respondToPermissionRequest: apiMocks.respondToPermissionRequest,
 		startAgentMessageStream: apiMocks.startAgentMessageStream,
+		steerAgentStream: apiMocks.steerAgentStream,
 		stopAgentStream: apiMocks.stopAgentStream,
 	};
 });
@@ -148,12 +167,15 @@ function assistantMessage(
 describe("useConversationStreaming", () => {
 	beforeEach(() => {
 		apiMocks.generateSessionTitle.mockReset();
+		apiMocks.loadRepoPreferences.mockReset();
 		apiMocks.loadSessionThreadMessages.mockReset();
 		apiMocks.renameSession.mockReset();
 		apiMocks.respondToDeferredTool.mockReset();
 		apiMocks.respondToPermissionRequest.mockReset();
 		apiMocks.startAgentMessageStream.mockReset();
+		apiMocks.steerAgentStream.mockReset();
 		apiMocks.stopAgentStream.mockReset();
+		apiMocks.loadRepoPreferences.mockResolvedValue({});
 
 		apiMocks.generateSessionTitle.mockResolvedValue(null);
 		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
@@ -161,6 +183,10 @@ describe("useConversationStreaming", () => {
 		apiMocks.respondToDeferredTool.mockResolvedValue(undefined);
 		apiMocks.respondToElicitationRequest.mockResolvedValue(undefined);
 		apiMocks.respondToPermissionRequest.mockResolvedValue(undefined);
+		// Default: steer claims the turn ended so tests that don't opt in to
+		// steer semantics fall through to the normal send path. Individual
+		// tests override this when they want to exercise the steer branch.
+		apiMocks.steerAgentStream.mockResolvedValue({ accepted: false });
 		apiMocks.stopAgentStream.mockResolvedValue(undefined);
 	});
 
@@ -189,6 +215,8 @@ describe("useConversationStreaming", () => {
 						interactionSnapshots.push(new Map(sessionWorkspaceMap));
 					},
 					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
 				}),
 			{
 				initialProps: {
@@ -280,6 +308,8 @@ describe("useConversationStreaming", () => {
 					displayedSessionId: "session-1",
 					displayedWorkspaceId: "workspace-1",
 					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
 				}),
 			{ wrapper: Wrapper },
 		);
@@ -332,6 +362,8 @@ describe("useConversationStreaming", () => {
 					displayedSessionId: "session-1",
 					displayedWorkspaceId: "workspace-1",
 					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
 				}),
 			{ wrapper: Wrapper },
 		);
@@ -369,6 +401,8 @@ describe("useConversationStreaming", () => {
 					displayedSessionId: "session-1",
 					displayedWorkspaceId: "workspace-1",
 					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
 				}),
 			{ wrapper: Wrapper },
 		);
@@ -410,6 +444,196 @@ describe("useConversationStreaming", () => {
 		expect(result.current.hasPlanReview).toBe(false);
 	});
 
+	it("routes a second submit while sending to steerAgentStream, not startAgentMessageStream", async () => {
+		// Stream mock returns without firing `done` → isSending stays true.
+		apiMocks.startAgentMessageStream.mockImplementation(
+			async (_payload: unknown, _onEvent: (event: unknown) => void) => {
+				return undefined;
+			},
+		);
+		apiMocks.steerAgentStream.mockResolvedValue({
+			accepted: true,
+			messageId: "steer-msg-1",
+		});
+
+		const { Wrapper } = createWrapper();
+		const { result } = renderHook(
+			() =>
+				useConversationStreaming({
+					composerContextKey: "session:session-1",
+					displayedSelectedModelId: MODEL.id,
+					displayedSessionId: "session-1",
+					displayedWorkspaceId: "workspace-1",
+					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
+				}),
+			{ wrapper: Wrapper },
+		);
+
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "kick things off",
+				imagePaths: [],
+				filePaths: [],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/helmor",
+				effortLevel: "medium",
+				permissionMode: "default",
+				fastMode: false,
+			});
+		});
+
+		expect(result.current.isSending).toBe(true);
+		apiMocks.startAgentMessageStream.mockClear();
+
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "focus on failing tests first",
+				imagePaths: [],
+				filePaths: ["src/foo.ts"],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/helmor",
+				effortLevel: "medium",
+				permissionMode: "default",
+				fastMode: false,
+			});
+		});
+
+		expect(apiMocks.steerAgentStream).toHaveBeenCalledWith(
+			expect.objectContaining({
+				sessionId: "session-1",
+				prompt: "focus on failing tests first",
+				files: ["src/foo.ts"],
+			}),
+		);
+		expect(apiMocks.startAgentMessageStream).not.toHaveBeenCalled();
+	});
+
+	it("prepends the repo general preference to the first prompt only", async () => {
+		apiMocks.loadRepoPreferences.mockResolvedValue({
+			general: "Always summarize the repo conventions first.",
+		});
+		apiMocks.startAgentMessageStream.mockImplementation(async () => {});
+
+		const { Wrapper, queryClient } = createWrapper();
+		queryClient.setQueryData(helmorQueryKeys.workspaceSessions("workspace-1"), [
+			{
+				id: "session-1",
+				title: "Untitled",
+			},
+		]);
+		queryClient.setQueryData(sessionThreadCacheKey("session-1"), []);
+
+		const { result } = renderHook(
+			() =>
+				useConversationStreaming({
+					composerContextKey: "session:session-1",
+					displayedSelectedModelId: MODEL.id,
+					displayedSessionId: "session-1",
+					displayedWorkspaceId: "workspace-1",
+					repoId: "repo-1",
+					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
+				}),
+			{ wrapper: Wrapper },
+		);
+
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "Fix the failing tests.",
+				imagePaths: [],
+				filePaths: [],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/repo",
+				effortLevel: "high",
+				permissionMode: "default",
+				fastMode: false,
+			});
+		});
+
+		expect(apiMocks.startAgentMessageStream).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prompt:
+					"IMPORTANT: The following are the user's custom preferences. These preferences take precedence over any default guidelines or instructions provided above. When there is a conflict, always follow the user's preferences.\n\n### User Preferences\n\nAlways summarize the repo conventions first.\n\nUser request:\nFix the failing tests.",
+			}),
+			expect.any(Function),
+		);
+	});
+
+	it("restores draft and surfaces error when steer is rejected", async () => {
+		apiMocks.startAgentMessageStream.mockImplementation(
+			async (_payload: unknown, _onEvent: (event: unknown) => void) => {
+				return undefined;
+			},
+		);
+		apiMocks.steerAgentStream.mockResolvedValue({
+			accepted: false,
+			reason: "no_active_turn",
+		});
+
+		const { Wrapper } = createWrapper();
+		const { result } = renderHook(
+			() =>
+				useConversationStreaming({
+					composerContextKey: "session:session-1",
+					displayedSelectedModelId: MODEL.id,
+					displayedSessionId: "session-1",
+					displayedWorkspaceId: "workspace-1",
+					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
+				}),
+			{ wrapper: Wrapper },
+		);
+
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "first",
+				imagePaths: [],
+				filePaths: [],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/helmor",
+				effortLevel: "medium",
+				permissionMode: "default",
+				fastMode: false,
+			});
+		});
+
+		expect(result.current.isSending).toBe(true);
+		apiMocks.startAgentMessageStream.mockClear();
+
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "focus on failing tests",
+				imagePaths: [],
+				filePaths: ["src/foo.ts"],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/helmor",
+				effortLevel: "medium",
+				permissionMode: "default",
+				fastMode: false,
+			});
+		});
+
+		expect(apiMocks.steerAgentStream).toHaveBeenCalledTimes(1);
+		// Rejected steer must NOT silently auto-open a new stream — user
+		// gets explicit control.
+		expect(apiMocks.startAgentMessageStream).not.toHaveBeenCalled();
+		// Draft + files + error must all be surfaced back to the composer
+		// so the user can resend without retyping. Guards against the
+		// draft-loss bug flagged in review #4.
+		expect(result.current.restoreDraft).toBe("focus on failing tests");
+		expect(result.current.restoreFiles).toEqual(["src/foo.ts"]);
+		expect(result.current.activeSendError).toContain("no_active_turn");
+	});
+
 	it("seeds the session title from the first prompt before async title generation", async () => {
 		apiMocks.startAgentMessageStream.mockImplementation(async () => {});
 
@@ -426,17 +650,11 @@ describe("useConversationStreaming", () => {
 				providerSessionId: null,
 				effortLevel: null,
 				unreadCount: 0,
-				contextTokenCount: 0,
-				contextUsedPercent: null,
-				thinkingEnabled: true,
 				fastMode: false,
-				agentPersonality: null,
 				createdAt: "2026-04-17T00:00:00Z",
 				updatedAt: "2026-04-17T00:00:00Z",
 				lastUserMessageAt: null,
-				resumeSessionAt: null,
 				isHidden: false,
-				isCompacting: false,
 				actionKind: null,
 				active: true,
 			},
@@ -456,7 +674,6 @@ describe("useConversationStreaming", () => {
 			state: "ready",
 			hasUnread: false,
 			workspaceUnread: 0,
-			sessionUnreadTotal: 0,
 			unreadSessionCount: 0,
 			derivedStatus: "in-progress",
 			manualStatus: null,
@@ -467,14 +684,11 @@ describe("useConversationStreaming", () => {
 			branch: "main",
 			initializationParentBranch: "main",
 			intendedTargetBranch: "main",
-			notes: null,
 			pinnedAt: null,
 			prTitle: null,
-			prDescription: null,
 			archiveCommit: null,
 			sessionCount: 1,
 			messageCount: 0,
-			attachmentCount: 0,
 		});
 		queryClient.setQueryData(helmorQueryKeys.workspaceGroups, [
 			{
@@ -490,7 +704,6 @@ describe("useConversationStreaming", () => {
 						state: "ready",
 						hasUnread: false,
 						workspaceUnread: 0,
-						sessionUnreadTotal: 0,
 						unreadSessionCount: 0,
 						derivedStatus: "in-progress",
 						manualStatus: null,
@@ -502,7 +715,6 @@ describe("useConversationStreaming", () => {
 						prTitle: null,
 						sessionCount: 1,
 						messageCount: 0,
-						attachmentCount: 0,
 					},
 				],
 			},
@@ -516,6 +728,8 @@ describe("useConversationStreaming", () => {
 					displayedSessionId: "session-1",
 					displayedWorkspaceId: "workspace-1",
 					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
 				}),
 			{ wrapper: Wrapper },
 		);
@@ -576,6 +790,8 @@ describe("useConversationStreaming", () => {
 						interactionSnapshots.push(new Map(sessionWorkspaceMap));
 					},
 					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
 				}),
 			{ wrapper: Wrapper },
 		);
@@ -663,6 +879,8 @@ describe("useConversationStreaming", () => {
 					displayedSessionId: "session-1",
 					displayedWorkspaceId: "workspace-1",
 					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
 				}),
 			{ wrapper: Wrapper },
 		);
@@ -756,6 +974,8 @@ describe("useConversationStreaming", () => {
 					displayedSessionId: "session-1",
 					displayedWorkspaceId: "workspace-1",
 					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
 				}),
 			{ wrapper: Wrapper },
 		);
@@ -805,6 +1025,8 @@ describe("useConversationStreaming", () => {
 					displayedSessionId,
 					displayedWorkspaceId: "workspace-1",
 					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
 				}),
 			{
 				initialProps: {
@@ -905,6 +1127,8 @@ describe("useConversationStreaming", () => {
 					displayedSessionId: "session-1",
 					displayedWorkspaceId: "workspace-1",
 					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
 				}),
 			{ wrapper: Wrapper },
 		);
@@ -952,6 +1176,8 @@ describe("useConversationStreaming", () => {
 					displayedSessionId: "session-1",
 					displayedWorkspaceId: "workspace-1",
 					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
 				}),
 			{ wrapper: Wrapper },
 		);
@@ -971,5 +1197,825 @@ describe("useConversationStreaming", () => {
 		);
 		expect(result.current.pendingElicitation).toBeNull();
 		expect(result.current.isSending).toBe(true);
+	});
+
+	describe("follow-up queue", () => {
+		// Minimal in-memory queue that mirrors `useSubmitQueue` for tests.
+		// The real hook keeps state in React; here we just need a stable
+		// api whose mutations are observable synchronously.
+		function createFakeQueue(): SubmitQueueApi & {
+			snapshot: () => Map<
+				string,
+				Array<{ id: string; prompt: string; context: QueuedSubmitContext }>
+			>;
+		} {
+			const store = new Map<
+				string,
+				Array<{
+					id: string;
+					context: QueuedSubmitContext;
+					payload: Parameters<SubmitQueueApi["enqueue"]>[1];
+				}>
+			>();
+			let counter = 0;
+			return {
+				getQueue: (sessionId) =>
+					store.get(sessionId)?.map((e) => ({
+						id: e.id,
+						context: e.context,
+						payload: e.payload,
+						enqueuedAt: 0,
+					})) ?? [],
+				findById: (id) => {
+					for (const list of store.values()) {
+						const match = list.find((e) => e.id === id);
+						if (match) {
+							return {
+								id: match.id,
+								context: match.context,
+								payload: match.payload,
+								enqueuedAt: 0,
+							};
+						}
+					}
+					return undefined;
+				},
+				enqueue: (context, payload) => {
+					counter += 1;
+					const id = `q-${counter}`;
+					const list = store.get(context.sessionId) ?? [];
+					list.push({ id, context, payload });
+					store.set(context.sessionId, list);
+					return id;
+				},
+				remove: (sessionId, id) => {
+					const list = store.get(sessionId);
+					if (!list) return;
+					const filtered = list.filter((e) => e.id !== id);
+					if (filtered.length === 0) store.delete(sessionId);
+					else store.set(sessionId, filtered);
+				},
+				popNext: (sessionId) => {
+					const list = store.get(sessionId);
+					if (!list || list.length === 0) return undefined;
+					const [head, ...rest] = list;
+					if (rest.length === 0) store.delete(sessionId);
+					else store.set(sessionId, rest);
+					return {
+						id: head.id,
+						context: head.context,
+						payload: head.payload,
+						enqueuedAt: 0,
+					};
+				},
+				clear: (sessionId) => {
+					store.delete(sessionId);
+				},
+				snapshot: () => {
+					const out = new Map<
+						string,
+						Array<{ id: string; prompt: string; context: QueuedSubmitContext }>
+					>();
+					for (const [sid, list] of store) {
+						out.set(
+							sid,
+							list.map((e) => ({
+								id: e.id,
+								prompt: e.payload.prompt,
+								context: e.context,
+							})),
+						);
+					}
+					return out;
+				},
+			};
+		}
+
+		it("queues follow-up submits instead of steering when behavior is 'queue'", async () => {
+			const streamCallbacks: Array<(event: unknown) => void> = [];
+			apiMocks.startAgentMessageStream.mockImplementation(
+				async (_payload: unknown, onEvent: (event: unknown) => void) => {
+					streamCallbacks.push(onEvent);
+				},
+			);
+			const queue = createFakeQueue();
+
+			const { Wrapper } = createWrapper();
+			const { result } = renderHook(
+				() =>
+					useConversationStreaming({
+						composerContextKey: "session:session-1",
+						displayedSelectedModelId: MODEL.id,
+						displayedSessionId: "session-1",
+						displayedWorkspaceId: "workspace-1",
+						selectionPending: false,
+						followUpBehavior: "queue",
+						submitQueue: queue,
+					}),
+				{ wrapper: Wrapper },
+			);
+
+			// Start a real turn first — this establishes the activeSession
+			// and sending state that the queue branch checks for.
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "First",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+			expect(streamCallbacks).toHaveLength(1);
+			expect(result.current.isSending).toBe(true);
+
+			// Follow-up while the turn is active — should enqueue, not steer.
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "Follow up",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+			expect(apiMocks.steerAgentStream).not.toHaveBeenCalled();
+			const enqueued = queue.snapshot().get("session-1");
+			expect(enqueued).toHaveLength(1);
+			expect(enqueued?.[0]).toMatchObject({
+				id: "q-1",
+				prompt: "Follow up",
+				context: {
+					sessionId: "session-1",
+					workspaceId: "workspace-1",
+					contextKey: "session:session-1",
+				},
+			});
+		});
+
+		it("drains the queue when the active turn finishes", async () => {
+			const streamCallbacks: Array<(event: unknown) => void> = [];
+			apiMocks.startAgentMessageStream.mockImplementation(
+				async (_payload: unknown, onEvent: (event: unknown) => void) => {
+					streamCallbacks.push(onEvent);
+				},
+			);
+			const queue = createFakeQueue();
+
+			const { Wrapper } = createWrapper();
+			const { result } = renderHook(
+				() =>
+					useConversationStreaming({
+						composerContextKey: "session:session-1",
+						displayedSelectedModelId: MODEL.id,
+						displayedSessionId: "session-1",
+						displayedWorkspaceId: "workspace-1",
+						selectionPending: false,
+						followUpBehavior: "queue",
+						submitQueue: queue,
+					}),
+				{ wrapper: Wrapper },
+			);
+
+			// Kick off the primary turn.
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "Primary",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+
+			// Enqueue a follow-up.
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "Queued",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+			expect(queue.snapshot().get("session-1")).toHaveLength(1);
+
+			// Finish the first turn — drain effect should pop + replay.
+			await act(async () => {
+				streamCallbacks[0]({
+					kind: "done",
+					provider: "codex",
+					modelId: MODEL.id,
+					resolvedModel: MODEL.cliModel,
+					sessionId: "provider-session-1",
+					workingDirectory: "/tmp/helmor",
+					persisted: false,
+				});
+			});
+			// Drain is scheduled via `queueMicrotask`; let it run.
+			await act(async () => {
+				await Promise.resolve();
+			});
+
+			expect(queue.snapshot().has("session-1")).toBe(false);
+			// Second `startAgentMessageStream` call carries the queued prompt.
+			expect(apiMocks.startAgentMessageStream).toHaveBeenCalledTimes(2);
+			const secondCallPayload = apiMocks.startAgentMessageStream.mock
+				.calls[1][0] as { prompt: string };
+			expect(secondCallPayload.prompt).toBe("Queued");
+		});
+
+		it("handleRemoveQueued removes an item without firing any API", async () => {
+			const queue = createFakeQueue();
+			queue.enqueue(
+				{
+					sessionId: "session-1",
+					workspaceId: "workspace-1",
+					contextKey: "session:session-1",
+				},
+				{
+					prompt: "drop me",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				},
+			);
+
+			const { Wrapper } = createWrapper();
+			const { result } = renderHook(
+				() =>
+					useConversationStreaming({
+						composerContextKey: "session:session-1",
+						displayedSelectedModelId: MODEL.id,
+						displayedSessionId: "session-1",
+						displayedWorkspaceId: "workspace-1",
+						selectionPending: false,
+						followUpBehavior: "queue",
+						submitQueue: queue,
+					}),
+				{ wrapper: Wrapper },
+			);
+
+			act(() => {
+				result.current.handleRemoveQueued("q-1");
+			});
+			expect(queue.snapshot().has("session-1")).toBe(false);
+			expect(apiMocks.steerAgentStream).not.toHaveBeenCalled();
+			expect(apiMocks.startAgentMessageStream).not.toHaveBeenCalled();
+		});
+
+		it("handleSteerQueued converts a queued item to a steer", async () => {
+			const streamCallbacks: Array<(event: unknown) => void> = [];
+			apiMocks.startAgentMessageStream.mockImplementation(
+				async (_payload: unknown, onEvent: (event: unknown) => void) => {
+					streamCallbacks.push(onEvent);
+				},
+			);
+			apiMocks.steerAgentStream.mockResolvedValue({ accepted: true });
+
+			const queue = createFakeQueue();
+			const { Wrapper } = createWrapper();
+			const { result } = renderHook(
+				() =>
+					useConversationStreaming({
+						composerContextKey: "session:session-1",
+						displayedSelectedModelId: MODEL.id,
+						displayedSessionId: "session-1",
+						displayedWorkspaceId: "workspace-1",
+						selectionPending: false,
+						followUpBehavior: "queue",
+						submitQueue: queue,
+					}),
+				{ wrapper: Wrapper },
+			);
+
+			// Kick off a turn so an activeSession exists for steer to target.
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "Primary",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+
+			// Queue a follow-up.
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "Actually, go faster",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+
+			// Trigger steer on the queued item.
+			await act(async () => {
+				await result.current.handleSteerQueued("q-1");
+			});
+
+			expect(queue.snapshot().has("session-1")).toBe(false);
+			expect(apiMocks.steerAgentStream).toHaveBeenCalledWith(
+				expect.objectContaining({ prompt: "Actually, go faster" }),
+			);
+		});
+
+		it("drains against the queued session even after the user navigates away", async () => {
+			const streamCallbacks: Array<(event: unknown) => void> = [];
+			apiMocks.startAgentMessageStream.mockImplementation(
+				async (_payload: unknown, onEvent: (event: unknown) => void) => {
+					streamCallbacks.push(onEvent);
+				},
+			);
+			const queue = createFakeQueue();
+
+			const { Wrapper } = createWrapper();
+			// Start displayed on session A.
+			const { result, rerender } = renderHook(
+				({ sessionId, workspaceId, contextKey }) =>
+					useConversationStreaming({
+						composerContextKey: contextKey,
+						displayedSelectedModelId: MODEL.id,
+						displayedSessionId: sessionId,
+						displayedWorkspaceId: workspaceId,
+						selectionPending: false,
+						followUpBehavior: "queue",
+						submitQueue: queue,
+					}),
+				{
+					initialProps: {
+						sessionId: "session-A",
+						workspaceId: "workspace-1",
+						contextKey: "session:session-A",
+					},
+					wrapper: Wrapper,
+				},
+			);
+
+			// Kick off a turn in session A.
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "A primary",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+			// Queue a follow-up in session A.
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "A follow-up",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+			expect(queue.snapshot().get("session-A")).toHaveLength(1);
+
+			// User navigates to session B BEFORE A's turn finishes.
+			rerender({
+				sessionId: "session-B",
+				workspaceId: "workspace-1",
+				contextKey: "session:session-B",
+			});
+
+			// A's turn finishes → drain fires.
+			await act(async () => {
+				streamCallbacks[0]({
+					kind: "done",
+					provider: "codex",
+					modelId: MODEL.id,
+					resolvedModel: MODEL.cliModel,
+					sessionId: "provider-session-A",
+					workingDirectory: "/tmp/helmor",
+					persisted: false,
+				});
+			});
+			await act(async () => {
+				await Promise.resolve();
+			});
+
+			// Queue for A is empty, queue for B untouched.
+			expect(queue.snapshot().has("session-A")).toBe(false);
+			expect(queue.snapshot().has("session-B")).toBe(false);
+			// The drained submit targeted session A (NOT B, which is
+			// currently displayed) — verified via the helmorSessionId
+			// passed to the second `startAgentMessageStream` call.
+			expect(apiMocks.startAgentMessageStream).toHaveBeenCalledTimes(2);
+			const drainedPayload = apiMocks.startAgentMessageStream.mock
+				.calls[1][0] as { prompt: string; helmorSessionId: string };
+			expect(drainedPayload.prompt).toBe("A follow-up");
+			expect(drainedPayload.helmorSessionId).toBe("session-A");
+		});
+
+		it("forceQueue bypasses followUpBehavior='steer' and always queues", async () => {
+			apiMocks.startAgentMessageStream.mockImplementation(
+				async (_payload: unknown, _onEvent: (event: unknown) => void) => {
+					// Leave the turn streaming — don't emit 'done'.
+				},
+			);
+			apiMocks.steerAgentStream.mockResolvedValue({ accepted: true });
+			const queue = createFakeQueue();
+
+			const { Wrapper } = createWrapper();
+			const { result } = renderHook(
+				() =>
+					useConversationStreaming({
+						composerContextKey: "session:session-1",
+						displayedSelectedModelId: MODEL.id,
+						displayedSessionId: "session-1",
+						displayedWorkspaceId: "workspace-1",
+						selectionPending: false,
+						// User has `steer` configured — normally the next
+						// submit would steer. `forceQueue: true` must override.
+						followUpBehavior: "steer",
+						submitQueue: queue,
+					}),
+				{ wrapper: Wrapper },
+			);
+
+			// Kick off a turn.
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "Primary",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+			expect(result.current.isSending).toBe(true);
+
+			// Host-triggered submit with forceQueue=true while streaming.
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "Resolve conflict",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+					forceQueue: true,
+				});
+			});
+
+			// Must have queued — not steered.
+			expect(apiMocks.steerAgentStream).not.toHaveBeenCalled();
+			const enqueued = queue.snapshot().get("session-1");
+			expect(enqueued).toHaveLength(1);
+			expect(enqueued?.[0]?.prompt).toBe("Resolve conflict");
+		});
+
+		it("handleSteerQueued re-enqueues the item when provider rejects the steer", async () => {
+			apiMocks.startAgentMessageStream.mockImplementation(
+				async (_payload: unknown, _onEvent: (event: unknown) => void) => {
+					// Leave turn streaming.
+				},
+			);
+			// Provider says "too late" — the turn already ended between
+			// click and RPC. Without the re-enqueue, the queued prompt
+			// is silently lost.
+			apiMocks.steerAgentStream.mockResolvedValue({
+				accepted: false,
+				reason: "turn already completed",
+			});
+			const queue = createFakeQueue();
+
+			const { Wrapper } = createWrapper();
+			const { result } = renderHook(
+				() =>
+					useConversationStreaming({
+						composerContextKey: "session:session-1",
+						displayedSelectedModelId: MODEL.id,
+						displayedSessionId: "session-1",
+						displayedWorkspaceId: "workspace-1",
+						selectionPending: false,
+						followUpBehavior: "queue",
+						submitQueue: queue,
+					}),
+				{ wrapper: Wrapper },
+			);
+
+			// Kick off a turn + queue a follow-up.
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "Primary",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "Follow-up",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+			expect(queue.snapshot().get("session-1")).toHaveLength(1);
+
+			// Steer attempt — provider rejects.
+			await act(async () => {
+				await result.current.handleSteerQueued("q-1");
+			});
+
+			// The item must have been put back in the queue (new id OK,
+			// same prompt). The user's prompt is NOT lost.
+			const after = queue.snapshot().get("session-1");
+			expect(after).toHaveLength(1);
+			expect(after?.[0]?.prompt).toBe("Follow-up");
+			// Error surfaces in the send-error bag so UI can toast / show it.
+			expect(result.current.activeSendError).toMatch(/Steer rejected/);
+		});
+
+		it("handleSteerQueued falls back to a fresh turn when the stream has already ended", async () => {
+			apiMocks.startAgentMessageStream.mockImplementation(
+				async (_payload: unknown, _onEvent: (event: unknown) => void) => {
+					// Leave streaming.
+				},
+			);
+			const queue = createFakeQueue();
+
+			const { Wrapper } = createWrapper();
+			const { result } = renderHook(
+				() =>
+					useConversationStreaming({
+						composerContextKey: "session:session-1",
+						displayedSelectedModelId: MODEL.id,
+						displayedSessionId: "session-1",
+						displayedWorkspaceId: "workspace-1",
+						selectionPending: false,
+						followUpBehavior: "queue",
+						submitQueue: queue,
+					}),
+				{ wrapper: Wrapper },
+			);
+
+			// Manually seed the queue without an active stream — the
+			// "user clicked Steer just after turn ended" race.
+			act(() => {
+				queue.enqueue(
+					{
+						sessionId: "session-1",
+						workspaceId: "workspace-1",
+						contextKey: "session:session-1",
+					},
+					{
+						prompt: "Orphan",
+						imagePaths: [],
+						filePaths: [],
+						customTags: [],
+						model: MODEL,
+						workingDirectory: "/tmp/helmor",
+						effortLevel: "medium",
+						permissionMode: "default",
+						fastMode: false,
+					},
+				);
+			});
+
+			await act(async () => {
+				await result.current.handleSteerQueued("q-1");
+			});
+
+			// Should have started a fresh turn with the payload instead
+			// of dropping it silently. The prompt may be wrapped in a
+			// repo-preferences prelude for the first user message, so
+			// just check the Orphan string appears in it.
+			expect(apiMocks.steerAgentStream).not.toHaveBeenCalled();
+			expect(apiMocks.startAgentMessageStream).toHaveBeenCalledTimes(1);
+			const firstCall = apiMocks.startAgentMessageStream.mock.calls[0][0] as {
+				prompt: string;
+				helmorSessionId: string;
+			};
+			expect(firstCall.prompt).toContain("Orphan");
+			expect(firstCall.helmorSessionId).toBe("session-1");
+			expect(queue.snapshot().has("session-1")).toBe(false);
+		});
+
+		it("drains queued items one-per-turn across chained turns", async () => {
+			const streamCallbacks: Array<(event: unknown) => void> = [];
+			apiMocks.startAgentMessageStream.mockImplementation(
+				async (_payload: unknown, onEvent: (event: unknown) => void) => {
+					streamCallbacks.push(onEvent);
+				},
+			);
+			const queue = createFakeQueue();
+
+			const { Wrapper } = createWrapper();
+			const { result } = renderHook(
+				() =>
+					useConversationStreaming({
+						composerContextKey: "session:session-1",
+						displayedSelectedModelId: MODEL.id,
+						displayedSessionId: "session-1",
+						displayedWorkspaceId: "workspace-1",
+						selectionPending: false,
+						followUpBehavior: "queue",
+						submitQueue: queue,
+					}),
+				{ wrapper: Wrapper },
+			);
+
+			// Start primary.
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "Primary",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+			// Queue two follow-ups.
+			for (const prompt of ["One", "Two"]) {
+				await act(async () => {
+					await result.current.handleComposerSubmit({
+						prompt,
+						imagePaths: [],
+						filePaths: [],
+						customTags: [],
+						model: MODEL,
+						workingDirectory: "/tmp/helmor",
+						effortLevel: "medium",
+						permissionMode: "default",
+						fastMode: false,
+					});
+				});
+			}
+			expect(queue.snapshot().get("session-1")).toHaveLength(2);
+
+			// Finish primary → drain pops "One".
+			await act(async () => {
+				streamCallbacks[0]({
+					kind: "done",
+					provider: "codex",
+					modelId: MODEL.id,
+					resolvedModel: MODEL.cliModel,
+					sessionId: "provider-session-1",
+					workingDirectory: "/tmp/helmor",
+					persisted: false,
+				});
+			});
+			await act(async () => {
+				await Promise.resolve();
+			});
+			expect(apiMocks.startAgentMessageStream).toHaveBeenCalledTimes(2);
+			expect(queue.snapshot().get("session-1")).toHaveLength(1);
+
+			// Finish second → drain pops "Two".
+			await act(async () => {
+				streamCallbacks[1]({
+					kind: "done",
+					provider: "codex",
+					modelId: MODEL.id,
+					resolvedModel: MODEL.cliModel,
+					sessionId: "provider-session-1",
+					workingDirectory: "/tmp/helmor",
+					persisted: false,
+				});
+			});
+			await act(async () => {
+				await Promise.resolve();
+			});
+			expect(apiMocks.startAgentMessageStream).toHaveBeenCalledTimes(3);
+			expect(queue.snapshot().has("session-1")).toBe(false);
+			const thirdPayload = apiMocks.startAgentMessageStream.mock
+				.calls[2][0] as { prompt: string };
+			expect(thirdPayload.prompt).toBe("Two");
+		});
+
+		it("drains queued items when the prior turn errors instead of done", async () => {
+			const streamCallbacks: Array<(event: unknown) => void> = [];
+			apiMocks.startAgentMessageStream.mockImplementation(
+				async (_payload: unknown, onEvent: (event: unknown) => void) => {
+					streamCallbacks.push(onEvent);
+				},
+			);
+			const queue = createFakeQueue();
+
+			const { Wrapper } = createWrapper();
+			const { result } = renderHook(
+				() =>
+					useConversationStreaming({
+						composerContextKey: "session:session-1",
+						displayedSelectedModelId: MODEL.id,
+						displayedSessionId: "session-1",
+						displayedWorkspaceId: "workspace-1",
+						selectionPending: false,
+						followUpBehavior: "queue",
+						submitQueue: queue,
+					}),
+				{ wrapper: Wrapper },
+			);
+
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "Primary",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+			await act(async () => {
+				await result.current.handleComposerSubmit({
+					prompt: "Queued after error",
+					imagePaths: [],
+					filePaths: [],
+					customTags: [],
+					model: MODEL,
+					workingDirectory: "/tmp/helmor",
+					effortLevel: "medium",
+					permissionMode: "default",
+					fastMode: false,
+				});
+			});
+
+			await act(async () => {
+				streamCallbacks[0]({
+					kind: "error",
+					provider: "codex",
+					modelId: MODEL.id,
+					message: "boom",
+					persisted: true,
+					internal: false,
+				});
+			});
+			await act(async () => {
+				await Promise.resolve();
+			});
+
+			// error-path also drains — queued prompt doesn't get stuck.
+			expect(apiMocks.startAgentMessageStream).toHaveBeenCalledTimes(2);
+			expect(queue.snapshot().has("session-1")).toBe(false);
+		});
 	});
 });

@@ -222,6 +222,7 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<String> {
                 prompt: prompt.to_string(),
                 model,
                 permission_mode,
+                linked_directories: Vec::new(),
             };
 
             let mut output = String::new();

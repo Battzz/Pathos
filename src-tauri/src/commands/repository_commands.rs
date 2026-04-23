@@ -23,8 +23,17 @@ pub async fn get_add_repository_defaults() -> CmdResult<repos::AddRepositoryDefa
 pub async fn add_repository_from_local_path(
     folder_path: String,
 ) -> CmdResult<repos::AddRepositoryResponse> {
-    let _lock = db::WORKSPACE_MUTATION_LOCK.lock().await;
+    let _lock = db::WORKSPACE_FS_MUTATION_LOCK.lock().await;
     run_blocking(move || repos::add_repository_from_local_path(&folder_path)).await
+}
+
+#[tauri::command]
+pub async fn clone_repository_from_url(
+    git_url: String,
+    clone_directory: String,
+) -> CmdResult<repos::AddRepositoryResponse> {
+    let _lock = db::WORKSPACE_FS_MUTATION_LOCK.lock().await;
+    run_blocking(move || repos::clone_repository_from_url(&git_url, &clone_directory)).await
 }
 
 #[tauri::command]
@@ -64,6 +73,11 @@ pub async fn load_repo_scripts(
 }
 
 #[tauri::command]
+pub async fn load_repo_preferences(repo_id: String) -> CmdResult<repos::RepoPreferences> {
+    run_blocking(move || repos::load_repo_preferences(&repo_id)).await
+}
+
+#[tauri::command]
 pub async fn update_repo_scripts(
     repo_id: String,
     setup_script: Option<String>,
@@ -82,7 +96,20 @@ pub async fn update_repo_scripts(
 }
 
 #[tauri::command]
+pub async fn update_repo_auto_run_setup(repo_id: String, enabled: bool) -> CmdResult<()> {
+    run_blocking(move || repos::update_repo_auto_run_setup(&repo_id, enabled)).await
+}
+
+#[tauri::command]
+pub async fn update_repo_preferences(
+    repo_id: String,
+    preferences: repos::RepoPreferences,
+) -> CmdResult<()> {
+    run_blocking(move || repos::update_repo_preferences(&repo_id, &preferences)).await
+}
+
+#[tauri::command]
 pub async fn delete_repository(repo_id: String) -> CmdResult<()> {
-    let _lock = db::WORKSPACE_MUTATION_LOCK.lock().await;
+    let _lock = db::WORKSPACE_FS_MUTATION_LOCK.lock().await;
     run_blocking(move || repos::delete_repository_cascade(&repo_id)).await
 }

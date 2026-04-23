@@ -2,13 +2,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+	type AddRepositoryResponse,
 	addRepositoryFromLocalPath,
+	cloneRepositoryFromUrl,
 	type DerivedStatus,
 	finalizeWorkspaceFromRepo,
 	listenArchiveExecutionFailed,
 	listenArchiveExecutionSucceeded,
 	loadAddRepositoryDefaults,
-	markWorkspaceRead,
 	markWorkspaceUnread,
 	permanentlyDeleteWorkspace,
 	pinWorkspace,
@@ -37,13 +38,10 @@ import {
 } from "@/lib/query-client";
 import { useSettings } from "@/lib/settings";
 import {
-	clearWorkspaceUnreadFromGroups,
-	clearWorkspaceUnreadFromSummaries,
 	createOptimisticCreatingWorkspaceDetail,
 	describeUnknownError,
 	findInitialWorkspaceId,
 	findReplacementWorkspaceIdAfterRemoval,
-	findWorkspaceRowById,
 	hasWorkspaceId,
 	rowToWorkspaceSummary,
 	summaryToArchivedRow,
@@ -85,18 +83,16 @@ export function useWorkspacesSidebarController({
 	const queryClient = useQueryClient();
 	const { settings } = useSettings();
 	const [addingRepository, setAddingRepository] = useState(false);
+	const [isCloneDialogOpen, setIsCloneDialogOpen] = useState(false);
+	const [cloneDefaultDirectory, setCloneDefaultDirectory] = useState<
+		string | null
+	>(null);
 	const [creatingWorkspaceRepoId, setCreatingWorkspaceRepoId] = useState<
 		string | null
 	>(null);
 	const [archivingWorkspaceIds, setArchivingWorkspaceIds] = useState<
 		Set<string>
 	>(() => new Set());
-	const [markingReadWorkspaceId, setMarkingReadWorkspaceId] = useState<
-		string | null
-	>(null);
-	const [suppressedWorkspaceReadId, setSuppressedWorkspaceReadId] = useState<
-		string | null
-	>(null);
 	const [pendingArchives, setPendingArchives] = useState<
 		Map<string, PendingArchiveEntry>
 	>(() => new Map());
@@ -487,146 +483,12 @@ export function useWorkspacesSidebarController({
 		[flushSidebarLists, queryClient],
 	);
 
-	const markWorkspaceReadOptimistically = useCallback(
-		(workspaceId: string) => {
-			const selectedRow = findWorkspaceRowById(
-				workspaceId,
-				groups,
-				archivedRows,
-			);
-
-			if (
-				!selectedRow?.hasUnread ||
-				markingReadWorkspaceId === workspaceId ||
-				suppressedWorkspaceReadId === workspaceId
-			) {
-				return;
-			}
-
-			setMarkingReadWorkspaceId(workspaceId);
-
-			const previousGroups = queryClient.getQueryData(
-				helmorQueryKeys.workspaceGroups,
-			);
-			const previousArchived = queryClient.getQueryData(
-				helmorQueryKeys.archivedWorkspaces,
-			);
-			const previousDetail = queryClient.getQueryData(
-				helmorQueryKeys.workspaceDetail(workspaceId),
-			);
-			const previousSessions = queryClient.getQueryData(
-				helmorQueryKeys.workspaceSessions(workspaceId),
-			);
-
-			queryClient.setQueryData(helmorQueryKeys.workspaceGroups, (current) =>
-				current
-					? clearWorkspaceUnreadFromGroups(
-							current as typeof groups,
-							workspaceId,
-						)
-					: current,
-			);
-			queryClient.setQueryData(helmorQueryKeys.archivedWorkspaces, (current) =>
-				current
-					? clearWorkspaceUnreadFromSummaries(
-							current as typeof archivedSummaries,
-							workspaceId,
-						)
-					: current,
-			);
-			queryClient.setQueryData(
-				helmorQueryKeys.workspaceDetail(workspaceId),
-				(current) =>
-					current
-						? {
-								...(current as Record<string, unknown>),
-								hasUnread: false,
-								workspaceUnread: 0,
-								sessionUnreadTotal: 0,
-								unreadSessionCount: 0,
-							}
-						: current,
-			);
-			queryClient.setQueryData(
-				helmorQueryKeys.workspaceSessions(workspaceId),
-				(current) =>
-					Array.isArray(current)
-						? (current as WorkspaceSessionSummary[]).map((session) => ({
-								...session,
-								unreadCount: 0,
-							}))
-						: current,
-			);
-
-			void markWorkspaceRead(workspaceId)
-				.then(() =>
-					invalidateWorkspaceSummary(workspaceId, {
-						skipSidebarFlush: true,
-					}),
-				)
-				.catch((error) => {
-					queryClient.setQueryData(
-						helmorQueryKeys.workspaceGroups,
-						previousGroups,
-					);
-					queryClient.setQueryData(
-						helmorQueryKeys.archivedWorkspaces,
-						previousArchived,
-					);
-					queryClient.setQueryData(
-						helmorQueryKeys.workspaceDetail(workspaceId),
-						previousDetail,
-					);
-					queryClient.setQueryData(
-						helmorQueryKeys.workspaceSessions(workspaceId),
-						previousSessions,
-					);
-					pushWorkspaceToast(
-						describeUnknownError(error, "Unable to mark workspace as read."),
-					);
-				})
-				.finally(() => {
-					setMarkingReadWorkspaceId((current) =>
-						current === workspaceId ? null : current,
-					);
-				});
-		},
-		[
-			archivedRows,
-			archivedSummaries,
-			groups,
-			invalidateWorkspaceSummary,
-			markingReadWorkspaceId,
-			pushWorkspaceToast,
-			queryClient,
-			suppressedWorkspaceReadId,
-		],
-	);
-
 	const handleSelectWorkspace = useCallback(
 		(workspaceId: string) => {
 			onSelectWorkspace(workspaceId);
-			markWorkspaceReadOptimistically(workspaceId);
 		},
-		[markWorkspaceReadOptimistically, onSelectWorkspace],
+		[onSelectWorkspace],
 	);
-
-	useEffect(() => {
-		if (
-			suppressedWorkspaceReadId &&
-			selectedWorkspaceId !== suppressedWorkspaceReadId
-		) {
-			setSuppressedWorkspaceReadId(null);
-		}
-	}, [selectedWorkspaceId, suppressedWorkspaceReadId]);
-
-	useEffect(() => {
-		if (!selectedWorkspaceId) {
-			return;
-		}
-
-		markWorkspaceReadOptimistically(selectedWorkspaceId);
-	}, [markWorkspaceReadOptimistically, selectedWorkspaceId]);
 
 	const handleMarkWorkspaceUnread = useCallback(
 		(workspaceId: string) => {
@@ -640,17 +502,17 @@ export function useWorkspacesSidebarController({
 				helmorQueryKeys.workspaceDetail(workspaceId),
 			);
 
+			// Optimistic flash of the red dot. The backend sets
+			// `workspaces.unread = 1` directly without touching sessions, so
+			// mirror that here: flip `workspaceUnread` + `hasUnread`, leave
+			// `unreadSessionCount` alone. The post-IPC invalidation backfills.
 			queryClient.setQueryData(helmorQueryKeys.workspaceGroups, (current) =>
 				Array.isArray(current)
 					? (current as typeof groups).map((group) => ({
 							...group,
 							rows: group.rows.map((row) =>
 								row.id === workspaceId
-									? {
-											...row,
-											hasUnread: true,
-											workspaceUnread: Math.max(1, row.workspaceUnread ?? 0),
-										}
+									? { ...row, hasUnread: true, workspaceUnread: 1 }
 									: row,
 							),
 						}))
@@ -660,11 +522,7 @@ export function useWorkspacesSidebarController({
 				Array.isArray(current)
 					? (current as typeof archivedSummaries).map((summary) =>
 							summary.id === workspaceId
-								? {
-										...summary,
-										hasUnread: true,
-										workspaceUnread: Math.max(1, summary.workspaceUnread ?? 0),
-									}
+								? { ...summary, hasUnread: true, workspaceUnread: 1 }
 								: summary,
 						)
 					: current,
@@ -676,20 +534,10 @@ export function useWorkspacesSidebarController({
 						? {
 								...(current as Record<string, unknown>),
 								hasUnread: true,
-								workspaceUnread: Math.max(
-									1,
-									Number(
-										(current as { workspaceUnread?: number }).workspaceUnread ??
-											0,
-									),
-								),
+								workspaceUnread: 1,
 							}
 						: current,
 			);
-
-			if (selectedWorkspaceId === workspaceId) {
-				setSuppressedWorkspaceReadId(workspaceId);
-			}
 
 			void markWorkspaceUnread(workspaceId)
 				.then(() =>
@@ -715,12 +563,7 @@ export function useWorkspacesSidebarController({
 					);
 				});
 		},
-		[
-			invalidateWorkspaceSummary,
-			pushWorkspaceToast,
-			queryClient,
-			selectedWorkspaceId,
-		],
+		[invalidateWorkspaceSummary, pushWorkspaceToast, queryClient],
 	);
 
 	const handleTogglePin = useCallback(
@@ -1094,6 +937,28 @@ export function useWorkspacesSidebarController({
 		],
 	);
 
+	const applyAddRepositoryResponse = useCallback(
+		async (response: AddRepositoryResponse) => {
+			await refetchNavigation();
+			prefetchWorkspace(response.selectedWorkspaceId);
+			onSelectWorkspace(response.selectedWorkspaceId);
+
+			if (!response.createdRepository) {
+				pushWorkspaceToast(
+					"Switched to the existing workspace.",
+					"Repository already added",
+					"default",
+				);
+			}
+		},
+		[
+			onSelectWorkspace,
+			prefetchWorkspace,
+			pushWorkspaceToast,
+			refetchNavigation,
+		],
+	);
+
 	const handleAddRepository = useCallback(async () => {
 		if (addingRepository) {
 			return;
@@ -1103,6 +968,7 @@ export function useWorkspacesSidebarController({
 
 		try {
 			const defaults = await loadAddRepositoryDefaults();
+			setCloneDefaultDirectory(defaults.lastCloneDirectory ?? null);
 			const selection = await open({
 				directory: true,
 				multiple: false,
@@ -1115,17 +981,7 @@ export function useWorkspacesSidebarController({
 			}
 
 			const response = await addRepositoryFromLocalPath(selectedPath);
-			await refetchNavigation();
-			prefetchWorkspace(response.selectedWorkspaceId);
-			onSelectWorkspace(response.selectedWorkspaceId);
-
-			if (!response.createdRepository) {
-				pushWorkspaceToast(
-					"Switched to the existing workspace.",
-					"Repository already added",
-					"default",
-				);
-			}
+			await applyAddRepositoryResponse(response);
 		} catch (error) {
 			pushWorkspaceToast(
 				describeUnknownError(error, "Unable to add repository."),
@@ -1133,13 +989,29 @@ export function useWorkspacesSidebarController({
 		} finally {
 			setAddingRepository(false);
 		}
-	}, [
-		addingRepository,
-		onSelectWorkspace,
-		prefetchWorkspace,
-		pushWorkspaceToast,
-		refetchNavigation,
-	]);
+	}, [addingRepository, applyAddRepositoryResponse, pushWorkspaceToast]);
+
+	const handleOpenCloneDialog = useCallback(() => {
+		setIsCloneDialogOpen(true);
+		// Lazy-load the last-used clone directory so the dialog pre-fills it.
+		// Errors here are non-fatal — the dialog still works without a default.
+		void loadAddRepositoryDefaults()
+			.then((defaults) => {
+				setCloneDefaultDirectory(defaults.lastCloneDirectory ?? null);
+			})
+			.catch(() => {
+				/* swallow: dialog will just have an empty default */
+			});
+	}, []);
+
+	const handleCloneFromUrl = useCallback(
+		async (args: { gitUrl: string; cloneDirectory: string }) => {
+			const response = await cloneRepositoryFromUrl(args);
+			await applyAddRepositoryResponse(response);
+			setCloneDefaultDirectory(args.cloneDirectory);
+		},
+		[applyAddRepositoryResponse],
+	);
 
 	const handleDeleteWorkspace = useCallback(
 		(workspaceId: string) => {
@@ -1572,17 +1444,22 @@ export function useWorkspacesSidebarController({
 		archivedRows,
 		availableRepositories: repositoriesQuery.data ?? [],
 		creatingWorkspaceRepoId,
+		cloneDefaultDirectory,
 		groups,
 		handleAddRepository,
 		handleArchiveWorkspace,
+		handleCloneFromUrl,
 		handleCreateWorkspaceFromRepo,
 		handleDeleteWorkspace,
 		handleMarkWorkspaceUnread,
+		handleOpenCloneDialog,
 		handleRestoreWorkspace,
 		handleSelectWorkspace,
 		handleSetManualStatus,
 		handleTogglePin,
+		isCloneDialogOpen,
 		prefetchWorkspace,
+		setIsCloneDialogOpen,
 	};
 }
 
@@ -1608,7 +1485,6 @@ function createPreparedWorkspaceRow(
 		state: prepared.state,
 		hasUnread: false,
 		workspaceUnread: 0,
-		sessionUnreadTotal: 0,
 		unreadSessionCount: 0,
 		derivedStatus: "in-progress",
 		manualStatus: null,
@@ -1621,7 +1497,6 @@ function createPreparedWorkspaceRow(
 		pinnedAt: null,
 		sessionCount: 1,
 		messageCount: 0,
-		attachmentCount: 0,
 	};
 }
 
@@ -1641,17 +1516,11 @@ function createOptimisticWorkspaceSession(
 		providerSessionId: null,
 		effortLevel: null,
 		unreadCount: 0,
-		contextTokenCount: 0,
-		contextUsedPercent: null,
-		thinkingEnabled: true,
 		fastMode: false,
-		agentPersonality: null,
 		createdAt,
 		updatedAt: createdAt,
 		lastUserMessageAt: null,
-		resumeSessionAt: null,
 		isHidden: false,
-		isCompacting: false,
 		actionKind: null,
 		active: true,
 	};

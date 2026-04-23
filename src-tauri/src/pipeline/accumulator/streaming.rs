@@ -6,10 +6,19 @@
 //! two `build_partial_*` constructors that snapshot mid-stream state
 //! into an `IntermediateMessage` for the renderer.
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use serde_json::Value;
 
 use super::StreamAccumulator;
 use crate::pipeline::types::{IntermediateMessage, MessageRole};
+
+pub(super) fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// Per-content-block streaming state. Indexed by `index` from the
 /// `content_block_start` event so deltas land in the right slot.
@@ -27,8 +36,14 @@ pub(super) enum StreamingBlock {
     Thinking {
         id: String,
         text: String,
-        /// Set to true when content_block_stop arrives.
-        done: bool,
+        /// Wall-clock start time so `handle_assistant` can stamp
+        /// `__duration_ms` when the SDK's finalized assistant event
+        /// arrives. `content_block_stop` does NOT close this block in
+        /// practice — in the real Claude stream order the finalized
+        /// `assistant` event lands first, `finalize_blocks` clears
+        /// `self.blocks`, and the stop event that follows has nothing
+        /// to mark.
+        started_at_ms: u64,
     },
     ToolUse {
         tool_use_id: String,
@@ -106,7 +121,7 @@ fn handle_block_start(acc: &mut StreamAccumulator, event: &Value) {
                 StreamingBlock::Thinking {
                     id: part_id,
                     text: String::new(),
-                    done: false,
+                    started_at_ms: now_ms(),
                 },
             );
         }
@@ -181,24 +196,25 @@ fn handle_block_delta(acc: &mut StreamAccumulator, event: &Value) {
 
 fn handle_block_stop(acc: &mut StreamAccumulator, event: &Value) {
     let index = event.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
-    match acc.blocks.get_mut(&index) {
-        Some(StreamingBlock::Thinking { done, .. }) => {
-            *done = true;
-        }
-        Some(StreamingBlock::ToolUse {
-            input_json_text,
-            parsed_input,
-            status,
-            ..
-        }) => {
-            if !input_json_text.is_empty() {
-                if let Ok(v) = serde_json::from_str::<Value>(input_json_text) {
-                    *parsed_input = Some(v);
-                }
+    // Thinking blocks don't close here — the SDK's finalized `assistant`
+    // event arrives before the matching `content_block_stop`, and that
+    // path (`handle_assistant` → `finalize_blocks`) has already wiped
+    // `self.blocks` by the time we get here. Only ToolUse benefits from
+    // the stop signal: it's how we flip the tool from "streaming input"
+    // into "running" once the full input JSON has been delivered.
+    if let Some(StreamingBlock::ToolUse {
+        input_json_text,
+        parsed_input,
+        status,
+        ..
+    }) = acc.blocks.get_mut(&index)
+    {
+        if !input_json_text.is_empty() {
+            if let Ok(v) = serde_json::from_str::<Value>(input_json_text) {
+                *parsed_input = Some(v);
             }
-            *status = "running";
         }
-        _ => {}
+        *status = "running";
     }
 }
 
@@ -291,7 +307,7 @@ fn append_to_last_thinking_block(acc: &mut StreamAccumulator, text: &str) {
         StreamingBlock::Thinking {
             id: format!("{turn_id}:blk:{idx}"),
             text: text.to_string(),
-            done: false,
+            started_at_ms: now_ms(),
         },
     );
 }
@@ -317,12 +333,17 @@ pub(super) fn build_partial_from_blocks(
                     "__part_id": id,
                 }));
             }
-            StreamingBlock::Thinking { id, text, done } => {
+            StreamingBlock::Thinking { id, text, .. } => {
+                // Partials only fire while the block is still live —
+                // `handle_assistant` clears `self.blocks` once the SDK
+                // finalizes the turn. So "still streaming" is the only
+                // state this path ever emits. Duration is stamped later
+                // by `handle_assistant` from each block's `started_at_ms`.
                 if !text.is_empty() {
                     content_blocks.push(serde_json::json!({
                         "type": "thinking",
                         "thinking": text,
-                        "__is_streaming": !done,
+                        "__is_streaming": true,
                         "__part_id": id,
                     }));
                 }
@@ -392,12 +413,25 @@ pub(super) fn build_materialized_partial_from_blocks(
                     }));
                 }
             }
-            StreamingBlock::Thinking { id, text, .. } => {
+            StreamingBlock::Thinking {
+                id,
+                text,
+                started_at_ms,
+                ..
+            } => {
                 if !text.is_empty() {
+                    let duration = now_ms().saturating_sub(*started_at_ms);
+                    // Materialized partials go to `collected[]` on the
+                    // abort path. Stamp `__is_streaming: false` so the
+                    // frontend treats them the same as `handle_assistant`
+                    // output — open + "Thought for Ns". `materialize_partial`
+                    // strips it before persisting (see `strip_is_streaming_markers`).
                     content_blocks.push(serde_json::json!({
                         "type": "thinking",
                         "thinking": text,
                         "__part_id": id,
+                        "__duration_ms": duration,
+                        "__is_streaming": false,
                     }));
                 }
             }

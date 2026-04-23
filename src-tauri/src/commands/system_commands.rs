@@ -6,6 +6,14 @@ use crate::{agents, git_watcher, models::db, service, sidecar};
 
 use super::common::{run_blocking, CmdResult};
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum CliInstallState {
+    Missing,
+    Managed,
+    Stale,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DataInfo {
@@ -20,12 +28,20 @@ pub struct CliStatus {
     pub installed: bool,
     pub install_path: Option<String>,
     pub build_mode: String,
+    pub install_state: CliInstallState,
 }
 
-/// Where Helmor installs its CLI binary — `/usr/local/bin/helmor` on macOS
-/// (matches the existing `dev:cli:install` script).
-fn cli_install_target() -> anyhow::Result<std::path::PathBuf> {
-    Ok(std::path::PathBuf::from("/usr/local/bin/helmor"))
+/// Where Helmor installs its managed CLI entrypoint on macOS.
+fn cli_install_target() -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("/usr/local/bin/{}", installed_cli_name()))
+}
+
+fn installed_cli_name() -> &'static str {
+    if crate::data_dir::is_dev() {
+        "helmor-dev"
+    } else {
+        "helmor"
+    }
 }
 
 /// Name of the compiled CLI binary produced by `cargo build --bin helmor-cli`.
@@ -33,60 +49,161 @@ fn cli_source_binary_name() -> &'static str {
     "helmor-cli"
 }
 
+fn bundled_cli_binary(app_exe: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+    let target_dir = app_exe
+        .parent()
+        .context("Cannot determine app binary directory")?;
+    Ok(target_dir.join(cli_source_binary_name()))
+}
+
+fn cli_install_remediation(cli_binary: &std::path::Path, install_path: &std::path::Path) -> String {
+    format!(
+        "sudo ln -sfn {} {}",
+        shell_quote(cli_binary),
+        shell_quote(install_path),
+    )
+}
+
+fn shell_quote(path: &std::path::Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
+}
+
+fn classify_cli_install(
+    install_path: &std::path::Path,
+    bundled_cli: &std::path::Path,
+) -> CliInstallState {
+    let metadata = match std::fs::symlink_metadata(install_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return CliInstallState::Missing;
+        }
+        Err(_) => return CliInstallState::Stale,
+    };
+
+    if !metadata.file_type().is_symlink() {
+        return CliInstallState::Stale;
+    }
+
+    let target = match std::fs::read_link(install_path) {
+        Ok(target) => target,
+        Err(_) => return CliInstallState::Stale,
+    };
+    let resolved_target = if target.is_absolute() {
+        target
+    } else {
+        install_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("/"))
+            .join(target)
+    };
+
+    match (
+        std::fs::canonicalize(resolved_target),
+        std::fs::canonicalize(bundled_cli),
+    ) {
+        (Ok(installed), Ok(expected)) if installed == expected => CliInstallState::Managed,
+        _ => CliInstallState::Stale,
+    }
+}
+
+fn cli_status_for_paths(
+    install_path: &std::path::Path,
+    bundled_cli: &std::path::Path,
+) -> CliStatus {
+    let install_state = classify_cli_install(install_path, bundled_cli);
+    CliStatus {
+        installed: install_state != CliInstallState::Missing,
+        install_path: (install_state != CliInstallState::Missing)
+            .then(|| install_path.display().to_string()),
+        build_mode: crate::data_dir::data_mode_label().to_string(),
+        install_state,
+    }
+}
+
+fn install_cli_symlink(
+    bundled_cli: &std::path::Path,
+    install_path: &std::path::Path,
+) -> anyhow::Result<()> {
+    if !bundled_cli.is_file() {
+        anyhow::bail!(
+            "CLI binary not found at {}. Run `cargo build --bin helmor-cli` first.",
+            bundled_cli.display()
+        );
+    }
+
+    if let Some(parent) = install_path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "Failed to prepare install directory {}. Try:\n  {}",
+                parent.display(),
+                cli_install_remediation(bundled_cli, install_path)
+            )
+        })?;
+    }
+
+    match std::fs::symlink_metadata(install_path) {
+        Ok(metadata) if metadata.file_type().is_dir() => {
+            anyhow::bail!(
+                "Install path {} is a directory. Remove it first, then run:\n  {}",
+                install_path.display(),
+                cli_install_remediation(bundled_cli, install_path)
+            );
+        }
+        Ok(_) => {
+            std::fs::remove_file(install_path).with_context(|| {
+                format!(
+                    "Failed to replace existing CLI install at {}. Try:\n  {}",
+                    install_path.display(),
+                    cli_install_remediation(bundled_cli, install_path)
+                )
+            })?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "Failed to inspect existing CLI install at {}. Try:\n  {}",
+                    install_path.display(),
+                    cli_install_remediation(bundled_cli, install_path)
+                )
+            });
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(bundled_cli, install_path).with_context(|| {
+            format!(
+                "Failed to install CLI at {}. Try:\n  {}",
+                install_path.display(),
+                cli_install_remediation(bundled_cli, install_path)
+            )
+        })?;
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    {
+        anyhow::bail!("CLI installation via symlink is only supported on Unix.");
+    }
+}
+
 #[tauri::command]
 pub fn get_cli_status() -> CmdResult<CliStatus> {
-    let install_path = cli_install_target()?;
-    let installed = install_path.exists();
-    Ok(CliStatus {
-        installed,
-        install_path: if installed {
-            Some(install_path.display().to_string())
-        } else {
-            None
-        },
-        build_mode: crate::data_dir::data_mode_label().to_string(),
-    })
+    let install_path = cli_install_target();
+    let source = std::env::current_exe().context("Cannot determine app executable path")?;
+    let cli_binary = bundled_cli_binary(&source)?;
+    Ok(cli_status_for_paths(&install_path, &cli_binary))
 }
 
 #[tauri::command]
 pub async fn install_cli() -> CmdResult<CliStatus> {
     run_blocking(|| {
         let source = std::env::current_exe()?;
-        let target_dir = source
-            .parent()
-            .context("Cannot determine binary directory")?;
-        let cli_binary = target_dir.join(cli_source_binary_name());
-
-        if !cli_binary.exists() {
-            anyhow::bail!(
-                "CLI binary not found at {}. Run `cargo build --bin helmor-cli` first.",
-                cli_binary.display()
-            );
-        }
-
-        let install_path = cli_install_target()?;
-        if let Some(parent) = install_path.parent() {
-            std::fs::create_dir_all(parent).with_context(|| {
-                format!("Failed to create install directory {}", parent.display())
-            })?;
-        }
-        std::fs::copy(&cli_binary, &install_path).with_context(|| {
-            format!(
-                "Failed to copy CLI to {}. You may need to run: sudo cp {} {}",
-                install_path.display(),
-                cli_binary.display(),
-                install_path.display()
-            )
-        })?;
-
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&install_path, std::fs::Permissions::from_mode(0o755))?;
-
-        Ok(CliStatus {
-            installed: true,
-            install_path: Some(install_path.display().to_string()),
-            build_mode: crate::data_dir::data_mode_label().to_string(),
-        })
+        let cli_binary = bundled_cli_binary(&source)?;
+        let install_path = cli_install_target();
+        install_cli_symlink(&cli_binary, &install_path)?;
+        Ok(cli_status_for_paths(&install_path, &cli_binary))
     })
     .await
 }
@@ -199,7 +316,6 @@ pub struct DevResetResult {
     pub workspaces_deleted: usize,
     pub sessions_deleted: usize,
     pub messages_deleted: usize,
-    pub attachments_deleted: usize,
     pub directories_removed: Vec<String>,
 }
 
@@ -240,15 +356,13 @@ pub async fn dev_reset_all_data(app: tauri::AppHandle) -> CmdResult<DevResetResu
         tracing::warn!(dir = %data_dir.display(), "DEV RESET: wiping all data");
 
         // --- Database cleanup (single transaction) -----------------------
-        let mut conn = db::open_connection(true)?;
+        let mut conn = db::write_conn()?;
         let tx = conn
             .transaction()
             .context("Failed to start dev-reset transaction")?;
 
-        let attachments_deleted: usize = tx.execute("DELETE FROM attachments", []).unwrap_or(0);
         let messages_deleted: usize = tx.execute("DELETE FROM session_messages", []).unwrap_or(0);
         let sessions_deleted: usize = tx.execute("DELETE FROM sessions", []).unwrap_or(0);
-        let _diff_comments: usize = tx.execute("DELETE FROM diff_comments", []).unwrap_or(0);
         let _pending: usize = tx.execute("DELETE FROM pending_cli_sends", []).unwrap_or(0);
         let workspaces_deleted: usize = tx.execute("DELETE FROM workspaces", []).unwrap_or(0);
         let repos_deleted: usize = tx.execute("DELETE FROM repos", []).unwrap_or(0);
@@ -296,9 +410,92 @@ pub async fn dev_reset_all_data(app: tauri::AppHandle) -> CmdResult<DevResetResu
             workspaces_deleted,
             sessions_deleted,
             messages_deleted,
-            attachments_deleted,
             directories_removed: dirs_removed,
         })
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn classify_cli_install_reports_missing_when_path_absent() {
+        let tmp = tempdir().unwrap();
+        let bundled_cli = tmp.path().join("Helmor.app/Contents/MacOS/helmor-cli");
+        fs::create_dir_all(bundled_cli.parent().unwrap()).unwrap();
+        fs::write(&bundled_cli, "#!/bin/sh\n").unwrap();
+
+        let install_path = tmp.path().join("usr/local/bin/helmor");
+        assert_eq!(
+            classify_cli_install(&install_path, &bundled_cli),
+            CliInstallState::Missing
+        );
+    }
+
+    #[test]
+    fn classify_cli_install_reports_managed_for_matching_symlink() {
+        let tmp = tempdir().unwrap();
+        let bundled_cli = tmp.path().join("Helmor.app/Contents/MacOS/helmor-cli");
+        let install_path = tmp.path().join("usr/local/bin/helmor");
+        fs::create_dir_all(bundled_cli.parent().unwrap()).unwrap();
+        fs::create_dir_all(install_path.parent().unwrap()).unwrap();
+        fs::write(&bundled_cli, "#!/bin/sh\n").unwrap();
+        std::os::unix::fs::symlink(&bundled_cli, &install_path).unwrap();
+
+        assert_eq!(
+            classify_cli_install(&install_path, &bundled_cli),
+            CliInstallState::Managed
+        );
+    }
+
+    #[test]
+    fn classify_cli_install_reports_stale_for_regular_file_copy() {
+        let tmp = tempdir().unwrap();
+        let bundled_cli = tmp.path().join("Helmor.app/Contents/MacOS/helmor-cli");
+        let install_path = tmp.path().join("usr/local/bin/helmor");
+        fs::create_dir_all(bundled_cli.parent().unwrap()).unwrap();
+        fs::create_dir_all(install_path.parent().unwrap()).unwrap();
+        fs::write(&bundled_cli, "#!/bin/sh\n").unwrap();
+        fs::write(&install_path, "#!/bin/sh\n").unwrap();
+
+        assert_eq!(
+            classify_cli_install(&install_path, &bundled_cli),
+            CliInstallState::Stale
+        );
+    }
+
+    #[test]
+    fn install_cli_symlink_replaces_stale_copy_with_managed_symlink() {
+        let tmp = tempdir().unwrap();
+        let bundled_cli = tmp.path().join("Helmor.app/Contents/MacOS/helmor-cli");
+        let install_path = tmp.path().join("usr/local/bin/helmor");
+        fs::create_dir_all(bundled_cli.parent().unwrap()).unwrap();
+        fs::create_dir_all(install_path.parent().unwrap()).unwrap();
+        fs::write(&bundled_cli, "#!/bin/sh\n").unwrap();
+        fs::write(&install_path, "#!/bin/sh\n").unwrap();
+
+        install_cli_symlink(&bundled_cli, &install_path).unwrap();
+
+        assert_eq!(
+            classify_cli_install(&install_path, &bundled_cli),
+            CliInstallState::Managed
+        );
+    }
+
+    #[test]
+    fn cli_install_remediation_uses_force_replace_symlink_command() {
+        let command = cli_install_remediation(
+            std::path::Path::new("/Applications/Helmor.app/Contents/MacOS/helmor-cli"),
+            std::path::Path::new("/usr/local/bin/helmor-dev"),
+        );
+
+        assert_eq!(
+            command,
+            "sudo ln -sfn '/Applications/Helmor.app/Contents/MacOS/helmor-cli' '/usr/local/bin/helmor-dev'"
+        );
+    }
 }

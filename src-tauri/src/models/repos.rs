@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
@@ -60,10 +60,13 @@ pub(crate) struct RepositoryRecord {
     pub setup_script: Option<String>,
     #[allow(dead_code)] // Queried separately via RepoScripts; kept here for completeness.
     pub run_script: Option<String>,
+    /// Auto-run the setup script when a workspace is created.
+    /// Defaults to true; users disable it from repo settings.
+    pub auto_run_setup: bool,
 }
 
 pub fn list_repositories() -> Result<Vec<RepositoryCreateOption>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement = connection
         .prepare(
             r#"
@@ -103,11 +106,11 @@ pub fn list_repositories() -> Result<Vec<RepositoryCreateOption>> {
 }
 
 pub(crate) fn load_repository_by_id(repo_id: &str) -> Result<Option<RepositoryRecord>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, name, remote, default_branch, root_path, setup_script, run_script
+            SELECT id, name, remote, default_branch, root_path, setup_script, run_script, auto_run_setup
             FROM repos
             WHERE id = ?1
             "#,
@@ -124,6 +127,7 @@ pub(crate) fn load_repository_by_id(repo_id: &str) -> Result<Option<RepositoryRe
                 root_path: row.get(4)?,
                 setup_script: row.get(5)?,
                 run_script: row.get(6)?,
+                auto_run_setup: row.get::<_, Option<i64>>(7)?.unwrap_or(1) != 0,
             })
         })
         .with_context(|| format!("Failed to query repository {repo_id}"))?;
@@ -137,7 +141,7 @@ pub(crate) fn load_repository_by_id(repo_id: &str) -> Result<Option<RepositoryRe
 }
 
 pub(crate) fn load_repository_by_root_path(root_path: &str) -> Result<Option<RepositoryRecord>> {
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     if let Some(repository) = query_repository_by_root_path(&connection, root_path)? {
         return Ok(Some(repository));
     }
@@ -175,7 +179,7 @@ fn query_repository_by_root_path(
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, name, remote, default_branch, root_path, setup_script, run_script
+            SELECT id, name, remote, default_branch, root_path, setup_script, run_script, auto_run_setup
             FROM repos
             WHERE root_path = ?1
             ORDER BY created_at ASC
@@ -194,6 +198,7 @@ fn query_repository_by_root_path(
                 root_path: row.get(4)?,
                 setup_script: row.get(5)?,
                 run_script: row.get(6)?,
+                auto_run_setup: row.get::<_, Option<i64>>(7)?.unwrap_or(1) != 0,
             })
         })
         .with_context(|| format!("Failed to query repository row for {root_path}"))?;
@@ -214,7 +219,7 @@ fn query_repository_candidates_by_name(
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, name, remote, default_branch, root_path, setup_script, run_script
+            SELECT id, name, remote, default_branch, root_path, setup_script, run_script, auto_run_setup
             FROM repos
             WHERE name = ?1 OR root_path LIKE ?2
             ORDER BY created_at ASC
@@ -234,6 +239,7 @@ fn query_repository_candidates_by_name(
                 root_path: row.get(4)?,
                 setup_script: row.get(5)?,
                 run_script: row.get(6)?,
+                auto_run_setup: row.get::<_, Option<i64>>(7)?.unwrap_or(1) != 0,
             })
         })
         .with_context(|| format!("Failed to query repository candidates for {repository_name}"))?;
@@ -245,7 +251,7 @@ fn query_repository_candidates_by_name(
 }
 
 pub(crate) fn insert_repository(repository: &ResolvedRepositoryInput) -> Result<String> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let next_display_order: i64 = connection
         .query_row(
             "SELECT COALESCE(MAX(display_order), 0) + 1 FROM repos",
@@ -270,11 +276,9 @@ pub(crate) fn insert_repository(repository: &ResolvedRepositoryInput) -> Result<
               setup_script,
               run_script,
               archive_script,
-              conductor_config,
-              icon,
               created_at,
               updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, NULL, NULL, NULL, NULL, NULL, datetime('now'), datetime('now'))
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, NULL, NULL, NULL, datetime('now'), datetime('now'))
             "#,
             (
                 repo_id.as_str(),
@@ -315,7 +319,7 @@ pub fn update_repository_remote(
         })?;
     let new_remote_url = resolve_repository_remote_url(&repo_root, remote).ok();
 
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let updated = connection
         .execute(
             "UPDATE repos SET remote = ?1, default_branch = ?2, remote_url = ?3, updated_at = datetime('now') WHERE id = ?4",
@@ -371,7 +375,7 @@ pub fn list_repo_remotes(repo_id: &str) -> Result<Vec<String>> {
 }
 
 pub fn update_repository_default_branch(repo_id: &str, default_branch: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let updated = connection
         .execute(
             "UPDATE repos SET default_branch = ?1, updated_at = datetime('now') WHERE id = ?2",
@@ -395,6 +399,19 @@ pub struct RepoScripts {
     pub setup_from_project: bool,
     pub run_from_project: bool,
     pub archive_from_project: bool,
+    /// Auto-run setup on workspace creation. DB-only — not configurable
+    /// from `helmor.json`. Defaults to true.
+    pub auto_run_setup: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoPreferences {
+    pub create_pr: Option<String>,
+    pub fix_errors: Option<String>,
+    pub resolve_conflicts: Option<String>,
+    pub branch_rename: Option<String>,
+    pub general: Option<String>,
 }
 
 /// Resolve repo scripts using a fixed priority:
@@ -434,17 +451,20 @@ pub fn load_repo_scripts(repo_id: &str, workspace_id: Option<&str>) -> Result<Re
 
     // Priority 3: DB values — picked up by `pick_script` when the project
     // config doesn't provide a value.
-    let connection = db::open_connection(false)?;
+    let connection = db::read_conn()?;
     let mut statement = connection
-        .prepare("SELECT setup_script, run_script, archive_script FROM repos WHERE id = ?1")
+        .prepare(
+            "SELECT setup_script, run_script, archive_script, auto_run_setup FROM repos WHERE id = ?1",
+        )
         .with_context(|| format!("Failed to prepare script lookup for {repo_id}"))?;
 
-    let (db_setup, db_run, db_archive) = statement
+    let (db_setup, db_run, db_archive, auto_run_setup) = statement
         .query_row([repo_id], |row| {
             Ok((
                 row.get::<_, Option<String>>(0)?,
                 row.get::<_, Option<String>>(1)?,
                 row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<i64>>(3)?.unwrap_or(1) != 0,
             ))
         })
         .with_context(|| format!("Repository not found: {repo_id}"))?;
@@ -465,6 +485,7 @@ pub fn load_repo_scripts(repo_id: &str, workspace_id: Option<&str>) -> Result<Re
         setup_from_project,
         run_from_project,
         archive_from_project,
+        auto_run_setup,
     })
 }
 
@@ -527,7 +548,7 @@ pub fn update_repo_scripts(
     run_script: Option<&str>,
     archive_script: Option<&str>,
 ) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let updated = connection
         .execute(
             "UPDATE repos SET setup_script = ?1, run_script = ?2, archive_script = ?3, updated_at = datetime('now') WHERE id = ?4",
@@ -542,8 +563,96 @@ pub fn update_repo_scripts(
     Ok(())
 }
 
+/// Persist the user opt-in flag that controls whether the setup script
+/// auto-runs on workspace creation.
+pub fn update_repo_auto_run_setup(repo_id: &str, enabled: bool) -> Result<()> {
+    let connection = db::write_conn()?;
+    let updated = connection
+        .execute(
+            "UPDATE repos SET auto_run_setup = ?1, updated_at = datetime('now') WHERE id = ?2",
+            rusqlite::params![if enabled { 1 } else { 0 }, repo_id],
+        )
+        .with_context(|| format!("Failed to update auto_run_setup for {repo_id}"))?;
+
+    if updated != 1 {
+        bail!("Repository not found: {repo_id}");
+    }
+
+    Ok(())
+}
+
+pub fn load_repo_preferences(repo_id: &str) -> Result<RepoPreferences> {
+    let connection = db::read_conn()?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT
+              custom_prompt_create_pr,
+              custom_prompt_fix_errors,
+              custom_prompt_resolve_merge_conflicts,
+              custom_prompt_rename_branch,
+              custom_prompt_general
+            FROM repos
+            WHERE id = ?1
+            "#,
+        )
+        .with_context(|| format!("Failed to prepare preferences lookup for {repo_id}"))?;
+
+    statement
+        .query_row([repo_id], |row| {
+            Ok(RepoPreferences {
+                create_pr: row.get(0)?,
+                fix_errors: row.get(1)?,
+                resolve_conflicts: row.get(2)?,
+                branch_rename: row.get(3)?,
+                general: row.get(4)?,
+            })
+        })
+        .with_context(|| format!("Repository not found: {repo_id}"))
+}
+
+pub fn update_repo_preferences(repo_id: &str, preferences: &RepoPreferences) -> Result<()> {
+    let connection = db::write_conn()?;
+    let updated = connection
+        .execute(
+            r#"
+            UPDATE repos
+            SET
+              custom_prompt_create_pr = ?1,
+              custom_prompt_fix_errors = ?2,
+              custom_prompt_resolve_merge_conflicts = ?3,
+              custom_prompt_rename_branch = ?4,
+              custom_prompt_general = ?5,
+              updated_at = datetime('now')
+            WHERE id = ?6
+            "#,
+            rusqlite::params![
+                normalize_repo_preference(preferences.create_pr.as_deref()),
+                normalize_repo_preference(preferences.fix_errors.as_deref()),
+                normalize_repo_preference(preferences.resolve_conflicts.as_deref()),
+                normalize_repo_preference(preferences.branch_rename.as_deref()),
+                normalize_repo_preference(preferences.general.as_deref()),
+                repo_id
+            ],
+        )
+        .with_context(|| format!("Failed to update preferences for {repo_id}"))?;
+
+    if updated != 1 {
+        bail!("Repository not found: {repo_id}");
+    }
+
+    Ok(())
+}
+
+fn normalize_repo_preference(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 pub(crate) fn delete_repository(repo_id: &str) -> Result<()> {
-    let connection = db::open_connection(true)?;
+    let connection = db::write_conn()?;
     let deleted_rows = connection
         .execute("DELETE FROM repos WHERE id = ?1", [repo_id])
         .with_context(|| format!("Failed to delete repository {repo_id}"))?;
@@ -557,16 +666,12 @@ pub(crate) fn delete_repository(repo_id: &str) -> Result<()> {
 
 /// Delete a repository and all related data (workspaces, sessions, messages, etc.)
 pub fn delete_repository_cascade(repo_id: &str) -> Result<()> {
-    let mut connection = db::open_connection(true)?;
+    let mut connection = db::write_conn()?;
     let tx = connection
         .transaction()
         .context("Failed to start delete repository transaction")?;
 
     // Delete leaf data first, then parent rows.
-    tx.execute(
-        "DELETE FROM attachments WHERE session_id IN (SELECT s.id FROM sessions s JOIN workspaces w ON s.workspace_id = w.id WHERE w.repository_id = ?1)",
-        [repo_id],
-    ).context("Failed to delete attachments for repository")?;
     tx.execute(
         "DELETE FROM session_messages WHERE session_id IN (SELECT s.id FROM sessions s JOIN workspaces w ON s.workspace_id = w.id WHERE w.repository_id = ?1)",
         [repo_id],
@@ -575,10 +680,6 @@ pub fn delete_repository_cascade(repo_id: &str) -> Result<()> {
         "DELETE FROM sessions WHERE workspace_id IN (SELECT id FROM workspaces WHERE repository_id = ?1)",
         [repo_id],
     ).context("Failed to delete sessions for repository")?;
-    tx.execute(
-        "DELETE FROM diff_comments WHERE workspace_id IN (SELECT id FROM workspaces WHERE repository_id = ?1)",
-        [repo_id],
-    ).context("Failed to delete diff comments for repository")?;
     tx.execute(
         "DELETE FROM pending_cli_sends WHERE workspace_id IN (SELECT id FROM workspaces WHERE repository_id = ?1)",
         [repo_id],
@@ -629,6 +730,69 @@ pub fn resolve_repository_from_local_path(folder_path: &str) -> Result<ResolvedR
         remote_url,
         default_branch,
     })
+}
+
+pub fn clone_repository_from_url(
+    git_url: &str,
+    clone_directory: &str,
+) -> Result<AddRepositoryResponse> {
+    let url = git_url.trim();
+    if url.is_empty() {
+        bail!("Git URL is required.");
+    }
+
+    let parent = Path::new(clone_directory.trim());
+    if !parent.exists() {
+        bail!(
+            "Clone location does not exist: {}. Please choose an existing directory.",
+            parent.display()
+        );
+    }
+    if !parent.is_dir() {
+        bail!("Clone location is not a directory: {}", parent.display());
+    }
+
+    let repo_name = infer_repo_name_from_url(url)
+        .with_context(|| format!("Unable to derive a repository name from URL: {url}"))?;
+    let target_dir = parent.join(&repo_name);
+
+    if target_dir.exists() {
+        bail!(
+            "Target directory already exists: {}. Please remove it or choose a different clone location.",
+            target_dir.display()
+        );
+    }
+
+    let target_arg = target_dir.display().to_string();
+    let clone_result = git_ops::run_git_with_timeout(
+        ["clone", "--", url, target_arg.as_str()],
+        Some(parent),
+        git_ops::GIT_CLONE_TIMEOUT,
+    );
+
+    if let Err(error) = clone_result {
+        // git may have partially created the target directory before failing.
+        // Best-effort cleanup so the user can retry without hitting the
+        // "target directory already exists" branch above.
+        if target_dir.exists() {
+            let _ = fs::remove_dir_all(&target_dir);
+        }
+        return Err(error.context("Failed to clone repository"));
+    }
+
+    add_repository_from_local_path(&target_dir.display().to_string())
+}
+
+fn infer_repo_name_from_url(url: &str) -> Option<String> {
+    let trimmed = url.trim().trim_end_matches('/');
+    let without_git = trimmed.strip_suffix(".git").unwrap_or(trimmed);
+    let last = without_git.rsplit(['/', ':']).next()?;
+    let cleaned = last.trim();
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned.to_string())
+    }
 }
 
 pub fn add_repository_from_local_path(folder_path: &str) -> Result<AddRepositoryResponse> {
