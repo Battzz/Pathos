@@ -80,7 +80,10 @@ export function buildClaudeStoredMeta(
 	> | null;
 	if (!usage || !modelUsage) return null;
 
-	const source = pickLastMessageIteration(root.iterations) ?? usage;
+	const source =
+		pickLastMessageIteration(usage.iterations) ??
+		pickLastMessageIteration(root.iterations) ??
+		usage;
 	const used =
 		num(source.input_tokens) +
 		num(source.cache_creation_input_tokens) +

@@ -42,6 +42,39 @@ describe("buildClaudeStoredMeta", () => {
 					cache_creation_input_tokens: 75_098,
 					cache_read_input_tokens: 1_008_704,
 					output_tokens: 18_132,
+					iterations: [
+						{
+							type: "message",
+							input_tokens: 1,
+							cache_creation_input_tokens: 2_468,
+							cache_read_input_tokens: 72_630,
+							output_tokens: 3_056,
+						},
+					],
+				},
+				modelUsage: {
+					[CLAUDE_MODEL]: { contextWindow: 1_000_000 },
+				},
+			},
+			CLAUDE_MODEL,
+		);
+		expect(meta).toEqual({
+			modelId: CLAUDE_MODEL,
+			usedTokens: 78_155,
+			maxTokens: 1_000_000,
+			percentage: 7.82,
+		});
+	});
+
+	it("accepts legacy top-level iterations", () => {
+		const meta = buildClaudeStoredMeta(
+			{
+				type: "result",
+				usage: {
+					input_tokens: 340,
+					cache_creation_input_tokens: 75_098,
+					cache_read_input_tokens: 1_008_704,
+					output_tokens: 18_132,
 				},
 				iterations: [
 					{
