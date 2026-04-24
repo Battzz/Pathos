@@ -4,10 +4,10 @@ name: Refresh marketing site
 # helmor.ai reflects a new version within seconds of a release going live,
 # instead of waiting for the 3600s ISR window in `apps/marketing/lib/github.ts`.
 #
-# Triggered on `release.published` (covers both "push tag → tauri-action
-# creates published release" and "manually flip draft → published" flows).
-# Intentionally NOT tied to publish.yml: that workflow uses a 2-way matrix
-# and may run in draft mode where `/releases/latest` returns nothing.
+# Triggered on `release.published` for manual releases or a draft being
+# published outside publish.yml. Releases created by a workflow with
+# `GITHUB_TOKEN` do not trigger this workflow, so publish.yml also performs
+# a direct revalidation after a non-draft release completes.
 #
 # `workflow_dispatch` is kept for first-time verification and manual recovery.
 #

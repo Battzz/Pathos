@@ -33,6 +33,7 @@ pub struct WorkspaceRecord {
     pub session_count: i64,
     pub message_count: i64,
     pub remote: Option<String>,
+    pub created_at: String,
 }
 
 pub const WORKSPACE_RECORD_SQL: &str = r#"
@@ -81,7 +82,8 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
       w.archive_commit,
       COALESCE(ss.session_count, 0) AS session_count,
       COALESCE(ms.message_count, 0) AS message_count,
-      r.remote
+      r.remote,
+      w.created_at
     FROM workspaces w
     JOIN repos r ON r.id = w.repository_id
     LEFT JOIN sessions s ON s.id = w.active_session_id
@@ -387,5 +389,6 @@ fn workspace_record_from_row(row: &Row<'_>) -> rusqlite::Result<WorkspaceRecord>
         session_count: row.get(23)?,
         message_count: row.get(24)?,
         remote: row.get(25)?,
+        created_at: row.get(26)?,
     })
 }

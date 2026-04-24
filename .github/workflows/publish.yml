@@ -179,3 +179,24 @@ jobs:
           if [ -n "${{ steps.signing.outputs.APPLE_KEYCHAIN_PATH }}" ]; then
             scripts/cleanup-macos-signing.sh "${{ steps.signing.outputs.APPLE_KEYCHAIN_PATH }}"
           fi
+
+  notify-marketing:
+    name: Notify marketing site
+    needs: [preflight, build-and-publish]
+    if: needs.preflight.outputs.draft == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Revalidate helmor.ai
+        env:
+          SECRET: ${{ secrets.HELMOR_MARKETING_REVALIDATE_SECRET }}
+        run: |
+          if [ -z "${SECRET}" ]; then
+            echo "HELMOR_MARKETING_REVALIDATE_SECRET not set; skipping"
+            exit 0
+          fi
+          curl --fail --silent --show-error \
+            --retry 3 --retry-delay 10 --retry-connrefused \
+            -X POST "https://helmor.ai/api/revalidate" \
+            -H "x-revalidate-secret: ${SECRET}" \
+            -H "content-type: application/json"

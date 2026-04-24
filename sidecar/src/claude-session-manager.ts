@@ -21,6 +21,7 @@ import {
 	applyClaudeModelOverrides,
 	claudeModelSupportsFastMode,
 } from "./claude-model-overrides.js";
+import { buildClaudeRichMeta, buildClaudeStoredMeta } from "./context-usage.js";
 import type { SidecarEmitter } from "./emitter.js";
 import { readImageWithResize } from "./image-resize.js";
 import { parseImageRefs } from "./images.js";
@@ -30,6 +31,7 @@ import { sortClaudeModels } from "./model-sort.js";
 import { createPushable, type Pushable } from "./pushable-iterable.js";
 import {
 	formatModelLabel,
+	type GetContextUsageParams,
 	type ListSlashCommandsParams,
 	type ProviderModelInfo,
 	type SendMessageParams,
@@ -60,6 +62,14 @@ const SLASH_COMMANDS_TIMEOUT_MS = 20_000;
  * makes model loading flap and the Claude model section render empty.
  */
 const MODEL_LIST_TIMEOUT_MS = 15_000;
+
+/**
+ * Hover popover fires this as an ad-hoc RPC. 30s is generous — the
+ * control-protocol call usually returns in <300ms, but the slow-path
+ * spawns a transient CLI child whose init can take seconds on a cold
+ * workspace. Aborting returns an error the UI surfaces as "no data yet".
+ */
+const CONTEXT_USAGE_TIMEOUT_MS = 30_000;
 
 /**
  * Resolve the path to `@anthropic-ai/claude-code`'s `cli.js`, used as the
@@ -358,6 +368,11 @@ export class ClaudeSessionManager implements SessionManager {
 		this.pruneExpiredDeferredToolResponses();
 		const resolved = this.deferredToolResponses.get(toolUseID);
 		if (resolved) {
+			// Consume once: the SDK invokes the hook exactly once per
+			// tool_use lifecycle before executing the tool, so leaving the
+			// resolution in the map only risks stale reads if the same
+			// toolUseID is re-evaluated within TTL (5 min).
+			this.deferredToolResponses.delete(toolUseID);
 			return {
 				hookSpecificOutput: {
 					hookEventName: "PreToolUse",
@@ -406,21 +421,31 @@ export class ClaudeSessionManager implements SessionManager {
 		);
 
 		const { text, imagePaths } = parseImageRefs(promptWithContext);
-		// Always use streaming-input mode so `steer()` can push additional
-		// `SDKUserMessage`s into the same turn. For Claude real steer, the
-		// SDK consumes subsequent pushes as part of the in-flight turn and
-		// emits ONE final `result` — so bail-on-first-result semantics are
-		// unchanged.
+		// Resume-only streams (AskUserQuestion answer submission) arrive with
+		// `prompt === ""` — the Rust command layer rejects empty prompts in
+		// every other case (see `agents.rs: "Prompt cannot be empty"`), so
+		// this check is unambiguous. In that path we pass `""` as a plain
+		// string to `query()` (pre-Steer shape) so the SDK replays the
+		// session and re-invokes PreToolUse for the pending tool_use, which
+		// is how the stored `deferredToolResponses` resolution reaches
+		// Claude. Pushing a synthetic `{ role: "user", content: "" }` into
+		// the pushable — what streaming-input mode would do — makes the SDK
+		// treat it as a new empty user turn and skip that re-evaluation.
 		const promptSource = createPushable<SDKUserMessage>();
-		const initialMessage =
-			imagePaths.length === 0
-				? ({
-						type: "user",
-						message: { role: "user", content: text },
-						parent_tool_use_id: null,
-					} as SDKUserMessage)
-				: await buildUserMessageWithImages(text, imagePaths);
-		promptSource.push(initialMessage);
+		const isResumeOnly = text === "" && imagePaths.length === 0;
+		if (isResumeOnly) {
+			promptSource.close();
+		} else {
+			const initialMessage =
+				imagePaths.length === 0
+					? ({
+							type: "user",
+							message: { role: "user", content: text },
+							parent_tool_use_id: null,
+						} as SDKUserMessage)
+					: await buildUserMessageWithImages(text, imagePaths);
+			promptSource.push(initialMessage);
+		}
 
 		const effectiveFastMode =
 			fastMode === true && claudeModelSupportsFastMode(model);
@@ -430,7 +455,7 @@ export class ClaudeSessionManager implements SessionManager {
 				: undefined;
 
 		const q = query({
-			prompt: promptSource,
+			prompt: isResumeOnly ? "" : promptSource,
 			options: {
 				abortController,
 				pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
@@ -571,16 +596,20 @@ export class ClaudeSessionManager implements SessionManager {
 				if (passthroughMessage) {
 					emitter.passthrough(requestId, passthroughMessage);
 				}
-				if (isTerminalSuccessResult(message)) {
-					// The SDK emits ONE terminal `result` for the entire
-					// streaming-input session, even when `steer()` pushed
-					// additional messages — all pushes fold into one
-					// extended turn. Bail on the first one we see; any
-					// steer() still in its image-load await at this point
-					// will find `promptSource.closed` via the finally
-					// block below and return false (see the re-check in
-					// `steer()`).
-					await snapshotContextUsage(q, emitter, requestId, sessionId);
+				if (isTerminalResult(message)) {
+					// Terminal result (success OR error) — both shapes carry
+					// `usage`/`modelUsage`, so both should update the ring.
+					// Bail on the first one we see; any steer() still in its
+					// image-load await will find `promptSource.closed` via
+					// the finally block below and return false.
+					const meta = buildClaudeStoredMeta(message);
+					if (meta) {
+						emitter.contextUsageUpdated(
+							requestId,
+							sessionId,
+							JSON.stringify(meta),
+						);
+					}
 					emitter.end(requestId);
 					return;
 				}
@@ -588,11 +617,6 @@ export class ClaudeSessionManager implements SessionManager {
 			emitter.end(requestId);
 		} catch (err) {
 			if (isAbortError(err)) {
-				// Aborted turns may still have consumed real context (the
-				// user typed and we tokenised it before they hit stop). Try
-				// to snapshot anyway — the Query is in a half-closed state
-				// so the SDK call may reject; swallow either way.
-				await snapshotContextUsage(q, emitter, requestId, sessionId);
 				emitter.aborted(requestId, "user_requested");
 				return;
 			}
@@ -991,6 +1015,111 @@ export class ClaudeSessionManager implements SessionManager {
 		}
 	}
 
+	/**
+	 * Rich context-usage breakdown for the hover popover. Two paths:
+	 *
+	 *   - **Fast**: a live `Query` is already open for this helmor session
+	 *     (user just sent a turn, the stream is still running). Reuse it;
+	 *     the SDK answers the control call in <100ms.
+	 *   - **Slow**: between turns — spawn a transient `Query` with
+	 *     `resume: providerSessionId` + the caller-supplied `model`/`cwd`
+	 *     so the SDK loads the same window size the user sees, ask it
+	 *     `getContextUsage()`, then tear down. Same pattern as
+	 *     `listModels` — the prompt iterator parks forever so the
+	 *     underlying CLI never starts a turn.
+	 *
+	 * Returns the slim JSON string ready to ship back over IPC.
+	 */
+	async getContextUsage(params: GetContextUsageParams): Promise<string> {
+		const { helmorSessionId, providerSessionId, model, cwd } = params;
+
+		const live = this.sessions.get(helmorSessionId);
+		if (live) {
+			const raw = await live.query.getContextUsage();
+			return JSON.stringify(buildClaudeRichMeta(raw));
+		}
+
+		// Slow path: spawn a transient Query. `resume` is optional — when
+		// the helmor session hasn't run a turn yet there's no provider
+		// session id to resume, but `q.getContextUsage()` still reports
+		// the baseline (system prompt + tools + memory + skills) for the
+		// selected model, which is exactly what the hover popover should
+		// show on a fresh session.
+		const abortController = new AbortController();
+		let resolveDone: () => void = () => undefined;
+		const donePromise = new Promise<void>((resolve) => {
+			resolveDone = resolve;
+		});
+		const promptIter: AsyncIterable<SDKUserMessage> =
+			(async function* (): AsyncGenerator<never> {
+				await donePromise;
+				yield* [];
+			})();
+
+		const q = query({
+			prompt: promptIter,
+			options: {
+				abortController,
+				pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
+				...executableOptions(),
+				cwd: cwd || undefined,
+				model: model || undefined,
+				...(providerSessionId ? { resume: providerSessionId } : {}),
+				permissionMode: "bypassPermissions",
+				allowDangerouslySkipPermissions: true,
+				includePartialMessages: false,
+				settingSources: ["user", "project", "local"],
+			},
+		});
+
+		const drain = (async () => {
+			try {
+				for await (const _ of q) {
+					void _;
+				}
+			} catch (err) {
+				if (!isAbortError(err)) {
+					logger.error(
+						"Claude getContextUsage drain failed",
+						errorDetails(err),
+					);
+				}
+			}
+		})();
+
+		let timedOut = false;
+		const timeout = setTimeout(() => {
+			timedOut = true;
+			abortController.abort();
+		}, CONTEXT_USAGE_TIMEOUT_MS);
+
+		try {
+			const raw = await q.getContextUsage();
+			return JSON.stringify(buildClaudeRichMeta(raw));
+		} catch (err) {
+			if (timedOut) {
+				throw new Error(
+					`getContextUsage timed out after ${CONTEXT_USAGE_TIMEOUT_MS}ms`,
+				);
+			}
+			throw err;
+		} finally {
+			clearTimeout(timeout);
+			resolveDone();
+			try {
+				abortController.abort();
+			} catch {
+				/* noop */
+			}
+			try {
+				q.close();
+			} catch {
+				/* noop */
+			}
+			await drain.catch(() => {});
+		}
+	}
+
 	async stopSession(sessionId: string): Promise<void> {
 		const session = this.sessions.get(sessionId);
 		if (session) {
@@ -1053,120 +1182,14 @@ function isDeferredToolResult(message: SDKMessage): message is SDKMessage & {
 	);
 }
 
-function isTerminalSuccessResult(message: SDKMessage): boolean {
-	if (message.type !== "result") {
-		return false;
-	}
-	if (isDeferredToolResult(message)) {
-		return false;
-	}
-	return (message as { is_error?: boolean }).is_error !== true;
-}
-
-/**
- * Hard cap on how long we let `q.getContextUsage()` block the terminal
- * `end`/`aborted` event. The snapshot is best-effort metadata for the ring;
- * the user-visible turn-finished signal must NOT be hostage to a slow SDK
- * control-message round-trip. 1.5s is generous (typical < 200ms) but
- * bounded so a hung SDK can't stall the UI.
- */
-const CONTEXT_USAGE_SNAPSHOT_TIMEOUT_MS = 1500;
-const SNAPSHOT_TIMEOUT_SENTINEL: unique symbol = Symbol("snapshot-timeout");
-
-/**
- * Subset of `SDKControlGetContextUsageResponse` we actually consume on the
- * frontend. Slimming here prevents the SDK's 30+ KB `gridRows` / `mcpTools`
- * / `skills` payload from hitting the DB on every turn.
- */
-type SlimClaudeContextUsage = {
-	totalTokens: number;
-	maxTokens: number;
-	percentage: number;
-	isAutoCompactEnabled: boolean;
-	categories: ReadonlyArray<{
-		name: string;
-		tokens: number;
-		color: string;
-	}>;
-};
-
-/**
- * Reduce the SDK's full context-usage response to the fields the UI parses.
- * Drops the "Free space" pseudo-category (it's the unallocated remainder,
- * never useful to a user). Exported for tests.
- */
-export function slimClaudeContextUsage(raw: unknown): SlimClaudeContextUsage {
-	const root = (raw ?? {}) as Record<string, unknown>;
-	const rawCategories = Array.isArray(root.categories) ? root.categories : [];
-	return {
-		totalTokens: typeof root.totalTokens === "number" ? root.totalTokens : 0,
-		maxTokens: typeof root.maxTokens === "number" ? root.maxTokens : 0,
-		percentage: typeof root.percentage === "number" ? root.percentage : 0,
-		isAutoCompactEnabled: root.isAutoCompactEnabled === true,
-		categories: rawCategories
-			.filter(
-				(entry): entry is { name: string; tokens: number; color: string } => {
-					if (!entry || typeof entry !== "object") return false;
-					const e = entry as { name?: unknown; tokens?: unknown };
-					return (
-						typeof e.name === "string" &&
-						e.name !== "Free space" &&
-						typeof e.tokens === "number"
-					);
-				},
-			)
-			.map(({ name, tokens, color }) => ({
-				name,
-				tokens,
-				color: typeof color === "string" ? color : "",
-			})),
-	};
-}
-
-/**
- * Snapshot context usage from a (possibly half-closed) Query and emit it.
- * Bounded by `CONTEXT_USAGE_SNAPSHOT_TIMEOUT_MS`; SDK rejection or timeout
- * are both swallowed — the ring just keeps its previous value. Exported
- * for testing the timeout path.
- */
-export async function snapshotContextUsage(
-	q: Query,
-	emitter: SidecarEmitter,
-	requestId: string,
-	sessionId: string,
-): Promise<void> {
-	let timeoutId: ReturnType<typeof setTimeout> | undefined;
-	const timeoutPromise = new Promise<typeof SNAPSHOT_TIMEOUT_SENTINEL>(
-		(resolve) => {
-			timeoutId = setTimeout(
-				() => resolve(SNAPSHOT_TIMEOUT_SENTINEL),
-				CONTEXT_USAGE_SNAPSHOT_TIMEOUT_MS,
-			);
-		},
-	);
-	try {
-		const result = await Promise.race([q.getContextUsage(), timeoutPromise]);
-		if (result === SNAPSHOT_TIMEOUT_SENTINEL) {
-			logger.debug("context usage snapshot timed out", {
-				requestId,
-				sessionId,
-			});
-			return;
-		}
-		emitter.contextUsageUpdated(
-			requestId,
-			sessionId,
-			JSON.stringify(slimClaudeContextUsage(result)),
-		);
-	} catch (err) {
-		logger.debug("context usage snapshot failed", {
-			requestId,
-			sessionId,
-			...errorDetails(err),
-		});
-	} finally {
-		if (timeoutId !== undefined) clearTimeout(timeoutId);
-	}
+/** Terminal result — success OR error, but NOT a deferred-tool pause.
+ *  Deferred results are intermediate (the stream continues) and must
+ *  not trigger `end`. Error results DO end the turn and still carry
+ *  `usage`/`modelUsage`, so the ring gets updated on errors too. */
+function isTerminalResult(message: SDKMessage): boolean {
+	if (message.type !== "result") return false;
+	if (isDeferredToolResult(message)) return false;
+	return true;
 }
 
 function stripDeferredToolUseFromAssistant(message: SDKMessage): object | null {

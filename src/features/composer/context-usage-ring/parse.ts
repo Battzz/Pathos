@@ -1,50 +1,61 @@
-// Parses the opaque `context_usage_meta` JSON. Claude shape has
-// `categories[]`; Codex shape has `total.totalTokens` + `modelContextWindow`.
-//
-// Codex semantics caveat: Codex's `total.*` is the THREAD'S CUMULATIVE
-// BILLED tokens — every turn re-sends the entire conversation history as
-// input, and `total` keeps adding it up turn after turn. So `total` blows
-// past `modelContextWindow` as the conversation grows even though the
-// actual context is small. The field that reflects current context fill
-// is `last.*` — `last.totalTokens` ≈ tokens occupied by the conversation
-// after the most recent turn (the input we'd send next + that turn's
-// output). This is what the ring shows as `used`.
+// Parses `context_usage_meta` JSON (and Codex rate-limits JSON) into
+// display-ready shapes for the ring + popover. One shape per source;
+// no model matching, no legacy fallback — sidecar always writes the
+// current format.
 
-export type DisplayCategory = {
-	name: string;
-	tokens: number;
-	percentage: number;
+/** Baseline: written at turn end by both Claude and Codex. */
+export type StoredContextUsageMeta = {
+	readonly usedTokens: number;
+	readonly maxTokens: number;
+	readonly percentage: number;
 };
 
-export type CodexTokenBreakdown = {
-	total: number;
-	input: number;
-	cachedInput: number;
-	output: number;
-	reasoningOutput: number;
+/** Claude-only rich breakdown from `q.getContextUsage()`. Fetched live
+ *  on hover. */
+export type ClaudeRichContextUsage = StoredContextUsageMeta & {
+	readonly isAutoCompactEnabled: boolean;
+	readonly categories: ReadonlyArray<{ name: string; tokens: number }>;
 };
 
-type BaseDisplay = {
-	used: number;
-	max: number;
-	percentage: number;
-};
+/** <60 default, 60–80 warning, >=80 danger. */
+export type RingTier = "default" | "warning" | "danger";
 
-export type ClaudeDisplay = BaseDisplay & {
-	source: "claude";
-	categories: DisplayCategory[];
-	/** Claude SDK option — when true, the agent reclaims context by
-	 *  summarising older turns once the window approaches full. */
-	autoCompacts: boolean;
-};
+export function ringTier(percentage: number): RingTier {
+	if (percentage >= 80) return "danger";
+	if (percentage >= 60) return "warning";
+	return "default";
+}
 
-export type CodexDisplay = BaseDisplay & {
-	source: "codex";
-	/** Most recent turn's breakdown — this is what fills the context window. */
-	last: CodexTokenBreakdown;
-};
+/** Ring display. `rich` is set when Claude's hover fetch has resolved. */
+export type DisplayResolution =
+	| { readonly kind: "empty" }
+	| {
+			readonly kind: "full";
+			readonly usedTokens: number;
+			readonly maxTokens: number;
+			readonly percentage: number;
+			readonly tier: RingTier;
+			readonly rich: ClaudeRichContextUsage | null;
+	  };
 
-export type ContextUsageDisplay = ClaudeDisplay | CodexDisplay;
+/** Rich overrides baseline when present (same units, strictly fresher). */
+export function resolveContextUsageDisplay(
+	baseline: StoredContextUsageMeta | null,
+	rich: ClaudeRichContextUsage | null,
+): DisplayResolution {
+	const effective = rich ?? baseline;
+	if (!effective) return { kind: "empty" };
+	return {
+		kind: "full",
+		usedTokens: effective.usedTokens,
+		maxTokens: effective.maxTokens,
+		percentage: effective.percentage,
+		tier: ringTier(effective.percentage),
+		rich,
+	};
+}
+
+// ── JSON parsers ───────────────────────────────────────────────────────
 
 type Json = unknown;
 
@@ -58,14 +69,14 @@ function asObject(v: Json): Record<string, Json> | null {
 		: null;
 }
 
-function asArray(v: Json): Json[] | null {
-	return Array.isArray(v) ? v : null;
+function clampPercent(used: number, max: number): number {
+	if (max <= 0) return 0;
+	return Math.min(100, Math.max(0, (used / max) * 100));
 }
 
-/** Null for empty / unparseable / unknown shape. */
-export function parseContextUsageMeta(
+export function parseStoredMeta(
 	json: string | null | undefined,
-): ContextUsageDisplay | null {
+): StoredContextUsageMeta | null {
 	if (!json) return null;
 	let parsed: Json;
 	try {
@@ -75,92 +86,51 @@ export function parseContextUsageMeta(
 	}
 	const root = asObject(parsed);
 	if (!root) return null;
-
-	if (asArray(root.categories)) return parseClaude(root);
-	if (asObject(root.total) && asNumber(root.modelContextWindow) !== null) {
-		return parseCodex(root);
-	}
-	return null;
+	const used = asNumber(root.usedTokens);
+	const max = asNumber(root.maxTokens);
+	if (used === null || max === null) return null;
+	return {
+		usedTokens: used,
+		maxTokens: max,
+		percentage: asNumber(root.percentage) ?? clampPercent(used, max),
+	};
 }
 
-function parseClaude(root: Record<string, Json>): ClaudeDisplay {
-	const max = asNumber(root.maxTokens) ?? 0;
-	const rawUsed = asNumber(root.totalTokens) ?? 0;
-	// Clamp: the SDK may briefly report >100% during autocompact transitions
-	// (maxTokens shifts as the threshold moves). A ring at 102% looks broken;
-	// pin to the window so the worst case is "100%".
-	const used = max > 0 ? Math.min(rawUsed, max) : rawUsed;
-	const sdkPct = asNumber(root.percentage);
-	const percentage = Math.min(sdkPct ?? computePercentage(used, max), 100);
-
-	const categories: DisplayCategory[] = [];
-	const rawCats = asArray(root.categories) ?? [];
-	for (const entry of rawCats) {
+export function parseClaudeRichMeta(
+	json: string | null | undefined,
+): ClaudeRichContextUsage | null {
+	if (!json) return null;
+	let parsed: Json;
+	try {
+		parsed = JSON.parse(json);
+	} catch {
+		return null;
+	}
+	const root = asObject(parsed);
+	if (!root) return null;
+	const used = asNumber(root.usedTokens);
+	const max = asNumber(root.maxTokens);
+	if (used === null || max === null) return null;
+	const rawCategories = Array.isArray(root.categories) ? root.categories : [];
+	const categories: Array<{ name: string; tokens: number }> = [];
+	for (const entry of rawCategories) {
 		const obj = asObject(entry);
 		if (!obj) continue;
 		const name = typeof obj.name === "string" ? obj.name : null;
-		const tokens = asNumber(obj.tokens) ?? 0;
-		if (!name) continue;
-		// "Free space" is the unallocated remainder — skip from the list.
-		if (name === "Free space") continue;
-		categories.push({
-			name,
-			tokens,
-			percentage: max > 0 ? (tokens / max) * 100 : 0,
-		});
+		const tokens = asNumber(obj.tokens);
+		if (!name || tokens === null) continue;
+		categories.push({ name, tokens });
 	}
-	categories.sort((a, b) => b.tokens - a.tokens);
-
 	return {
-		source: "claude",
-		used,
-		max,
-		percentage,
+		usedTokens: used,
+		maxTokens: max,
+		percentage: asNumber(root.percentage) ?? clampPercent(used, max),
+		isAutoCompactEnabled: root.isAutoCompactEnabled === true,
 		categories,
-		autoCompacts: root.isAutoCompactEnabled === true,
 	};
 }
 
-function parseCodexBreakdown(
-	obj: Record<string, Json> | null,
-): CodexTokenBreakdown | null {
-	if (!obj) return null;
-	return {
-		total: asNumber(obj.totalTokens) ?? 0,
-		input: asNumber(obj.inputTokens) ?? 0,
-		cachedInput: asNumber(obj.cachedInputTokens) ?? 0,
-		output: asNumber(obj.outputTokens) ?? 0,
-		reasoningOutput: asNumber(obj.reasoningOutputTokens) ?? 0,
-	};
-}
-
-function parseCodex(root: Record<string, Json>): CodexDisplay {
-	// `last` is the source of truth for "how full is the context right now".
-	// Fall back to `total` only when `last` is missing (e.g. zero-turn
-	// session); for a single-turn thread `total === last` so they match.
-	const last = parseCodexBreakdown(asObject(root.last)) ??
-		parseCodexBreakdown(asObject(root.total)) ?? {
-			total: 0,
-			input: 0,
-			cachedInput: 0,
-			output: 0,
-			reasoningOutput: 0,
-		};
-	const max = asNumber(root.modelContextWindow) ?? 0;
-	const used = max > 0 ? Math.min(last.total, max) : last.total;
-	return {
-		source: "codex",
-		used,
-		max,
-		percentage: Math.min(computePercentage(used, max), 100),
-		last,
-	};
-}
-
-function computePercentage(used: number, max: number): number {
-	if (max <= 0) return 0;
-	return (used / max) * 100;
-}
+// ── Formatting helpers ────────────────────────────────────────────────
 
 /** "12.4k" / "1.0M" / "0". */
 export function formatTokens(tokens: number): string {
@@ -170,33 +140,13 @@ export function formatTokens(tokens: number): string {
 	return String(tokens);
 }
 
-/** <60 default, 60–80 warning, >=80 danger. */
-export type RingTier = "default" | "warning" | "danger";
-
-export function ringTier(percentage: number): RingTier {
-	if (percentage >= 80) return "danger";
-	if (percentage >= 60) return "warning";
-	return "default";
-}
-
-// ── Codex rate limits ───────────────────────────────────────────────────
-//
-// Stored as the raw `RateLimitSnapshot` JSON Codex sends. `primary` is the
-// short window (5h on most plans), `secondary` the long one (7d). Both
-// have `usedPercent` (0-100) and `resetsAt` (unix seconds).
+// ── Codex rate limits (orthogonal to context meta) ─────────────────────
 
 export type RateLimitWindowDisplay = {
-	/** Tokens already consumed in this window. 0–100. */
 	usedPercent: number;
-	/** Tokens remaining = 100 - usedPercent, clamped 0–100. */
 	leftPercent: number;
-	/** Approximate length of the window for the label ("5h" / "7d") — null
-	 *  when Codex didn't include it. */
 	label: string | null;
-	/** Unix seconds when the window rolls over. Null if unknown. */
 	resetsAt: number | null;
-	/** True when `resetsAt` is in the past — Codex hasn't sent a fresh
-	 *  snapshot yet but the local clock says the window already rolled. */
 	expired: boolean;
 };
 

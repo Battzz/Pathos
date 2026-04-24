@@ -131,7 +131,7 @@ describe("useUiSyncBridge", () => {
 		expect(invalidateQueries).toHaveBeenCalledTimes(1);
 	});
 
-	it("invalidates only the per-session usage query on contextUsageChanged", async () => {
+	it("invalidates baseline + rich on contextUsageChanged", async () => {
 		const queryClient = makeClient();
 		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 
@@ -156,8 +156,12 @@ describe("useUiSyncBridge", () => {
 				queryKey: helmorQueryKeys.sessionContextUsage("session-7"),
 			});
 		});
-		// And only that key — no workspace-level cascades.
-		expect(invalidateQueries).toHaveBeenCalledTimes(1);
+		// And a predicate-based invalidate for rich entries scoped to
+		// this session (any providerSessionId / model).
+		expect(invalidateQueries).toHaveBeenCalledWith(
+			expect.objectContaining({ predicate: expect.any(Function) }),
+		);
+		expect(invalidateQueries).toHaveBeenCalledTimes(2);
 	});
 
 	it("reloads settings and refreshes auto-close queries on settings changes", async () => {

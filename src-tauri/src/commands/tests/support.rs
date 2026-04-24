@@ -89,12 +89,6 @@ impl RestoreTestHarness {
         let session_id = "session-1".to_string();
         let branch = "feature/restore-target".to_string();
 
-        let archived_ctx =
-            crate::data_dir::archived_context_dir(&repo_name, &directory_name).unwrap();
-        fs::create_dir_all(archived_ctx.join("attachments")).unwrap();
-        fs::write(archived_ctx.join("notes.md"), "archived notes").unwrap();
-        fs::write(archived_ctx.join("attachments/evidence.txt"), "evidence").unwrap();
-
         let ws_dir = crate::data_dir::workspace_dir(&repo_name, &directory_name).unwrap();
         fs::create_dir_all(ws_dir.parent().unwrap()).unwrap();
 
@@ -123,10 +117,6 @@ impl RestoreTestHarness {
             directory_name,
             branch,
         }
-    }
-
-    pub(crate) fn archived_context_dir(&self) -> PathBuf {
-        crate::data_dir::archived_context_dir(&self.repo_name, &self.directory_name).unwrap()
     }
 
     pub(crate) fn workspace_dir(&self) -> PathBuf {
@@ -184,11 +174,6 @@ impl ArchiveTestHarness {
         )
         .unwrap();
 
-        let archived_ctx_parent = crate::data_dir::archived_contexts_dir()
-            .unwrap()
-            .join(&repo_name);
-        fs::create_dir_all(&archived_ctx_parent).unwrap();
-
         let ws_parent = crate::data_dir::workspaces_dir().unwrap().join(&repo_name);
         fs::create_dir_all(&ws_parent).unwrap();
 
@@ -209,13 +194,6 @@ impl ArchiveTestHarness {
         let workspace_dir = crate::data_dir::workspace_dir(&repo_name, &directory_name).unwrap();
         git_ops::point_branch_to_commit(&source_repo_root, &branch, &head_commit).unwrap();
         git_ops::create_worktree(&source_repo_root, &workspace_dir, &branch).unwrap();
-        fs::create_dir_all(workspace_dir.join(".context/attachments")).unwrap();
-        fs::write(workspace_dir.join(".context/notes.md"), "ready notes").unwrap();
-        fs::write(
-            workspace_dir.join(".context/attachments/evidence.txt"),
-            "ready evidence",
-        )
-        .unwrap();
 
         Self {
             _test_dir: test_dir,
@@ -226,10 +204,6 @@ impl ArchiveTestHarness {
             directory_name,
             head_commit,
         }
-    }
-
-    pub(crate) fn archived_context_dir(&self) -> PathBuf {
-        crate::data_dir::archived_context_dir(&self.repo_name, &self.directory_name).unwrap()
     }
 
     pub(crate) fn workspace_dir(&self) -> PathBuf {

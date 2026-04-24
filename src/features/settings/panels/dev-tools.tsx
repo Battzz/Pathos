@@ -42,8 +42,8 @@ export function DevToolsPanel() {
 				</div>
 				<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
 					Delete all workspaces, sessions, messages, and repositories from the
-					development database. Filesystem artefacts (worktrees,
-					archived-contexts, paste-cache) will also be removed.
+					development database. Filesystem artefacts (worktrees, paste-cache)
+					will also be removed.
 				</div>
 				{dataDir && (
 					<div className="mt-2 text-[11px] text-muted-foreground/70">

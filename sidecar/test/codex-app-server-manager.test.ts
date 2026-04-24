@@ -15,6 +15,9 @@ const serverState = {
 	onNotification: null as
 		| null
 		| ((notification: { method: string; params?: unknown }) => void),
+	/** Optional hook tests use to inject extra notifications between
+	 *  `turn/started` and `turn/completed` (e.g. `thread/tokenUsage/updated`). */
+	beforeTurnCompleted: null as null | (() => void),
 };
 const gitAccessState = {
 	directories: [] as string[],
@@ -55,6 +58,7 @@ class MockCodexAppServer {
 					method: "turn/started",
 					params: { turn: { id: "turn-1" } },
 				});
+				serverState.beforeTurnCompleted?.();
 				serverState.onNotification?.({
 					method: "turn/completed",
 					params: { turn: { id: "turn-1" } },
@@ -102,6 +106,7 @@ describe("CodexAppServerManager", () => {
 	beforeEach(() => {
 		serverState.requests = [];
 		serverState.onNotification = null;
+		serverState.beforeTurnCompleted = null;
 		gitAccessState.directories = [];
 		emitter = createSidecarEmitter(() => {});
 	});
@@ -351,5 +356,94 @@ describe("CodexAppServerManager", () => {
 		expect(firstText).toContain("/git/worktree-meta");
 		expect(firstText).toContain("/git/common");
 		expect(firstText).toContain("check repo state");
+	});
+
+	test("normalizes thread/tokenUsage/updated into contextUsageUpdated emit", async () => {
+		const manager = new CodexAppServerManager();
+		const events: Array<Record<string, unknown>> = [];
+		const capturingEmitter = createSidecarEmitter((event) => {
+			events.push(event as Record<string, unknown>);
+		});
+
+		serverState.beforeTurnCompleted = () => {
+			serverState.onNotification?.({
+				method: "thread/tokenUsage/updated",
+				params: {
+					tokenUsage: {
+						total: { totalTokens: 35_000 },
+						last: { totalTokens: 17_500 },
+						modelContextWindow: 400_000,
+					},
+				},
+			});
+		};
+
+		await manager.sendMessage(
+			"REQ-usage",
+			{
+				sessionId: "session-codex-usage",
+				prompt: "hi",
+				model: "gpt-5.4",
+				cwd: "/tmp",
+				resume: undefined,
+				permissionMode: undefined,
+				effortLevel: "medium",
+				fastMode: false,
+			},
+			capturingEmitter,
+		);
+
+		// `last.totalTokens` (not `total.totalTokens`) is the numerator; max
+		// is `modelContextWindow`; percentage is rounded to 2 decimals.
+		const ctxUsage = events.find((e) => e.type === "contextUsageUpdated");
+		expect(ctxUsage).toBeDefined();
+		expect(ctxUsage?.sessionId).toBe("session-codex-usage");
+		expect(ctxUsage?.id).toBe("REQ-usage");
+		const meta = JSON.parse(ctxUsage?.meta as string);
+		expect(meta).toEqual({
+			usedTokens: 17_500,
+			maxTokens: 400_000,
+			percentage: 4.38,
+		});
+	});
+
+	test("skips contextUsageUpdated emit when tokenUsage payload is empty", async () => {
+		const manager = new CodexAppServerManager();
+		const events: Array<Record<string, unknown>> = [];
+		const capturingEmitter = createSidecarEmitter((event) => {
+			events.push(event as Record<string, unknown>);
+		});
+
+		// Zero tokens AND zero window — nothing meaningful to persist.
+		serverState.beforeTurnCompleted = () => {
+			serverState.onNotification?.({
+				method: "thread/tokenUsage/updated",
+				params: {
+					tokenUsage: {
+						last: { totalTokens: 0 },
+						total: { totalTokens: 0 },
+					},
+				},
+			});
+		};
+
+		await manager.sendMessage(
+			"REQ-empty",
+			{
+				sessionId: "session-empty",
+				prompt: "hi",
+				model: "gpt-5.4",
+				cwd: "/tmp",
+				resume: undefined,
+				permissionMode: undefined,
+				effortLevel: "medium",
+				fastMode: false,
+			},
+			capturingEmitter,
+		);
+
+		expect(
+			events.find((e) => e.type === "contextUsageUpdated"),
+		).toBeUndefined();
 	});
 });

@@ -8,7 +8,7 @@ use tauri::{
 };
 
 #[test]
-fn restore_workspace_recreates_worktree_and_context() {
+fn restore_workspace_recreates_worktree() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -22,12 +22,6 @@ fn restore_workspace_recreates_worktree_and_context() {
     assert!(harness.source_repo_root().exists());
     assert!(harness.workspace_dir().join(".git").exists());
     assert!(harness.workspace_dir().join("tracked.txt").exists());
-    assert!(harness.workspace_dir().join(".context/notes.md").exists());
-    assert!(harness
-        .workspace_dir()
-        .join(".context/attachments/evidence.txt")
-        .exists());
-    assert!(!harness.archived_context_dir().exists());
 
     let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
     let state: String = connection
@@ -42,7 +36,7 @@ fn restore_workspace_recreates_worktree_and_context() {
 }
 
 #[test]
-fn archive_workspace_moves_context_and_removes_worktree() {
+fn archive_workspace_removes_worktree() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -53,11 +47,6 @@ fn archive_workspace_moves_context_and_removes_worktree() {
     assert_eq!(response.archived_workspace_id, harness.workspace_id);
     assert_eq!(response.archived_state, WorkspaceState::Archived);
     assert!(!harness.workspace_dir().exists());
-    assert!(harness.archived_context_dir().join("notes.md").exists());
-    assert!(harness
-        .archived_context_dir()
-        .join("attachments/evidence.txt")
-        .exists());
 
     let worktree_list = git_ops::run_git(
         [
@@ -85,14 +74,13 @@ fn archive_workspace_moves_context_and_removes_worktree() {
 }
 
 #[test]
-fn permanently_delete_archived_workspace_removes_db_rows_and_context() {
+fn permanently_delete_archived_workspace_removes_db_rows() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let harness = ArchiveTestHarness::new();
 
     workspaces::archive_workspace_impl(&harness.workspace_id).unwrap();
-    assert!(harness.archived_context_dir().exists());
 
     workspaces::permanently_delete_workspace(&harness.workspace_id).unwrap();
 
@@ -122,7 +110,6 @@ fn permanently_delete_archived_workspace_removes_db_rows_and_context() {
     assert_eq!(workspace_count, 0);
     assert_eq!(session_count, 0);
     assert_eq!(message_count, 0);
-    assert!(!harness.archived_context_dir().exists());
 }
 
 #[test]
@@ -177,7 +164,6 @@ fn prepare_archive_plan_is_read_only() {
     let _plan = workspaces::prepare_archive_plan(&harness.workspace_id).unwrap();
 
     assert!(harness.workspace_dir().exists());
-    assert!(!harness.archived_context_dir().exists());
 
     let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
     let state: String = connection
@@ -333,10 +319,6 @@ fn restore_workspace_fails_when_archive_commit_missing() {
         .unwrap();
     assert_eq!(state, "archived");
     assert!(
-        harness.archived_context_dir().exists(),
-        "Archived context dir should be untouched on bail-out"
-    );
-    assert!(
         !harness.workspace_dir().exists(),
         "Workspace dir should not be materialized when restore bails"
     );
@@ -353,7 +335,6 @@ fn restore_workspace_cleans_up_when_db_update_fails() {
 
     assert!(error.to_string().contains("update workspace restore state"));
     assert!(!harness.workspace_dir().exists());
-    assert!(harness.archived_context_dir().exists());
 }
 
 #[test]
@@ -367,12 +348,6 @@ fn archive_workspace_cleans_up_when_db_update_fails() {
 
     assert!(error.to_string().contains("update workspace archive state"));
     assert!(harness.workspace_dir().exists());
-    assert!(harness.workspace_dir().join(".context/notes.md").exists());
-    assert!(harness
-        .workspace_dir()
-        .join(".context/attachments/evidence.txt")
-        .exists());
-    assert!(!harness.archived_context_dir().exists());
 
     let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
     let state: String = connection

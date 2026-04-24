@@ -197,7 +197,7 @@ fn system_init_skipped_subagent_renders_as_notice() {
         ),
     ];
     let result = convert(&messages);
-    // task_progress now renders as a SystemNotice; init stays silent.
+    // task_progress renders as a SystemNotice; init stays silent.
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].role, MessageRole::System);
     assert!(matches!(
@@ -989,6 +989,26 @@ fn subagent_task_started_renders_as_notice_with_child_id() {
         other => panic!("expected SystemNotice, got {other:?}"),
     }
     assert_eq!(result[0].id.as_deref(), Some("child:task_xyz:sn1"));
+}
+
+#[test]
+fn local_bash_task_events_are_dropped() {
+    // `task_type: local_bash` wraps a single Bash command — the Bash
+    // tool call already renders the command, so dropping the notice
+    // avoids a mislabeled "Subagent started/completed" sibling row.
+    let messages = vec![im(
+        "sn1",
+        "assistant",
+        json!({
+            "type": "system",
+            "subtype": "task_started",
+            "task_type": "local_bash",
+            "tool_use_id": "toolu_bash_1",
+            "description": "cargo test",
+        }),
+    )];
+    let result = convert(&messages);
+    assert!(result.is_empty());
 }
 
 // ---------------------------------------------------------------------------

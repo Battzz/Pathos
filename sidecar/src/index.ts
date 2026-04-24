@@ -19,6 +19,7 @@ import {
 	errorMessage,
 	optionalString,
 	parseElicitationResultContent,
+	parseGetContextUsageParams,
 	parseListSlashCommandsParams,
 	parseProvider,
 	parseRequest,
@@ -240,6 +241,27 @@ async function handleStopSession(
 	}
 }
 
+async function handleGetContextUsage(
+	id: string,
+	params: Record<string, unknown>,
+): Promise<void> {
+	try {
+		const getParams = parseGetContextUsageParams(params);
+		logger.debug(`[${id}] getContextUsage`, {
+			sessionId: getParams.helmorSessionId,
+			providerSessionId: getParams.providerSessionId ?? "(none)",
+			model: getParams.model ?? "(default)",
+			cwd: getParams.cwd ?? "(none)",
+		});
+		const meta = await claudeManager.getContextUsage(getParams);
+		emitter.contextUsageResult(id, meta);
+	} catch (err) {
+		const msg = errorMessage(err);
+		logger.error(`[${id}] getContextUsage FAILED: ${msg}`, errorDetails(err));
+		emitter.error(id, msg);
+	}
+}
+
 async function handleSteerSession(
 	id: string,
 	params: Record<string, unknown>,
@@ -366,6 +388,9 @@ for await (const line of rl) {
 				break;
 			case "listModels":
 				trackHandler(handleListModels(id, params));
+				break;
+			case "getContextUsage":
+				trackHandler(handleGetContextUsage(id, params));
 				break;
 			case "stopSession":
 				await handleStopSession(id, params);

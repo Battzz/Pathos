@@ -248,7 +248,7 @@ pub enum WorkspaceAction {
         #[arg(name = "ref")]
         workspace_ref: String,
     },
-    /// Archive a workspace — removes the worktree, keeps `.context`.
+    /// Archive a workspace — removes the worktree and preserves restore metadata.
     Archive {
         #[arg(name = "ref")]
         workspace_ref: String,

@@ -381,11 +381,7 @@ pub async fn dev_reset_all_data(app: tauri::AppHandle) -> CmdResult<DevResetResu
         // --- Filesystem cleanup (best-effort) ----------------------------
         let mut dirs_removed = Vec::new();
 
-        let dirs_to_clear = [
-            data_dir.join("workspaces"),
-            data_dir.join("archived-contexts"),
-            data_dir.join("paste-cache"),
-        ];
+        let dirs_to_clear = [data_dir.join("workspaces"), data_dir.join("paste-cache")];
 
         for dir in &dirs_to_clear {
             if dir.is_dir() {

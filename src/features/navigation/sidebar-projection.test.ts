@@ -48,8 +48,10 @@ function makeArchivedSummary(id: string): WorkspaceSummary {
 		activeSessionAgentType: null,
 		activeSessionStatus: null,
 		prTitle: null,
+		pinnedAt: null,
 		sessionCount: 0,
 		messageCount: 0,
+		createdAt: "2024-01-01T00:00:00Z",
 	};
 }
 

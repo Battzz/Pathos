@@ -34,6 +34,22 @@ export interface ListSlashCommandsParams {
 }
 
 /**
+ * Ad-hoc context-usage query for the hover popover. `providerSessionId`
+ * is the SDK's own session id (what `resume:` takes) — used when no live
+ * `Query` is held for this helmor session. `model` mirrors the composer's
+ * current selection — required because the window size is model-specific
+ * AND the persisted meta's `model` is compared against it for the
+ * match/tokens-only UX decision. `cwd` is the workspace root so the
+ * spawn loads the right project settings.
+ */
+export interface GetContextUsageParams {
+	readonly helmorSessionId: string;
+	readonly providerSessionId: string | null;
+	readonly model: string;
+	readonly cwd: string | undefined;
+}
+
+/**
  * One slash-command entry exposed to the composer popup. Mirrors the Claude
  * Agent SDK's `SlashCommand` shape so the Claude path is a 1:1 forward, and
  * the Codex path (skill scanner) maps onto the same fields.

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.2
+
+### Patch Changes
+
+- [#215](https://github.com/dohooo/helmor/pull/215) [`561b4de`](https://github.com/dohooo/helmor/commit/561b4de89b9c6e53a3dcbb92a65129af7929437c) Thanks [@natllian](https://github.com/natllian)! - Upgrade the bundled Codex CLI to 0.124.0 so the Codex model picker picks up newer OpenAI models, including GPT-5.5.
+
+- [#210](https://github.com/dohooo/helmor/pull/210) [`d49f63a`](https://github.com/dohooo/helmor/commit/d49f63aee60a8bce61bba7c1ffc501f22c204ef1) Thanks [@natllian](https://github.com/natllian)! - Fix Claude's AskUserQuestion so the answer you pick in the UI actually reaches the assistant when you submit.
+
+- [#211](https://github.com/dohooo/helmor/pull/211) [`92193b5`](https://github.com/dohooo/helmor/commit/92193b5a475dc03b4711bd879c87a3344fbb8076) Thanks [@natllian](https://github.com/natllian)! - Stop rendering mislabeled "Subagent started / completed" rows next to long-running Bash commands — those came from Claude's per-bash lifecycle notices and duplicated the Bash tool call itself.
+
+- [#214](https://github.com/dohooo/helmor/pull/214) [`cebac7b`](https://github.com/dohooo/helmor/commit/cebac7bc3678241ef55d0d9945a4aa3413ca1cbe) Thanks [@natllian](https://github.com/natllian)! - Fix the composer's context-usage ring so it updates immediately after every turn instead of appearing stuck until the user switched sessions or refocused the window.
+
+- [#216](https://github.com/dohooo/helmor/pull/216) [`06e3cdd`](https://github.com/dohooo/helmor/commit/06e3cddd27994511757a90006f88d0219932ed15) Thanks [@natllian](https://github.com/natllian)! - Remove the unused workspace `.context` scaffold and stop preserving it during archive, restore, and import flows.
+
+- [#217](https://github.com/dohooo/helmor/pull/217) [`3f8d37d`](https://github.com/dohooo/helmor/commit/3f8d37d22f2fea497efca0287d5136a8160df45f) Thanks [@natllian](https://github.com/natllian)! - Keep pinned workspaces in the pinned section and place unarchived workspaces directly into their final newest-first position so the sidebar no longer jumps when the list refreshes.
+
 ## 0.6.1
 
 ### Patch Changes

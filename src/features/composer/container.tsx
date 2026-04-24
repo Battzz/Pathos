@@ -740,6 +740,10 @@ export const WorkspaceComposerContainer = memo(
 					<WorkspaceComposer
 						contextKey={composerContextKey}
 						sessionId={displayedSessionId}
+						providerSessionId={currentSession?.providerSessionId ?? null}
+						agentType={
+							effectiveModel?.provider === "codex" ? "codex" : "claude"
+						}
 						alwaysShowContextUsage={settings.alwaysShowContextUsage}
 						onSubmit={handleComposerSubmit}
 						disabled={composerUnavailable}

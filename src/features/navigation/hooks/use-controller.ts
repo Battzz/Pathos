@@ -38,11 +38,18 @@ import {
 } from "@/lib/query-client";
 import { useSettings } from "@/lib/settings";
 import {
+	beginSidebarMutation as gateBeginSidebarMutation,
+	endSidebarMutation as gateEndSidebarMutation,
+	flushSidebarLists as gateFlushSidebarLists,
+	isSidebarMutationInFlight,
+} from "@/lib/sidebar-mutation-gate";
+import {
 	createOptimisticCreatingWorkspaceDetail,
 	describeUnknownError,
 	findInitialWorkspaceId,
 	findReplacementWorkspaceIdAfterRemoval,
 	hasWorkspaceId,
+	insertRowByCreatedAtDesc,
 	rowToWorkspaceSummary,
 	summaryToArchivedRow,
 	workspaceGroupIdFromStatus,
@@ -108,7 +115,6 @@ export function useWorkspacesSidebarController({
 			}
 		>
 	>(() => new Map());
-	const sidebarMutationCountRef = useRef(0);
 	// Live mirror of `selectedWorkspaceId` so async callbacks (Phase 2
 	// finalize catch, archive/restore handlers, etc.) can read the
 	// current selection rather than a stale closure snapshot.
@@ -116,24 +122,16 @@ export function useWorkspacesSidebarController({
 	selectedWorkspaceIdRef.current = selectedWorkspaceId;
 
 	const flushSidebarLists = useCallback(() => {
-		void queryClient.invalidateQueries({
-			queryKey: helmorQueryKeys.workspaceGroups,
-		});
-		void queryClient.invalidateQueries({
-			queryKey: helmorQueryKeys.archivedWorkspaces,
-		});
+		gateFlushSidebarLists(queryClient);
 	}, [queryClient]);
 
 	const beginSidebarMutation = useCallback(() => {
-		sidebarMutationCountRef.current += 1;
+		gateBeginSidebarMutation();
 	}, []);
 
 	const endSidebarMutation = useCallback(() => {
-		sidebarMutationCountRef.current = Math.max(
-			0,
-			sidebarMutationCountRef.current - 1,
-		);
-		if (sidebarMutationCountRef.current === 0) {
+		gateEndSidebarMutation();
+		if (!isSidebarMutationInFlight()) {
 			flushSidebarLists();
 		}
 	}, [flushSidebarLists]);
@@ -476,7 +474,7 @@ export function useWorkspacesSidebarController({
 					queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
 				}),
 			]);
-			if (!opts?.skipSidebarFlush && sidebarMutationCountRef.current === 0) {
+			if (!opts?.skipSidebarFlush && !isSidebarMutationInFlight()) {
 				flushSidebarLists();
 			}
 		},
@@ -600,12 +598,11 @@ export function useWorkspacesSidebarController({
 					pinnedAt: currentlyPinned ? null : new Date().toISOString(),
 				};
 
-				const targetGroupId = currentlyPinned
-					? workspaceGroupIdFromStatus(
-							updatedRow.manualStatus,
-							updatedRow.derivedStatus,
-						)
-					: "pinned";
+				const targetGroupId = workspaceGroupIdFromStatus(
+					updatedRow.manualStatus,
+					updatedRow.derivedStatus,
+					updatedRow.pinnedAt,
+				);
 
 				return withoutRow.map((group) =>
 					group.id === targetGroupId
@@ -1341,12 +1338,19 @@ export function useWorkspacesSidebarController({
 			const targetGroupId = workspaceGroupIdFromStatus(
 				archivedSummary.manualStatus,
 				archivedSummary.derivedStatus,
+				archivedSummary.pinnedAt,
 			);
+			// Sorted insert by createdAt DESC so the row lands where the server
+			// will place it on refetch — avoids the reorder flicker we'd get from
+			// unconditionally prepending.
 			queryClient.setQueryData(helmorQueryKeys.workspaceGroups, (current) =>
 				Array.isArray(current)
 					? (current as typeof groups).map((group) =>
 							group.id === targetGroupId
-								? { ...group, rows: [placeholderRow, ...group.rows] }
+								? {
+										...group,
+										rows: insertRowByCreatedAtDesc(group.rows, placeholderRow),
+									}
 								: group,
 						)
 					: current,
@@ -1497,6 +1501,7 @@ function createPreparedWorkspaceRow(
 		pinnedAt: null,
 		sessionCount: 1,
 		messageCount: 0,
+		createdAt: new Date().toISOString(),
 	};
 }
 

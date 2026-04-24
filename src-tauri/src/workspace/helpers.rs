@@ -3,7 +3,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use std::{
     collections::HashMap,
     fs,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{LazyLock, Mutex},
 };
 
@@ -294,33 +294,6 @@ pub fn copy_symlink(source: &Path, destination: &Path) -> Result<()> {
             destination.display()
         )
     })
-}
-
-// ---- Workspace scaffolding helpers ----
-
-pub fn write_file_if_missing(path: &Path, contents: &str) -> Result<()> {
-    if path.exists() {
-        return Ok(());
-    }
-
-    fs::write(path, contents)
-        .with_context(|| format!("Failed to write scaffold file {}", path.display()))
-}
-
-pub fn create_workspace_context_scaffold(workspace_dir: &Path) -> Result<()> {
-    let context_dir = workspace_dir.join(".context");
-    let attachments_dir = context_dir.join("attachments");
-    fs::create_dir_all(&attachments_dir).with_context(|| {
-        format!(
-            "Failed to create workspace context scaffold under {}",
-            context_dir.display()
-        )
-    })?;
-
-    write_file_if_missing(&context_dir.join("notes.md"), "# Notes\n")?;
-    write_file_if_missing(&context_dir.join("todos.md"), "# Todos\n")?;
-
-    Ok(())
 }
 
 // ---- Branch / directory name helpers ----
@@ -617,19 +590,6 @@ pub fn allocate_directory_name_with_conn(
     }
 
     bail!("Unable to allocate a workspace name")
-}
-
-// ---- Archive helpers ----
-
-pub fn staged_archive_context_dir(archived_context_dir: &Path) -> PathBuf {
-    archived_context_dir.with_file_name(format!(
-        ".{}-restore-staged-{}",
-        archived_context_dir
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("workspace"),
-        uuid::Uuid::new_v4()
-    ))
 }
 
 #[cfg(test)]

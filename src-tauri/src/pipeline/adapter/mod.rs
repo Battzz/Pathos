@@ -501,6 +501,11 @@ fn convert_system_msg(msg: &IntermediateMessage, out: &mut Vec<ThreadMessageLike
             return;
         }
     }
+    if let Some(value) = parsed {
+        if super::event_filter::is_suppressed_local_bash_task(value) {
+            return;
+        }
+    }
     if let Some(part) = build_subagent_notice(sub, parsed, &msg.id) {
         // Mark with `child:<tool_use_id>:<msg_id>` so the parent-grouping
         // pass folds these notices into the corresponding Task tool

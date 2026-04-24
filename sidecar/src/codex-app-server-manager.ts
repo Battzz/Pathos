@@ -13,6 +13,7 @@ import {
 	type JsonRpcNotification,
 	type JsonRpcRequest,
 } from "./codex-app-server.js";
+import { buildCodexStoredMeta } from "./context-usage.js";
 import type { SidecarEmitter } from "./emitter.js";
 import { resolveGitAccessDirectories } from "./git-access.js";
 import { parseImageRefs } from "./images.js";
@@ -338,11 +339,14 @@ export class CodexAppServerManager implements SessionManager {
 					const tokenUsage = deepGet(n.params, "tokenUsage");
 					if (tokenUsage && typeof tokenUsage === "object") {
 						try {
-							emitter.contextUsageUpdated(
-								requestId,
-								sessionId,
-								JSON.stringify(tokenUsage),
-							);
+							const meta = buildCodexStoredMeta(tokenUsage);
+							if (meta) {
+								emitter.contextUsageUpdated(
+									requestId,
+									sessionId,
+									JSON.stringify(meta),
+								);
+							}
 						} catch (err) {
 							logger.debug("contextUsageUpdated emit failed", {
 								sessionId,

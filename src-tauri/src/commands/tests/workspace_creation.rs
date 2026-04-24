@@ -26,9 +26,6 @@ fn create_workspace_from_repo_creates_ready_workspace_and_initial_session() {
 
     let workspace_dir = harness.workspace_dir(&response.directory_name);
     assert!(workspace_dir.join(".git").exists());
-    assert!(workspace_dir.join(".context/notes.md").exists());
-    assert!(workspace_dir.join(".context/todos.md").exists());
-    assert!(workspace_dir.join(".context/attachments").is_dir());
 
     let connection = Connection::open(harness.db_path()).unwrap();
     let (state, branch, initialization_parent_branch, intended_target_branch, active_session_id): (
@@ -261,9 +258,8 @@ fn finalize_workspace_transitions_initializing_to_ready_and_creates_worktree() {
     assert_eq!(finalized.workspace_id, prepared.workspace_id);
     assert_eq!(finalized.final_state, WorkspaceState::Ready);
 
-    // Worktree + scaffold exist after Phase 2.
+    // Worktree exists after Phase 2.
     assert!(workspace_dir.join(".git").exists());
-    assert!(workspace_dir.join(".context/notes.md").exists());
 
     // DB row flipped to ready.
     let connection = Connection::open(harness.db_path()).unwrap();

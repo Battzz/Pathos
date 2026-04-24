@@ -112,6 +112,7 @@ import {
 	type ThemeMode,
 	useSettings,
 } from "./lib/settings";
+import { flushSidebarListsIfIdle } from "./lib/sidebar-mutation-gate";
 import { useOsNotifications } from "./lib/use-os-notifications";
 import {
 	recomputeWorkspaceDetailUnread,
@@ -526,14 +527,14 @@ function AppShell({
 
 		void markSessionRead(sessionId)
 			.then(() => {
-				const invalidations = [
-					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceGroups,
-					}),
-					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.archivedWorkspaces,
-					}),
-				];
+				// Skip sidebar-list invalidations while a sidebar mutation
+				// (archive/restore/create/delete/pin) is in flight: the server
+				// state is mid-transition and a refetch here would overwrite
+				// the optimistic cache with a stale snapshot, bouncing the row
+				// back to its pre-mutation position. The mutation owner flushes
+				// these lists in its own `.finally`.
+				flushSidebarListsIfIdle(queryClient);
+				const invalidations: Promise<void>[] = [];
 				if (workspaceId) {
 					invalidations.push(
 						queryClient.invalidateQueries({
@@ -1400,22 +1401,19 @@ function AppShell({
 			// sidebar workspace dot and the dock badge.
 			if (!isCurrentSession) {
 				void markSessionUnread(sessionId)
-					.then(() =>
-						Promise.all([
-							queryClient.invalidateQueries({
-								queryKey: helmorQueryKeys.workspaceGroups,
-							}),
-							queryClient.invalidateQueries({
-								queryKey: helmorQueryKeys.archivedWorkspaces,
-							}),
+					.then(() => {
+						// Same rationale as the mark-read path — defer the
+						// sidebar-list flush when a mutation owns the cache.
+						flushSidebarListsIfIdle(queryClient);
+						return Promise.all([
 							queryClient.invalidateQueries({
 								queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
 							}),
 							queryClient.invalidateQueries({
 								queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
 							}),
-						]),
-					)
+						]);
+					})
 					.catch((error) => {
 						console.error("[app] mark session unread on completion:", error);
 					});

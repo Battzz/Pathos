@@ -134,7 +134,6 @@ pub struct StreamAccumulator {
     /// `__part_id` indices when the SDK delivers finalized blocks in
     /// separate per-block `assistant` events (delta-style).
     cur_asst_block_count: usize,
-
     // ── Codex state ──────────────────────────────────────────────────
     /// Per-item delta accumulation for Codex App Server streaming.
     codex_items: HashMap<String, codex::CodexItemState>,
@@ -1040,6 +1039,11 @@ impl StreamAccumulator {
             if crate::pipeline::event_filter::is_suppressed_system_subtype(subtype) {
                 return;
             }
+        }
+        // `local_bash` task_* events duplicate the accompanying Bash tool
+        // call — drop before they enter the render / persistence path.
+        if crate::pipeline::event_filter::is_suppressed_local_bash_task(value) {
+            return;
         }
         self.collect_message(raw_line, value, MessageRole::System, None);
     }

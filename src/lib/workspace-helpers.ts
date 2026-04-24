@@ -135,15 +135,18 @@ export function findWorkspaceRowById(
 
 /**
  * Map a workspace's status (manual takes precedence over derived) to the
- * sidebar group id it belongs in. Mirrors `helpers::group_id_from_status`
- * in the Rust backend so that optimistic UI placement matches what the
- * canonical query will return on the next invalidation — no flicker as the
- * row jumps groups when the real data lands.
+ * sidebar group id it belongs in. Mirrors `list_workspace_groups` in the
+ * Rust backend: pinned rows go to the `pinned` group regardless of status,
+ * otherwise status decides. Matching the backend here means optimistic UI
+ * placement lands in the same group the next query invalidation will put
+ * the row into — no cross-group flicker when real data arrives.
  */
 export function workspaceGroupIdFromStatus(
 	manualStatus: string | null | undefined,
 	derivedStatus: string | null | undefined,
-): "done" | "review" | "progress" | "backlog" | "canceled" {
+	pinnedAt?: string | null | undefined,
+): "pinned" | "done" | "review" | "progress" | "backlog" | "canceled" {
+	if (pinnedAt) return "pinned";
 	const raw = (manualStatus ?? derivedStatus ?? "").trim().toLowerCase();
 	switch (raw) {
 		case "done":
@@ -159,6 +162,26 @@ export function workspaceGroupIdFromStatus(
 		default:
 			return "progress";
 	}
+}
+
+/**
+ * Insert `row` into `rows` preserving `createdAt DESC` order (matching the
+ * backend's `ORDER BY datetime(created_at) DESC` for non-archived groups).
+ * Used for optimistic insertions — placing the row in its final spot avoids
+ * the reorder flicker that happens when the refetch returns and re-sorts.
+ *
+ * Rows without a `createdAt` are treated as newest (sort to the front), so
+ * freshly-created workspaces still land at the top as before.
+ */
+export function insertRowByCreatedAtDesc(
+	rows: WorkspaceRow[],
+	row: WorkspaceRow,
+): WorkspaceRow[] {
+	const key = (r: WorkspaceRow): string => r.createdAt ?? "\uFFFF";
+	const incoming = key(row);
+	const index = rows.findIndex((existing) => key(existing) < incoming);
+	if (index === -1) return [...rows, row];
+	return [...rows.slice(0, index), row, ...rows.slice(index)];
 }
 
 export type WorkspaceBranchTone =
@@ -312,8 +335,10 @@ export function summaryToArchivedRow(summary: WorkspaceSummary): WorkspaceRow {
 		activeSessionAgentType: summary.activeSessionAgentType ?? null,
 		activeSessionStatus: summary.activeSessionStatus ?? null,
 		prTitle: summary.prTitle ?? null,
+		pinnedAt: summary.pinnedAt ?? null,
 		sessionCount: summary.sessionCount,
 		messageCount: summary.messageCount,
+		createdAt: summary.createdAt,
 	};
 }
 
@@ -406,8 +431,10 @@ export function rowToWorkspaceSummary(
 		activeSessionAgentType: row.activeSessionAgentType ?? null,
 		activeSessionStatus: row.activeSessionStatus ?? null,
 		prTitle: row.prTitle ?? null,
+		pinnedAt: row.pinnedAt ?? null,
 		sessionCount: row.sessionCount,
 		messageCount: row.messageCount,
+		createdAt: row.createdAt ?? new Date().toISOString(),
 		...overrides,
 	};
 }

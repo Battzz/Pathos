@@ -73,6 +73,9 @@ export type WorkspaceRow = {
 	pinnedAt?: string | null;
 	sessionCount?: number;
 	messageCount?: number;
+	/** ISO-8601 timestamp — present for rows coming from the backend; absent
+	 * for ad-hoc optimistic rows that haven't been given one. */
+	createdAt?: string;
 };
 
 export type WorkspaceGroup = {
@@ -144,8 +147,10 @@ export type WorkspaceSummary = {
 	activeSessionAgentType?: string | null;
 	activeSessionStatus?: string | null;
 	prTitle?: string | null;
+	pinnedAt?: string | null;
 	sessionCount?: number;
 	messageCount?: number;
+	createdAt: string;
 };
 
 export type RepositoryCreateOption = {
@@ -1477,7 +1482,7 @@ export async function prepareWorkspaceFromRepo(
 
 /**
  * Phase 2 of workspace creation. Slow (~200ms-2s): creates the git
- * worktree, scaffolds `.context`, probes `helmor.json`, and flips the
+ * worktree, probes `helmor.json`, and flips the
  * workspace row from `initializing` to `ready` / `setup_pending`. On
  * failure, the workspace row is cleaned up automatically.
  */
@@ -2030,6 +2035,27 @@ export async function getSessionContextUsage(
  *  emitted at least one `account/rateLimits/updated` notification. */
 export async function getCodexRateLimits(): Promise<string | null> {
 	return await invoke<string | null>("get_codex_rate_limits");
+}
+
+/** Live Claude-only context-usage fetch for the hover popover. Pure
+ *  passthrough to the sidecar — no DB read. `model` is required because
+ *  the sidecar stamps it into the returned rich meta (used for the
+ *  model-match check in the ring). Returns slim JSON (never null;
+ *  errors throw). */
+export async function getLiveContextUsage(params: {
+	sessionId: string;
+	providerSessionId: string | null;
+	model: string;
+	cwd: string | null;
+}): Promise<string> {
+	return await invoke<string>("get_live_context_usage", {
+		request: {
+			sessionId: params.sessionId,
+			providerSessionId: params.providerSessionId,
+			model: params.model,
+			cwd: params.cwd,
+		},
+	});
 }
 
 export async function unhideSession(sessionId: string): Promise<void> {

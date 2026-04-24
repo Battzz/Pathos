@@ -13,6 +13,7 @@ import type {
 } from "@/lib/api";
 import { helmorQueryKeys } from "@/lib/query-client";
 import { DEFAULT_SETTINGS, SettingsContext } from "@/lib/settings";
+import { resetSidebarMutationGate } from "@/lib/sidebar-mutation-gate";
 import { useWorkspacesSidebarController } from "./use-controller";
 
 const apiMocks = vi.hoisted(() => {
@@ -170,8 +171,10 @@ function makeArchivedSummary(id: string): WorkspaceSummary {
 		activeSessionAgentType: null,
 		activeSessionStatus: null,
 		prTitle: null,
+		pinnedAt: null,
 		sessionCount: 0,
 		messageCount: 0,
+		createdAt: "2024-01-01T00:00:00Z",
 	};
 }
 
@@ -231,6 +234,7 @@ function createWrapper(queryClient: QueryClient) {
 
 describe("useWorkspacesSidebarController archive flow", () => {
 	beforeEach(() => {
+		resetSidebarMutationGate();
 		vi.clearAllMocks();
 		apiMocks.loadWorkspaceGroups.mockResolvedValue(workspaceGroups);
 		apiMocks.loadArchivedWorkspaces.mockResolvedValue([]);

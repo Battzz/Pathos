@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { AgentModelSection, WorkspaceSessionSummary } from "./api";
+import type {
+	AgentModelSection,
+	WorkspaceRow,
+	WorkspaceSessionSummary,
+} from "./api";
 import {
 	clampEffort,
 	clampEffortToModel,
 	findModelOption,
 	getWorkspaceBranchTone,
 	inferDefaultModelId,
+	insertRowByCreatedAtDesc,
 	isNewSession,
 	resolveSessionDisplayProvider,
 	resolveSessionSelectedModelId,
@@ -149,6 +154,71 @@ describe("workspaceGroupIdFromStatus", () => {
 
 	it("falls back to derived when manual is null", () => {
 		expect(workspaceGroupIdFromStatus(null, "review")).toBe("review");
+	});
+
+	it("routes pinned rows to the pinned group regardless of status", () => {
+		expect(
+			workspaceGroupIdFromStatus("done", "backlog", "2024-01-01T00:00:00Z"),
+		).toBe("pinned");
+	});
+
+	it("ignores a null/empty pinnedAt", () => {
+		expect(workspaceGroupIdFromStatus("done", null, null)).toBe("done");
+		expect(workspaceGroupIdFromStatus("done", null, undefined)).toBe("done");
+	});
+});
+
+describe("insertRowByCreatedAtDesc", () => {
+	const row = (id: string, createdAt?: string): WorkspaceRow => ({
+		id,
+		title: id,
+		...(createdAt ? { createdAt } : {}),
+	});
+
+	it("inserts at the correct position to preserve DESC order", () => {
+		const rows = [
+			row("a", "2024-03-01T00:00:00Z"),
+			row("b", "2024-02-01T00:00:00Z"),
+			row("c", "2024-01-01T00:00:00Z"),
+		];
+		const inserted = insertRowByCreatedAtDesc(
+			rows,
+			row("new", "2024-02-15T00:00:00Z"),
+		);
+		expect(inserted.map((r) => r.id)).toEqual(["a", "new", "b", "c"]);
+	});
+
+	it("appends when new row is the oldest", () => {
+		const rows = [
+			row("a", "2024-03-01T00:00:00Z"),
+			row("b", "2024-02-01T00:00:00Z"),
+		];
+		const inserted = insertRowByCreatedAtDesc(
+			rows,
+			row("new", "2023-01-01T00:00:00Z"),
+		);
+		expect(inserted.map((r) => r.id)).toEqual(["a", "b", "new"]);
+	});
+
+	it("prepends when new row is the newest", () => {
+		const rows = [
+			row("a", "2024-03-01T00:00:00Z"),
+			row("b", "2024-02-01T00:00:00Z"),
+		];
+		const inserted = insertRowByCreatedAtDesc(
+			rows,
+			row("new", "2025-01-01T00:00:00Z"),
+		);
+		expect(inserted.map((r) => r.id)).toEqual(["new", "a", "b"]);
+	});
+
+	it("treats a missing createdAt as newest", () => {
+		const rows = [
+			row("a", "2024-03-01T00:00:00Z"),
+			row("b", "2024-02-01T00:00:00Z"),
+		];
+		const inserted = insertRowByCreatedAtDesc(rows, row("new"));
+		expect(inserted.map((r) => r.id)).toEqual(["new", "a", "b"]);
 	});
 });
 
