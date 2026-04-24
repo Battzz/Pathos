@@ -214,6 +214,10 @@ impl ArchiveTestHarness {
         self.root.join("source-repo")
     }
 
+    pub(crate) fn archived_context_dir(&self) -> PathBuf {
+        self.root.join("archived-contexts").join(&self.workspace_id)
+    }
+
     pub(crate) fn set_state(&self, state: &str) {
         let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
         connection

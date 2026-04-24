@@ -1,4 +1,5 @@
 use super::support::*;
+use crate::error::ErrorCode;
 use crate::workspace_state::WorkspaceState;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -101,7 +102,76 @@ fn archive_workspace_removes_worktree() {
 }
 
 #[test]
-fn permanently_delete_archived_workspace_removes_db_rows() {
+fn archive_workspace_fails_cleanly_when_repo_root_is_missing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = ArchiveTestHarness::new();
+
+    fs::remove_dir_all(harness.source_repo_root()).unwrap();
+
+    let error = workspaces::archive_workspace_impl(&harness.workspace_id).unwrap_err();
+    assert_eq!(
+        crate::error::extract_code(&error),
+        ErrorCode::WorkspaceBroken
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("Archive source repository is missing"),
+        "Expected a clear missing-repo error, got: {error:#}"
+    );
+    assert!(harness.workspace_dir().exists());
+    assert!(!harness.archived_context_dir().exists());
+
+    let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
+    let state: String = connection
+        .query_row(
+            "SELECT state FROM workspaces WHERE id = ?1",
+            [&harness.workspace_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(state, "ready");
+}
+
+#[test]
+fn archive_execute_plan_fails_cleanly_when_repo_root_is_deleted_after_prepare() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = ArchiveTestHarness::new();
+
+    let plan = workspaces::prepare_archive_plan(&harness.workspace_id).unwrap();
+    fs::remove_dir_all(harness.source_repo_root()).unwrap();
+
+    let error = crate::workspace::lifecycle::execute_archive_plan(&plan).unwrap_err();
+    assert_eq!(
+        crate::error::extract_code(&error),
+        ErrorCode::WorkspaceBroken
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("Archive source repository is missing"),
+        "Expected a clear missing-repo error, got: {error:#}"
+    );
+    assert!(harness.workspace_dir().exists());
+    assert!(!harness.archived_context_dir().exists());
+
+    let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
+    let state: String = connection
+        .query_row(
+            "SELECT state FROM workspaces WHERE id = ?1",
+            [&harness.workspace_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(state, "ready");
+}
+
+#[test]
+fn permanently_delete_archived_workspace_removes_db_rows_and_context() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());

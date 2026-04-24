@@ -479,6 +479,13 @@ pub fn prepare_archive_plan(workspace_id: &str) -> Result<ArchivePreparedPlan> {
     let branch = helpers::non_empty(&record.branch)
         .map(ToOwned::to_owned)
         .with_context(|| format!("Workspace {workspace_id} is missing branch"))?;
+    if !repo_root.is_dir() {
+        bail_coded!(
+            ErrorCode::WorkspaceBroken,
+            "Archive source repository is missing at {}",
+            repo_root.display()
+        );
+    }
 
     let workspace_dir = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
     if !workspace_dir.is_dir() {
@@ -517,6 +524,13 @@ pub fn execute_archive_plan(plan: &ArchivePreparedPlan) -> Result<ArchiveWorkspa
     let workspace_dir = &plan.workspace_dir;
     let workspace_id = &plan.workspace_id;
     let timing = std::time::Instant::now();
+    if !repo_root.is_dir() {
+        bail_coded!(
+            ErrorCode::WorkspaceBroken,
+            "Archive source repository is missing at {}",
+            repo_root.display()
+        );
+    }
     let git_started = std::time::Instant::now();
     let archive_commit = git_ops::current_workspace_head_commit(workspace_dir)?;
     git_ops::verify_commit_exists(repo_root, &archive_commit)?;
