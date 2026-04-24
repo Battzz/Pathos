@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.0
+
+### Minor Changes
+
+- [#235](https://github.com/dohooo/helmor/pull/235) [`0bca4a5`](https://github.com/dohooo/helmor/commit/0bca4a55ea2aa27c9d6146201d1aa80fa97cf7d2) Thanks [@natllian](https://github.com/natllian)! - Add GitLab support across workspace forge workflows:
+
+  - Detect GitLab remotes and show merge request status, checks, pipelines, reviews, and actions alongside existing GitHub pull request workflows.
+  - Add GitLab CLI onboarding for installing and connecting `glab`, including authenticated status refresh after setup.
+  - Update commit, inspector, and settings surfaces to use provider-aware GitHub/GitLab labels and actions.
+
+- [#204](https://github.com/dohooo/helmor/pull/204) [`f5c5643`](https://github.com/dohooo/helmor/commit/f5c56436017f4b53cb321392fa43f3664224f6f7) Thanks [@gxxgcn](https://github.com/gxxgcn)! - Surface downloaded app updates as a sidebar/header button so users can install them directly from the app.
+
+- [#213](https://github.com/dohooo/helmor/pull/213) [`a388af8`](https://github.com/dohooo/helmor/commit/a388af8e4d4a7deb8e50999451462aafbfca48e0) Thanks [@gxxgcn](https://github.com/gxxgcn)! - Add Open in Finder actions for workspaces so you can reveal a workspace directly from the sidebar context menu or the workspace header menu.
+
+- [#233](https://github.com/dohooo/helmor/pull/233) [`e43bdde`](https://github.com/dohooo/helmor/commit/e43bdde479d27041868e7848dc669b4e40ce0744) Thanks [@natllian](https://github.com/natllian)! - Add first-class Codex image output support in chat:
+  - Render Codex-generated images inline in assistant messages.
+  - Store generated images as managed files instead of large base64 payloads in the session database.
+  - Add a chat image context menu for copying images and revealing generated image files in Finder.
+
+### Patch Changes
+
+- [#208](https://github.com/dohooo/helmor/pull/208) [`043d5ee`](https://github.com/dohooo/helmor/commit/043d5ee6579d946f25670cab92a334d7e6596d56) Thanks [@gxxgcn](https://github.com/gxxgcn)! - Keep the GitHub identity gate drag region above surrounding content so the window title bar stays draggable.
+
+- [#209](https://github.com/dohooo/helmor/pull/209) [`0f5b56d`](https://github.com/dohooo/helmor/commit/0f5b56d4837b7520a14a478040195e97ed03454d) Thanks [@gxxgcn](https://github.com/gxxgcn)! - Stop Helmor's embedded Codex app-server from inheriting global native notification hooks that can crash new Codex chats on some macOS setups.
+
+- [#207](https://github.com/dohooo/helmor/pull/207) [`a01f0d9`](https://github.com/dohooo/helmor/commit/a01f0d9b389028e686ac089bb8ca9696f3bb6e2c) Thanks [@gxxgcn](https://github.com/gxxgcn)! - Fail workspace archive cleanly when the source repository is missing, instead of leaving the archive flow half-finished.
+
+- [#230](https://github.com/dohooo/helmor/pull/230) [`52a07ce`](https://github.com/dohooo/helmor/commit/52a07ceb4983ebed56c6194d14dd89d681bde21b) Thanks [@natllian](https://github.com/natllian)! - Fix Claude context usage so Helmor uses the latest per-message SDK token totals instead of inflated cumulative usage when updating the composer meter.
+
+- [#234](https://github.com/dohooo/helmor/pull/234) [`b63e1ab`](https://github.com/dohooo/helmor/commit/b63e1ab41bfcf8b3eb4cd6b1d53e1c8ac7f0942a) Thanks [@natllian](https://github.com/natllian)! - Make Create PR and conflict-resolution agent actions use the workspace target branch explicitly instead of relying on repository default branch assumptions.
+
 ## 0.6.3
 
 ### Patch Changes
