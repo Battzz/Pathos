@@ -39,6 +39,7 @@ use grouping::{
 use labels::{
     build_error_label, build_rate_limit_notice, build_result_label, build_subagent_notice,
     build_system_label, build_system_notice, extract_fallback, make_system, make_system_notice,
+    make_turn_result_system,
 };
 
 use super::types::{
@@ -104,7 +105,7 @@ fn convert_flat(messages: &[IntermediateMessage]) -> Vec<ThreadMessageLike> {
         if msg_type == Some("result") {
             let label = build_result_label(parsed);
             if !label.is_empty() {
-                result.push(make_system(msg, &label));
+                result.push(make_turn_result_system(msg, &label));
             }
             i += 1;
             continue;
@@ -318,7 +319,7 @@ fn convert_flat(messages: &[IntermediateMessage]) -> Vec<ThreadMessageLike> {
         if matches!(msg_type, Some("turn/completed") | Some("turn.completed")) {
             let label = build_result_label(parsed);
             if !label.is_empty() {
-                result.push(make_system(msg, &label));
+                result.push(make_turn_result_system(msg, &label));
             }
             i += 1;
             continue;

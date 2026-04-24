@@ -26,6 +26,23 @@ pub(super) fn make_system(msg: &IntermediateMessage, text: &str) -> ThreadMessag
     }
 }
 
+/// Turn-end system row (Claude `result` / Codex `turn.completed`).
+/// Tagged with a `:turn-result` part id so the frontend can single it out
+/// as the only system row that renders a timestamp.
+pub(super) fn make_turn_result_system(msg: &IntermediateMessage, text: &str) -> ThreadMessageLike {
+    ThreadMessageLike {
+        role: MessageRole::System,
+        id: Some(msg.id.clone()),
+        created_at: Some(msg.created_at.clone()),
+        content: vec![ExtendedMessagePart::Basic(MessagePart::Text {
+            id: format!("{}:turn-result", msg.id),
+            text: text.to_string(),
+        })],
+        status: None,
+        streaming: None,
+    }
+}
+
 pub(super) fn make_system_notice(
     msg: &IntermediateMessage,
     part: MessagePart,
