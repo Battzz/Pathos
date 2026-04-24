@@ -121,13 +121,11 @@ function MessageTimestamp({ createdAt }: { createdAt?: string }) {
 	);
 }
 
+// Only the turn-end row (Claude `result` / Codex `turn.completed`) gets a
+// timestamp — the adapter tags its text part id with `:turn-result`.
 function shouldShowTimestamp(parts: MessagePart[]) {
-	const compactNoticeLabels = new Set([
-		"Compacting context",
-		"Context compacted",
-	]);
-	return !parts.some(
-		(part) => isSystemNoticePart(part) && compactNoticeLabels.has(part.label),
+	return parts.some(
+		(part) => isTextPart(part) && part.id.endsWith(":turn-result"),
 	);
 }
 
