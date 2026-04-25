@@ -27,14 +27,19 @@ export function IntroPreview({
 					src={helmorLogoSrc}
 					alt="Helmor"
 					draggable={false}
-					className="size-12 rounded-[9px] opacity-95"
+					className="size-16 rounded-[11px] opacity-95"
 				/>
-				<h1 className="mt-8 max-w-[13ch] text-5xl font-semibold leading-[0.98] tracking-normal text-foreground max-lg:text-4xl">
-					Welcome to Helmor
+				<h1 className="mt-8 text-5xl font-semibold leading-[1.1] tracking-normal max-lg:text-4xl">
+					<span className="block text-muted-foreground">AI made</span>
+					<span className="block text-muted-foreground">coding faster.</span>
+					<span className="mt-4 block text-foreground">Helmor is about</span>
+					<span className="block text-foreground">finishing the</span>
+					<span className="block text-foreground">rest of the loop.</span>
 				</h1>
-				<p className="mt-5 max-w-md text-base leading-7 text-muted-foreground">
-					A local-first workspace for running agents, reviewing work, and
-					keeping project context close.
+				<p className="mt-10 max-w-md text-base leading-7 text-muted-foreground">
+					An open-source local workbench for multi-agent software development.
+					Built for orchestration, review, testing, merge, and everything around
+					the code.
 				</p>
 
 				<Button
@@ -77,7 +82,7 @@ export function IntroPreview({
 				<div
 					className={`relative w-full max-w-[760px] overflow-hidden rounded-lg border border-border/70 bg-card shadow-2xl shadow-black/35 transition-transform duration-1000 ease-[cubic-bezier(.22,.82,.2,1)] ${
 						step === "intro"
-							? "scale-[1.1]"
+							? "scale-100"
 							: step === "skills"
 								? "scale-[1.72]"
 								: step === "repoImport"
