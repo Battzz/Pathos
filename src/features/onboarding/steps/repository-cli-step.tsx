@@ -15,7 +15,7 @@ export function RepositoryCliStep({
 		<section
 			aria-label="Repository CLI setup"
 			aria-hidden={step !== "corner"}
-			className={`absolute right-14 top-24 z-30 w-full max-w-[980px] transition-all duration-1000 ease-[cubic-bezier(.22,.82,.2,1)] ${
+			className={`absolute top-20 right-20 z-30 w-[560px] transition-all duration-1000 ease-[cubic-bezier(.22,.82,.2,1)] ${
 				step === "skills"
 					? "pointer-events-none translate-x-[118vw] -translate-y-[55vh] opacity-100"
 					: step === "corner"
@@ -23,28 +23,16 @@ export function RepositoryCliStep({
 						: "pointer-events-none translate-x-[64vw] -translate-y-[108vh] opacity-100"
 			}`}
 		>
-			<div className="flex items-start gap-8">
-				<div className="w-[360px] shrink-0">
-					<h2 className="max-w-[11ch] text-4xl font-semibold leading-[1.02] tracking-normal text-foreground">
-						Set up repository CLIs
-					</h2>
-					<p className="mt-4 max-w-md text-sm leading-6 text-muted-foreground">
-						Install and authenticate your GitHub or GitLab CLI so Helmor can
-						open pull requests and keep repository actions local.
-					</p>
+			<div className="flex flex-col items-start">
+				<h2 className="max-w-none text-4xl font-semibold leading-[1.02] tracking-normal text-foreground whitespace-nowrap">
+					Set up repository CLIs
+				</h2>
+				<p className="mt-4 max-w-md text-sm leading-6 text-muted-foreground">
+					Install and authenticate your GitHub or GitLab CLI so Helmor can open
+					pull requests and keep repository actions local.
+				</p>
 
-					<Button
-						type="button"
-						size="lg"
-						onClick={onNext}
-						className="mt-7 h-11 gap-2 px-4 text-[0.95rem]"
-					>
-						Next
-						<ArrowRight data-icon="inline-end" className="size-4" />
-					</Button>
-				</div>
-
-				<div className="grid min-w-0 flex-1 gap-3">
+				<div className="mt-7 grid w-full gap-3">
 					<SetupItem
 						icon={<MarkGithubIcon size={20} />}
 						label="GitHub CLI"
@@ -56,6 +44,16 @@ export function RepositoryCliStep({
 						description="Run glab auth login to connect GitLab locally."
 					/>
 				</div>
+
+				<Button
+					type="button"
+					size="lg"
+					onClick={onNext}
+					className="mt-7 h-11 gap-2 px-4 text-[0.95rem]"
+				>
+					Next
+					<ArrowRight data-icon="inline-end" className="size-4" />
+				</Button>
 			</div>
 		</section>
 	);
