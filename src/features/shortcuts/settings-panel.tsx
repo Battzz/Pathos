@@ -1,4 +1,4 @@
-import { CircleAlert, Search } from "lucide-react";
+import { CircleAlert, RotateCcw, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	ContextMenu,
@@ -169,6 +169,17 @@ function ShortcutRow({
 }: ShortcutRowProps) {
 	const shortcutButtonRef = useRef<HTMLButtonElement | null>(null);
 	const hasConflict = conflicts.length > 0;
+	const isCustomized = Object.hasOwn(overrides, definition.id);
+	const [menuOpen, setMenuOpen] = useState(false);
+	const handleReset = () => {
+		onChange(
+			updateShortcutOverride(
+				overrides,
+				definition.id,
+				definition.defaultHotkey,
+			),
+		);
+	};
 
 	useEffect(() => {
 		if (!isRecording) return;
@@ -239,50 +250,78 @@ function ShortcutRow({
 
 	return (
 		<div className={cn("py-1", !isLastInGroup && "border-b border-border/40")}>
-			<div
-				className={cn(
-					"group flex items-center justify-between gap-3 rounded-xl px-2 py-2 transition-colors",
-					hasConflict
-						? "bg-destructive/10"
-						: isRecording
-							? "bg-primary/[0.06]"
-							: undefined,
-				)}
-			>
-				<div className="min-w-0">
-					<div className="truncate text-[13px] font-medium leading-snug text-foreground">
-						{definition.title}
-					</div>
-					{definition.description ? (
-						<div className="mt-1 text-[11px] text-muted-foreground">
-							{definition.description}
+			<ContextMenu onOpenChange={setMenuOpen}>
+				<ContextMenuTrigger asChild>
+					<div
+						className={cn(
+							"group flex items-center justify-between gap-3 rounded-xl px-2 py-2 transition-[background-color,box-shadow]",
+							hasConflict
+								? "bg-destructive/10"
+								: isRecording
+									? "bg-primary/[0.06]"
+									: undefined,
+							menuOpen && "ring-1 ring-border",
+						)}
+						onContextMenu={(event) => {
+							if (isRecording) {
+								event.preventDefault();
+							}
+						}}
+					>
+						<div className="min-w-0">
+							<div className="truncate text-[13px] font-medium leading-snug text-foreground">
+								{definition.title}
+							</div>
+							{definition.description ? (
+								<div className="mt-1 text-[11px] text-muted-foreground">
+									{definition.description}
+								</div>
+							) : null}
 						</div>
-					) : null}
-				</div>
 
-				<div className="flex shrink-0 items-center gap-3">
-					{hasConflict ? (
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<button
-									type="button"
-									aria-label="Shortcut conflict"
-									className="cursor-default text-destructive"
-								>
-									<CircleAlert className="size-4" strokeWidth={2.2} />
-								</button>
-							</TooltipTrigger>
-							<TooltipContent
-								side="top"
-								className="max-w-xs whitespace-normal text-[11px] leading-snug"
-							>
-								Already used by{" "}
-								{conflicts.map((conflict) => `"${conflict.title}"`).join(", ")}
-							</TooltipContent>
-						</Tooltip>
-					) : null}
-					<ContextMenu>
-						<ContextMenuTrigger asChild>
+						<div className="flex shrink-0 items-center gap-2">
+							{hasConflict ? (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<button
+											type="button"
+											aria-label="Shortcut conflict"
+											className="cursor-default text-destructive"
+										>
+											<CircleAlert className="size-4" strokeWidth={2.2} />
+										</button>
+									</TooltipTrigger>
+									<TooltipContent
+										side="top"
+										className="max-w-xs whitespace-normal text-[11px] leading-snug"
+									>
+										Already used by{" "}
+										{conflicts
+											.map((conflict) => `"${conflict.title}"`)
+											.join(", ")}
+									</TooltipContent>
+								</Tooltip>
+							) : null}
+							{isCustomized ? (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<button
+											type="button"
+											aria-label="Reset to default"
+											className="inline-flex size-[18px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-border"
+											onClick={handleReset}
+										>
+											<RotateCcw className="size-[11px]" strokeWidth={2} />
+										</button>
+									</TooltipTrigger>
+									<TooltipContent
+										side="top"
+										className="text-[11px] leading-snug"
+									>
+										Reset to default
+									</TooltipContent>
+								</Tooltip>
+							) : null}
 							<button
 								ref={shortcutButtonRef}
 								type="button"
@@ -294,11 +333,6 @@ function ShortcutRow({
 								)}
 								onClick={() => {
 									onRecordingChange(true);
-								}}
-								onContextMenu={(event) => {
-									if (isRecording) {
-										event.preventDefault();
-									}
 								}}
 							>
 								{hotkey ? (
@@ -312,36 +346,23 @@ function ShortcutRow({
 									</span>
 								)}
 							</button>
-						</ContextMenuTrigger>
-						<ContextMenuContent className="min-w-[11.5rem]">
-							<ContextMenuItem
-								className="px-2"
-								onSelect={() =>
-									onChange(
-										updateShortcutOverride(overrides, definition.id, null),
-									)
-								}
-							>
-								Remove Shortcut
-							</ContextMenuItem>
-							<ContextMenuItem
-								className="px-2"
-								onSelect={() =>
-									onChange(
-										updateShortcutOverride(
-											overrides,
-											definition.id,
-											definition.defaultHotkey,
-										),
-									)
-								}
-							>
-								Reset Shortcut to Default
-							</ContextMenuItem>
-						</ContextMenuContent>
-					</ContextMenu>
-				</div>
-			</div>
+						</div>
+					</div>
+				</ContextMenuTrigger>
+				<ContextMenuContent className="min-w-[11.5rem]">
+					<ContextMenuItem
+						className="px-2"
+						onSelect={() =>
+							onChange(updateShortcutOverride(overrides, definition.id, null))
+						}
+					>
+						Remove Shortcut
+					</ContextMenuItem>
+					<ContextMenuItem className="px-2" onSelect={handleReset}>
+						Reset Shortcut to Default
+					</ContextMenuItem>
+				</ContextMenuContent>
+			</ContextMenu>
 		</div>
 	);
 }

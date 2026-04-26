@@ -14,7 +14,7 @@ describe("shortcut registry", () => {
 	});
 
 	it("resolves defaults, overrides, and disabled shortcuts", () => {
-		expect(getShortcut({}, "workspace.previous")).toBe("Alt+H");
+		expect(getShortcut({}, "workspace.previous")).toBe("Mod+Alt+ArrowUp");
 		expect(
 			getShortcut({ "workspace.previous": "Mod+A" }, "workspace.previous"),
 		).toBe("Mod+A");
@@ -28,7 +28,7 @@ describe("shortcut registry", () => {
 			updateShortcutOverride(
 				{ "workspace.previous": "Mod+A" },
 				"workspace.previous",
-				"Alt+H",
+				"Mod+Alt+ArrowUp",
 			),
 		).not.toHaveProperty("workspace.previous");
 	});
@@ -45,7 +45,7 @@ describe("shortcut registry", () => {
 			findShortcutConflict(
 				{ "workspace.previous": null },
 				"session.previous",
-				"Alt+K",
+				"Mod+Alt+ArrowLeft",
 			),
 		).toBeNull();
 	});

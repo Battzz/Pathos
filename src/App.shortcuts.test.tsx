@@ -352,13 +352,22 @@ function expectSelectedWorkspace(title: string) {
 	);
 }
 
+const NAV_ARROW_BY_LEGACY_KEY = {
+	h: "ArrowUp", // workspace.previous
+	l: "ArrowDown", // workspace.next
+	k: "ArrowLeft", // session.previous
+	j: "ArrowRight", // session.next
+} as const;
+
 function pressGlobalShortcut(
 	key: "h" | "j" | "k" | "l",
 	options?: Parameters<typeof fireEvent.keyDown>[1],
 ) {
+	const arrow = NAV_ARROW_BY_LEGACY_KEY[key];
 	fireEvent.keyDown(window, {
-		key,
-		code: `Key${key.toUpperCase()}`,
+		key: arrow,
+		code: arrow,
+		metaKey: true,
 		altKey: true,
 		...options,
 	});
@@ -553,7 +562,7 @@ describe("App global navigation shortcuts", () => {
 		cleanup();
 	});
 
-	it("selects the next session on Option+J", async () => {
+	it("selects the next session on Option+Command+Right", async () => {
 		await renderAppReady();
 
 		pressGlobalShortcut("j");
@@ -653,7 +662,7 @@ describe("App global navigation shortcuts", () => {
 		await screen.findByRole("menuitem", { name: /Open project/i });
 	});
 
-	it("does not wrap session navigation on Option+K from the first session", async () => {
+	it("does not wrap session navigation on Option+Command+Left from the first session", async () => {
 		await renderAppReady();
 
 		pressGlobalShortcut("k");
@@ -667,7 +676,7 @@ describe("App global navigation shortcuts", () => {
 		);
 	});
 
-	it("selects the next workspace on Option+L using sidebar order", async () => {
+	it("selects the next workspace on Option+Command+Down using sidebar order", async () => {
 		await renderAppReady();
 
 		pressGlobalShortcut("l");
@@ -678,7 +687,7 @@ describe("App global navigation shortcuts", () => {
 		});
 	});
 
-	it("does not wrap workspace navigation on Option+H from the first workspace", async () => {
+	it("does not wrap workspace navigation on Option+Command+Up from the first workspace", async () => {
 		await renderAppReady();
 
 		pressGlobalShortcut("h");
@@ -742,8 +751,9 @@ describe("App global navigation shortcuts", () => {
 		expect(composerInput).toHaveFocus();
 
 		fireEvent.keyDown(composerInput, {
-			key: "j",
-			code: "KeyJ",
+			key: "ArrowRight",
+			code: "ArrowRight",
+			metaKey: true,
 			altKey: true,
 		});
 
@@ -762,8 +772,9 @@ describe("App global navigation shortcuts", () => {
 		expect(repositoryPicker).toHaveFocus();
 
 		fireEvent.keyDown(repositoryPicker, {
-			key: "l",
-			code: "KeyL",
+			key: "ArrowDown",
+			code: "ArrowDown",
+			metaKey: true,
 			altKey: true,
 		});
 
