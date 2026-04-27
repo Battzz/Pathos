@@ -292,8 +292,6 @@ export function GitSectionHeader({
 								</span>
 							</Button>
 						);
-						const tooltipText = changeRequest.title?.trim();
-						if (!tooltipText && !openChangeRequestShortcut) return button;
 						const openLabel = isMergeRequest
 							? "Open merge request"
 							: "Open pull request";
@@ -304,7 +302,7 @@ export function GitSectionHeader({
 									side="bottom"
 									className="flex max-w-[320px] items-center gap-2 rounded-md px-2 py-1 text-[12px] leading-tight"
 								>
-									<span className="truncate">{tooltipText || openLabel}</span>
+									<span className="truncate">{openLabel}</span>
 									{openChangeRequestShortcut ? (
 										<InlineShortcutDisplay hotkey={openChangeRequestShortcut} />
 									) : null}
