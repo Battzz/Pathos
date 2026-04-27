@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.9.1
+
+### Patch Changes
+
+- [#257](https://github.com/dohooo/helmor/pull/257) [`33c056b`](https://github.com/dohooo/helmor/commit/33c056b18c943ee01fcf3fea683263b778f75678) Thanks [@natllian](https://github.com/natllian)! - Make the inspector's PR header feel instant on workspace switch:
+
+  - Render the PR badge from the persisted snapshot the moment a workspace opens, before the live forge query returns — no more shimmer flash on cold start.
+  - Stop the shimmer from flashing on background PR refreshes; it now only appears on the very first fetch for a workspace.
+  - Hover the PR badge to see the PR title in a tooltip.
+  - The sidebar workspace name now reflects the live PR title once a PR has been opened.
+
+- [#250](https://github.com/dohooo/helmor/pull/250) [`ddeb6e4`](https://github.com/dohooo/helmor/commit/ddeb6e4ebd82ee35f099312eadbf3d8492a343cd) Thanks [@natllian](https://github.com/natllian)! - Fix a one-frame white flash when toggling the composer's Plan button — the muted off-state now fades smoothly to and from the green on-state instead of briefly brightening at the start of the animation.
+
+- [#255](https://github.com/dohooo/helmor/pull/255) [`1d22cbb`](https://github.com/dohooo/helmor/commit/1d22cbb89bdf4e30a215ae484ceeeed5e0b57986) Thanks [@natllian](https://github.com/natllian)! - Show thinking blocks in full instead of clipping them to an inner scroll container, so scrolling the chat thread no longer gets stuck when the cursor passes over a thinking block.
+
+- [#256](https://github.com/dohooo/helmor/pull/256) [`75993c2`](https://github.com/dohooo/helmor/commit/75993c2548ef90b6fc14352df8a9f6cc7325ee53) Thanks [@natllian](https://github.com/natllian)! - Make switching into large sessions snappier and reduce database contention during heavy streaming.
+
+- [#254](https://github.com/dohooo/helmor/pull/254) [`7a229a8`](https://github.com/dohooo/helmor/commit/7a229a88d49e38237924a2a65b5002f3ab285b38) Thanks [@natllian](https://github.com/natllian)! - Make in-app updates land faster and feel more transparent
+
+- [#253](https://github.com/dohooo/helmor/pull/253) [`a804bb2`](https://github.com/dohooo/helmor/commit/a804bb2ff8a088cdafbbf4ac8b98b649ecd13e7e) Thanks [@natllian](https://github.com/natllian)! - Polish the keyboard shortcut settings:
+  - Right-click anywhere on a shortcut row to open its menu, not just the keybinding chip, and the row picks up a subtle border highlight while the menu is open.
+  - Customized shortcuts now show a small reset button next to the chip so a single click reverts that shortcut to its default.
+  - Change the default Navigation shortcuts to Option+Command+Up/Down for previous/next workspace and Option+Command+Left/Right for previous/next session (replacing Option+H/L and Option+K/J).
+
 ## 0.9.0
 
 ### Minor Changes
