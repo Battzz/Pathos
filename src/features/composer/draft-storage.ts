@@ -35,13 +35,11 @@ export function savePersistedDraft(
 		return;
 	}
 
+	const key = getComposerDraftStorageKey(contextKey);
 	try {
-		window.localStorage.setItem(
-			getComposerDraftStorageKey(contextKey),
-			JSON.stringify(editorState),
-		);
-	} catch {
-		// ignore
+		window.localStorage.setItem(key, JSON.stringify(editorState));
+	} catch (error) {
+		console.error(`[helmor] composer draft save failed for "${key}"`, error);
 	}
 }
 
@@ -50,9 +48,10 @@ export function clearPersistedDraft(contextKey: string): void {
 		return;
 	}
 
+	const key = getComposerDraftStorageKey(contextKey);
 	try {
-		window.localStorage.removeItem(getComposerDraftStorageKey(contextKey));
-	} catch {
-		// ignore
+		window.localStorage.removeItem(key);
+	} catch (error) {
+		console.error(`[helmor] composer draft clear failed for "${key}"`, error);
 	}
 }

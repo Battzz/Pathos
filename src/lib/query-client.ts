@@ -149,8 +149,32 @@ export function createHelmorQueryClient() {
 	});
 }
 
+// Surface persister write failures (quota exceeded, security errors) instead
+// of letting them silently disable persistence.
+const loggingLocalStorage: Storage = {
+	get length() {
+		return window.localStorage.length;
+	},
+	clear: () => window.localStorage.clear(),
+	getItem: (k) => window.localStorage.getItem(k),
+	key: (i) => window.localStorage.key(i),
+	removeItem: (k) => window.localStorage.removeItem(k),
+	setItem: (k, v) => {
+		try {
+			window.localStorage.setItem(k, v);
+		} catch (error) {
+			const sizeKb = (v.length / 1024).toFixed(1);
+			console.error(
+				`[helmor] localStorage.setItem failed for "${k}" (${sizeKb} KB)`,
+				error,
+			);
+			throw error;
+		}
+	},
+};
+
 export const helmorQueryPersister = createAsyncStoragePersister({
-	storage: window.localStorage,
+	storage: loggingLocalStorage,
 	key: "helmor-query-cache",
 });
 

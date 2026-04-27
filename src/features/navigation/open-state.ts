@@ -43,5 +43,10 @@ export function writeStoredSectionOpenState(state: Record<string, boolean>) {
 			SECTION_OPEN_STATE_STORAGE_KEY,
 			JSON.stringify(state),
 		);
-	} catch {}
+	} catch (error) {
+		console.error(
+			`[helmor] sidebar section state save failed for "${SECTION_OPEN_STATE_STORAGE_KEY}"`,
+			error,
+		);
+	}
 }

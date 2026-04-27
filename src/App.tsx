@@ -241,6 +241,12 @@ function MainApp() {
 							) {
 								return false;
 							}
+							if (
+								key[0] === "workspaceChanges" ||
+								key[0] === "workspaceFiles"
+							) {
+								return false;
+							}
 							return query.state.status === "success";
 						},
 					},

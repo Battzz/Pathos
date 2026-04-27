@@ -32,6 +32,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { clearPersistedDraft } from "@/features/composer/draft-storage";
 import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import {
 	type AgentProvider,
@@ -293,6 +294,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 	const handleDelete = useCallback(
 		async (sessionId: string) => {
 			await deleteSession(sessionId);
+			clearPersistedDraft(`session:${sessionId}`);
 			setHiddenSessions((current) => {
 				const next = current.filter((session) => session.id !== sessionId);
 				if (next.length === 0) {

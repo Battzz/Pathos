@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { clearPersistedDraft } from "@/features/composer/draft-storage";
 import {
 	createSession,
 	deleteSession,
@@ -105,6 +106,7 @@ export async function closeWorkspaceSession({
 		// being hidden, so they don't clutter the history list.
 		if (isEmptySession) {
 			await deleteSession(sessionId);
+			clearPersistedDraft(`session:${sessionId}`);
 		} else {
 			await hideSession(sessionId);
 		}

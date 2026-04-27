@@ -158,8 +158,11 @@ export async function saveSettings(patch: Partial<AppSettings>): Promise<void> {
 	if (patch.theme !== undefined) {
 		try {
 			localStorage.setItem(THEME_STORAGE_KEY, patch.theme);
-		} catch {
-			// ignore
+		} catch (error) {
+			console.error(
+				`[helmor] theme save failed for "${THEME_STORAGE_KEY}"`,
+				error,
+			);
 		}
 	}
 

@@ -35,8 +35,11 @@ export function useShellPanels() {
 				SIDEBAR_WIDTH_STORAGE_KEY,
 				String(sidebarWidth),
 			);
-		} catch {
-			// Ignore storage failures and keep the current in-memory width.
+		} catch (error) {
+			console.error(
+				`[helmor] sidebar width save failed for "${SIDEBAR_WIDTH_STORAGE_KEY}"`,
+				error,
+			);
 		}
 	}, [sidebarWidth]);
 
@@ -46,8 +49,11 @@ export function useShellPanels() {
 				INSPECTOR_WIDTH_STORAGE_KEY,
 				String(inspectorWidth),
 			);
-		} catch {
-			// Ignore storage failures and keep the current in-memory width.
+		} catch (error) {
+			console.error(
+				`[helmor] inspector width save failed for "${INSPECTOR_WIDTH_STORAGE_KEY}"`,
+				error,
+			);
 		}
 	}, [inspectorWidth]);
 
