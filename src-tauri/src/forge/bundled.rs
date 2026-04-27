@@ -54,10 +54,20 @@ fn env_key_for(program: &str) -> Option<&'static str> {
 }
 
 fn resolve_from_running_exe() -> BundledForgeCliPaths {
-    std::env::current_exe()
+    let paths = std::env::current_exe()
         .ok()
         .and_then(|exe| resolve_for_exe(&exe))
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    #[cfg(debug_assertions)]
+    {
+        paths.with_fallback(resolve_for_dev_workspace(&dev_workspace_root()))
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        paths
+    }
 }
 
 fn resolve_for_exe(exe: &Path) -> Option<BundledForgeCliPaths> {
@@ -75,6 +85,39 @@ fn resolve_for_exe(exe: &Path) -> Option<BundledForgeCliPaths> {
         gh: gh.is_file().then_some(gh),
         glab: glab.is_file().then_some(glab),
     })
+}
+
+#[cfg(debug_assertions)]
+impl BundledForgeCliPaths {
+    fn with_fallback(self, fallback: BundledForgeCliPaths) -> BundledForgeCliPaths {
+        BundledForgeCliPaths {
+            gh: self.gh.or(fallback.gh),
+            glab: self.glab.or(fallback.glab),
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+fn dev_workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+}
+
+#[cfg(debug_assertions)]
+fn resolve_for_dev_workspace(workspace_root: &Path) -> BundledForgeCliPaths {
+    let vendor = workspace_root.join("sidecar/dist/vendor");
+    let gh_name = if cfg!(windows) { "gh.exe" } else { "gh" };
+    let glab_name = if cfg!(windows) { "glab.exe" } else { "glab" };
+
+    let gh = vendor.join(format!("gh/{gh_name}"));
+    let glab = vendor.join(format!("glab/{glab_name}"));
+
+    BundledForgeCliPaths {
+        gh: gh.is_file().then_some(gh),
+        glab: glab.is_file().then_some(glab),
+    }
 }
 
 #[cfg(test)]
@@ -112,5 +155,45 @@ mod tests {
         let paths = resolve_for_exe(&exe).unwrap();
         assert!(paths.gh.is_none());
         assert!(paths.glab.is_none());
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn resolve_finds_debug_vendor_under_workspace_root() {
+        let root = tempfile::tempdir().unwrap();
+        let vendor = root.path().join("sidecar/dist/vendor");
+        std::fs::create_dir_all(vendor.join("gh")).unwrap();
+        std::fs::create_dir_all(vendor.join("glab")).unwrap();
+        std::fs::write(vendor.join("gh/gh"), "").unwrap();
+        std::fs::write(vendor.join("glab/glab"), "").unwrap();
+
+        let paths = resolve_for_dev_workspace(root.path());
+
+        assert_eq!(paths.gh.unwrap(), vendor.join("gh/gh"));
+        assert_eq!(paths.glab.unwrap(), vendor.join("glab/glab"));
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn app_bundle_paths_win_over_debug_vendor() {
+        let root = tempfile::tempdir().unwrap();
+        let exe = root.path().join("Helmor.app/Contents/MacOS/Helmor");
+        let app_vendor = root.path().join("Helmor.app/Contents/Resources/vendor");
+        let dev_vendor = root.path().join("sidecar/dist/vendor");
+        std::fs::create_dir_all(app_vendor.join("gh")).unwrap();
+        std::fs::create_dir_all(app_vendor.join("glab")).unwrap();
+        std::fs::create_dir_all(dev_vendor.join("gh")).unwrap();
+        std::fs::create_dir_all(dev_vendor.join("glab")).unwrap();
+        std::fs::write(app_vendor.join("gh/gh"), "").unwrap();
+        std::fs::write(app_vendor.join("glab/glab"), "").unwrap();
+        std::fs::write(dev_vendor.join("gh/gh"), "").unwrap();
+        std::fs::write(dev_vendor.join("glab/glab"), "").unwrap();
+
+        let paths = resolve_for_exe(&exe)
+            .unwrap()
+            .with_fallback(resolve_for_dev_workspace(root.path()));
+
+        assert_eq!(paths.gh.unwrap(), app_vendor.join("gh/gh"));
+        assert_eq!(paths.glab.unwrap(), app_vendor.join("glab/glab"));
     }
 }
