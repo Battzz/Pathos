@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.10.0
+
+### Minor Changes
+
+- [#264](https://github.com/dohooo/helmor/pull/264) [`07c8ce9`](https://github.com/dohooo/helmor/commit/07c8ce998c8df2e10fc112586cb6d996a643dbb8) Thanks [@natllian](https://github.com/natllian)! - Add a guided first-run onboarding flow that walks new users from agent login to a workable workspace:
+
+  - Animated multi-step intro with previews of the Helmor UI, per-step spotlights, and Back / Next navigation between steps.
+  - Agent login step that detects active Claude and Codex installations and highlights the provider you're signed into.
+  - A "Power up Helmor" step that installs the Helmor CLI and Helmor Skills (Beta) from inside the app, with a live `helmor --help` preview — setup failures don't block onboarding, you can resolve them later from inside Helmor.
+  - Repository import step that lets you clone from a URL or add a local path before reaching the main workspace.
+
+- [#261](https://github.com/dohooo/helmor/pull/261) [`24be4a4`](https://github.com/dohooo/helmor/commit/24be4a4876c4a7e56d53b3e49ae85b1dc020976a) Thanks [@natllian](https://github.com/natllian)! - Add three new keyboard shortcuts with matching settings rows and in-app hints:
+  - Reopen closed session — `⌘⇧T` (LIFO history of recently hidden sessions)
+  - Open PR in browser — `⌘⇧G` (forge-aware: tooltip says "Open pull request" on GitHub, "Open merge request" on GitLab)
+  - Open model picker — `⌥P` (opens the composer's model dropdown; tooltip on the trigger shows the binding)
+
+### Patch Changes
+
+- [#262](https://github.com/dohooo/helmor/pull/262) [`dad03a8`](https://github.com/dohooo/helmor/commit/dad03a8ac55da0efd2372b8c977de83edb246f2a) Thanks [@natllian](https://github.com/natllian)! - Fix the Create MR button on GitLab repos so it opens the merge request against the workspace's configured target branch instead of falling back to the repository's default branch.
+
+- [#259](https://github.com/dohooo/helmor/pull/259) [`2c05f79`](https://github.com/dohooo/helmor/commit/2c05f79044f551136ed0a8b49f3072ef5adb5c61) Thanks [@natllian](https://github.com/natllian)! - Keep Helmor's startup cache healthy as your workspace history grows:
+  - The on-disk query cache no longer balloons with workspace diff and file-list snapshots — they reload on focus when you actually need them, instead of getting saved on every state change and pushing the cache toward the browser's storage quota.
+  - Composer drafts are now cleaned up when their session is deleted, so they don't accumulate over time.
+  - Storage write failures (quota exceeded, security errors) now log to the console instead of being silently swallowed, making it easier to diagnose persistence issues.
+
 ## 0.9.1
 
 ### Patch Changes
