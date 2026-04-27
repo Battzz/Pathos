@@ -484,7 +484,7 @@ fn continue_workspace_detaches_from_old_pr_branch() {
     let connection = Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
     connection
         .execute(
-            "UPDATE workspaces SET status = 'done', pr_sync_state = 'merged' WHERE id = ?1",
+            "UPDATE workspaces SET status = 'done', pr_sync_state = 'merged', pr_title = 'Old merged PR', pr_url = 'https://github.com/acme/widgets/pull/7' WHERE id = ?1",
             [&harness.workspace_id],
         )
         .unwrap();
@@ -529,16 +529,34 @@ fn continue_workspace_detaches_from_old_pr_branch() {
         old_upstream
     );
 
-    let (stored_branch, status, pr_sync_state): (String, String, String) = connection
+    let (stored_branch, status, pr_sync_state, pr_title, pr_url): (
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+    ) = connection
         .query_row(
-            "SELECT branch, status, pr_sync_state FROM workspaces WHERE id = ?1",
+            "SELECT branch, status, pr_sync_state, pr_title, pr_url FROM workspaces WHERE id = ?1",
             [&harness.workspace_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .unwrap();
     assert_eq!(stored_branch, result.branch);
     assert_eq!(status, "in-progress");
     assert_eq!(pr_sync_state, "none");
+    // Continue resets the PR snapshot so the optimistic header doesn't show
+    // the old (now-irrelevant) PR badge on the next visit.
+    assert_eq!(pr_title, None);
+    assert_eq!(pr_url, None);
 }
 
 #[test]

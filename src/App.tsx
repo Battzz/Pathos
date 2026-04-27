@@ -761,8 +761,26 @@ function AppShell({
 		selectedWorkspaceDetail?.state !== "archived" &&
 		(workspaceForgeProvider === "gitlab" || isIdentityConnected);
 
+	// Seed the change-request query with whatever PR snapshot is already
+	// persisted on the workspace row. Lets the inspector render the PR badge
+	// optimistically on first visit, before the live forge query returns.
+	const workspaceChangeRequestSeed = useMemo(
+		() => ({
+			prSyncState: selectedWorkspaceDetail?.prSyncState,
+			prUrl: selectedWorkspaceDetail?.prUrl ?? null,
+			prTitle: selectedWorkspaceDetail?.prTitle ?? null,
+		}),
+		[
+			selectedWorkspaceDetail?.prSyncState,
+			selectedWorkspaceDetail?.prUrl,
+			selectedWorkspaceDetail?.prTitle,
+		],
+	);
 	const workspaceChangeRequestQuery = useQuery({
-		...workspaceChangeRequestQueryOptions(selectedWorkspaceId ?? "__none__"),
+		...workspaceChangeRequestQueryOptions(
+			selectedWorkspaceId ?? "__none__",
+			workspaceChangeRequestSeed,
+		),
 		enabled: workspaceForgeQueriesEnabled,
 	});
 	const workspaceChangeRequest = workspaceChangeRequestQuery.data ?? null;
@@ -775,6 +793,16 @@ function AppShell({
 	});
 	const workspaceForgeActionStatus =
 		workspaceForgeActionStatusQuery.data ?? null;
+
+	// Drive the inspector's git-header shimmer. Only show it on the first
+	// cold fetch — not on background refetches, and not while we're already
+	// rendering a placeholder built from the persisted PR snapshot.
+	const workspaceForgeIsRefreshing =
+		(workspaceChangeRequestQuery.isFetching &&
+			(workspaceChangeRequestQuery.data === undefined ||
+				workspaceChangeRequestQuery.isPlaceholderData)) ||
+		(workspaceForgeActionStatusQuery.isFetching &&
+			workspaceForgeActionStatusQuery.data === undefined);
 
 	const workspaceGitActionStatusQuery = useQuery({
 		...workspaceGitActionStatusQueryOptions(selectedWorkspaceId ?? "__none__"),
@@ -2512,6 +2540,7 @@ function AppShell({
 												commitButtonMode={commitButtonMode}
 												commitButtonState={commitButtonState}
 												changeRequest={workspaceChangeRequest}
+												forgeIsRefreshing={workspaceForgeIsRefreshing}
 												onOpenSettings={handleOpenSettings}
 											/>
 										</aside>

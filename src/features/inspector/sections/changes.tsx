@@ -1,4 +1,4 @@
-import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
 	getMaterialFileIcon,
@@ -65,6 +65,8 @@ type ChangesSectionProps = {
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
 	changeRequest: ChangeRequestInfo | null;
+	/** Cold-fetch indicator owned by App; drives the git-header shimmer. */
+	forgeIsRefreshing?: boolean;
 };
 
 export function ChangesSection({
@@ -81,6 +83,7 @@ export function ChangesSection({
 	commitButtonMode = "create-pr",
 	commitButtonState,
 	changeRequest,
+	forgeIsRefreshing = false,
 }: ChangesSectionProps) {
 	const queryClient = useQueryClient();
 	const [changesTreeView, setChangesTreeView] = useState(true);
@@ -329,22 +332,10 @@ export function ChangesSection({
 		workspaceId,
 	]);
 
-	// Drive the header's shimmer bar off the shared forge query cache. Both
-	// queries dedupe by key, so this reads the same fetching state the
-	// App-level useQuery instances own.
-	const changeRequestFetchingCount = useIsFetching({
-		queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId ?? "__none__"),
-		exact: true,
-	});
-	const forgeActionStatusFetchingCount = useIsFetching({
-		queryKey: helmorQueryKeys.workspaceForgeActionStatus(
-			workspaceId ?? "__none__",
-		),
-		exact: true,
-	});
-	const isForgeRefreshing =
-		workspaceId !== null &&
-		changeRequestFetchingCount + forgeActionStatusFetchingCount > 0;
+	// Header shimmer is owned by App: it knows when the change-request and
+	// forge-action-status queries are on their *first* cold fetch (vs. just a
+	// background refresh or a placeholder render).
+	const isForgeRefreshing = workspaceId !== null && forgeIsRefreshing;
 
 	return (
 		<section

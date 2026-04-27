@@ -33,8 +33,10 @@ import {
 	loadWorkspaceGitActionStatus,
 	loadWorkspaceGroups,
 	loadWorkspaceSessions,
+	type PrSyncState,
 	refreshWorkspaceChangeRequest,
 } from "./api";
+import { parsePrUrl } from "./pr-url";
 
 const SESSION_STALE_TIME = 10 * 60_000;
 const CHANGES_STALE_TIME = 3_000;
@@ -430,7 +432,41 @@ export function forgeActionStatusRefetchInterval(
 	return 60_000;
 }
 
-export function workspaceChangeRequestQueryOptions(workspaceId: string) {
+/**
+ * Persisted PR snapshot from the workspace row. Used as `placeholderData` so
+ * the inspector renders the PR badge optimistically on first visit, before
+ * the live forge query returns. Pass whichever of these you have — when the
+ * URL is missing or unparseable, no placeholder is produced and the header
+ * falls back to its empty state.
+ */
+export type WorkspaceChangeRequestSeed = {
+	prSyncState?: PrSyncState | null;
+	prUrl?: string | null;
+	prTitle?: string | null;
+};
+
+function changeRequestPlaceholder(
+	seed: WorkspaceChangeRequestSeed | undefined,
+): ChangeRequestInfo | undefined {
+	if (!seed) return undefined;
+	const syncState = seed.prSyncState ?? "none";
+	if (syncState === "none") return undefined;
+	const parsed = parsePrUrl(seed.prUrl);
+	if (!parsed) return undefined;
+	return {
+		url: seed.prUrl ?? "",
+		number: parsed.number,
+		state: syncState.toUpperCase(),
+		title: seed.prTitle ?? "",
+		isMerged: syncState === "merged",
+	};
+}
+
+export function workspaceChangeRequestQueryOptions(
+	workspaceId: string,
+	seed?: WorkspaceChangeRequestSeed,
+) {
+	const placeholder = changeRequestPlaceholder(seed);
 	return queryOptions({
 		queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId),
 		queryFn: () => refreshWorkspaceChangeRequest(workspaceId),
@@ -439,6 +475,9 @@ export function workspaceChangeRequestQueryOptions(workspaceId: string) {
 		refetchOnWindowFocus: true,
 		refetchInterval: (query) => changeRequestRefetchInterval(query.state.data),
 		retry: 0,
+		// Identity-stable per (workspaceId, seed signature) so React Query
+		// doesn't re-evaluate placeholderData on unrelated re-renders.
+		placeholderData: placeholder,
 	});
 }
 

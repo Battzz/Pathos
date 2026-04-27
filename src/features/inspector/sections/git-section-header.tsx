@@ -248,42 +248,60 @@ export function GitSectionHeader({
 						Git
 					</span>
 				) : (
-					<Button
-						type="button"
-						variant="outline"
-						size="xs"
-						className={cn(
-							"self-center bg-transparent font-normal tracking-[0.01em] transition-[background-color,border-color,color,box-shadow,opacity] duration-300 ease-out hover:bg-transparent hover:opacity-80",
-							(commitButtonMode === "fix" || commitButtonMode === "closed") &&
-								"border-[var(--workspace-pr-closed-accent)] text-[var(--workspace-pr-closed-accent)] hover:text-[var(--workspace-pr-closed-accent)]",
-							commitButtonMode === "resolve-conflicts" &&
-								"border-[var(--workspace-pr-conflicts-accent)] text-[var(--workspace-pr-conflicts-accent)] hover:text-[var(--workspace-pr-conflicts-accent)]",
-							commitButtonMode === "merge" &&
-								"border-[var(--workspace-pr-open-accent)] text-[var(--workspace-pr-open-accent)] hover:text-[var(--workspace-pr-open-accent)]",
-							commitButtonMode === "merged" &&
-								"border-[var(--workspace-pr-merged-accent)] text-[var(--workspace-pr-merged-accent)] hover:text-[var(--workspace-pr-merged-accent)]",
-						)}
-						onClick={onChangeRequestClick}
-					>
-						<span className="inline-flex h-4 min-w-0 items-center gap-1.5 leading-4">
-							<span className="inline-flex size-4 shrink-0 items-center justify-center overflow-visible">
-								{isMergeRequest ? (
-									<GitlabBrandIcon size={12} />
-								) : (
-									<GithubBrandIcon size={12} />
+					(() => {
+						const button = (
+							<Button
+								type="button"
+								variant="outline"
+								size="xs"
+								className={cn(
+									"self-center bg-transparent font-normal tracking-[0.01em] transition-[background-color,border-color,color,box-shadow,opacity] duration-300 ease-out hover:bg-transparent hover:opacity-80",
+									(commitButtonMode === "fix" ||
+										commitButtonMode === "closed") &&
+										"border-[var(--workspace-pr-closed-accent)] text-[var(--workspace-pr-closed-accent)] hover:text-[var(--workspace-pr-closed-accent)]",
+									commitButtonMode === "resolve-conflicts" &&
+										"border-[var(--workspace-pr-conflicts-accent)] text-[var(--workspace-pr-conflicts-accent)] hover:text-[var(--workspace-pr-conflicts-accent)]",
+									commitButtonMode === "merge" &&
+										"border-[var(--workspace-pr-open-accent)] text-[var(--workspace-pr-open-accent)] hover:text-[var(--workspace-pr-open-accent)]",
+									commitButtonMode === "merged" &&
+										"border-[var(--workspace-pr-merged-accent)] text-[var(--workspace-pr-merged-accent)] hover:text-[var(--workspace-pr-merged-accent)]",
 								)}
-							</span>
-							<span className="inline-flex h-4 min-w-0 items-center truncate leading-4 tabular-nums text-[13px] font-light">
-								{isMergeRequest ? "!" : "#"}
-								{changeRequest.number}
-							</span>
-							<ExternalLink
-								size={12}
-								strokeWidth={2}
-								className="shrink-0 self-center"
-							/>
-						</span>
-					</Button>
+								onClick={onChangeRequestClick}
+							>
+								<span className="inline-flex h-4 min-w-0 items-center gap-1.5 leading-4">
+									<span className="inline-flex size-4 shrink-0 items-center justify-center overflow-visible">
+										{isMergeRequest ? (
+											<GitlabBrandIcon size={12} />
+										) : (
+											<GithubBrandIcon size={12} />
+										)}
+									</span>
+									<span className="inline-flex h-4 min-w-0 items-center truncate leading-4 tabular-nums text-[13px] font-light">
+										{isMergeRequest ? "!" : "#"}
+										{changeRequest.number}
+									</span>
+									<ExternalLink
+										size={12}
+										strokeWidth={2}
+										className="shrink-0 self-center"
+									/>
+								</span>
+							</Button>
+						);
+						const tooltipText = changeRequest.title?.trim();
+						if (!tooltipText) return button;
+						return (
+							<Tooltip>
+								<TooltipTrigger asChild>{button}</TooltipTrigger>
+								<TooltipContent
+									side="bottom"
+									className="max-w-[320px] truncate rounded-md px-2 py-1 text-[12px] leading-tight"
+								>
+									{tooltipText}
+								</TooltipContent>
+							</Tooltip>
+						);
+					})()
 				)}
 			</div>
 			{showButton &&

@@ -40,6 +40,11 @@ type WorkspaceInspectorSidebarProps = {
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
 	changeRequest?: ChangeRequestInfo | null;
+	/**
+	 * True only on the first cold fetch of either the PR change request or
+	 * the forge action status — drives the git-header shimmer. Owned by App.
+	 */
+	forgeIsRefreshing?: boolean;
 	onOpenSettings?: () => void;
 };
 
@@ -59,6 +64,7 @@ export function WorkspaceInspectorSidebar({
 	commitButtonMode,
 	commitButtonState,
 	changeRequest,
+	forgeIsRefreshing = false,
 	onOpenSettings,
 }: WorkspaceInspectorSidebarProps) {
 	const {
@@ -155,6 +161,7 @@ export function WorkspaceInspectorSidebar({
 				commitButtonMode={commitButtonMode}
 				commitButtonState={commitButtonState}
 				changeRequest={changeRequest ?? null}
+				forgeIsRefreshing={forgeIsRefreshing}
 			/>
 
 			<HorizontalResizeHandle

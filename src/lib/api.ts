@@ -35,6 +35,14 @@ export type WorkspaceStatus =
 	| "canceled";
 
 /**
+ * Mirror of the Rust `PrSyncState` enum
+ * (`src-tauri/src/workspace/pr_sync.rs`). Cached on the workspace row so the
+ * inspector can render the PR badge optimistically before the live forge
+ * query returns.
+ */
+export type PrSyncState = "none" | "open" | "closed" | "merged";
+
+/**
  * Mirror of the Rust `ActionKind` enum
  * (`src-tauri/src/agents/action_kind.rs`). Non-null when the session was
  * created as a one-off "action" dispatch from the inspector commit button.
@@ -69,6 +77,8 @@ export type WorkspaceRow = {
 	activeSessionAgentType?: string | null;
 	activeSessionStatus?: string | null;
 	prTitle?: string | null;
+	prSyncState?: PrSyncState;
+	prUrl?: string | null;
 	pinnedAt?: string | null;
 	sessionCount?: number;
 	messageCount?: number;
@@ -145,6 +155,8 @@ export type WorkspaceSummary = {
 	activeSessionAgentType?: string | null;
 	activeSessionStatus?: string | null;
 	prTitle?: string | null;
+	prSyncState?: PrSyncState;
+	prUrl?: string | null;
 	pinnedAt?: string | null;
 	sessionCount?: number;
 	messageCount?: number;
@@ -329,6 +341,8 @@ export type WorkspaceDetail = {
 	intendedTargetBranch?: string | null;
 	pinnedAt?: string | null;
 	prTitle?: string | null;
+	prSyncState?: PrSyncState;
+	prUrl?: string | null;
 	archiveCommit?: string | null;
 	sessionCount: number;
 	messageCount: number;
