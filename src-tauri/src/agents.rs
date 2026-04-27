@@ -162,6 +162,12 @@ pub struct AgentSendRequest {
     pub provider: String,
     pub model_id: String,
     pub prompt: String,
+    /// Hidden preamble prepended to `prompt` before sending to the agent
+    /// (e.g. the user's "general preferences"). Persisted user-prompt
+    /// content keeps `prompt` only — the prefix never enters the DB or
+    /// the chat bubble. Empty/absent ⇒ no prefix.
+    #[serde(default)]
+    pub prompt_prefix: Option<String>,
     #[serde(default)]
     pub resume_only: bool,
     pub session_id: Option<String>,
@@ -848,6 +854,7 @@ mod tests {
             provider: "claude".to_string(),
             model_id: "opus-1m".to_string(),
             prompt: String::new(),
+            prompt_prefix: None,
             resume_only: true,
             session_id: Some("provider-session-1".to_string()),
             helmor_session_id: Some("s1".to_string()),
@@ -883,6 +890,7 @@ mod tests {
             provider: "claude".to_string(),
             model_id: "opus-1m".to_string(),
             prompt: String::new(),
+            prompt_prefix: None,
             resume_only: true,
             session_id: Some("provider-session-1".to_string()),
             helmor_session_id: Some("s1".to_string()),

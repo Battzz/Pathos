@@ -30,7 +30,10 @@ export function buildCommitButtonPrompt(
 	repoPreferences?: RepoPreferences | null,
 	targetBranch?: string | null,
 	forge?: ForgeDetection | null,
+	remote?: string | null,
 ): string {
+	const remoteName =
+		remote && remote.trim().length > 0 ? remote.trim() : "origin";
 	switch (mode) {
 		case "commit-and-push":
 			// Pure git — no forge involved.
@@ -40,7 +43,7 @@ Do the following, in order:
 1. Run \`git status\` and \`git diff\` to survey what's changed.
 2. Stage everything that should ship with \`git add\`.
 3. Commit with a concise, Conventional-Commits-style message (\`feat:\`, \`fix:\`, \`refactor:\`, etc.) summarizing the change.
-4. Push the current branch to its remote. If needed, create the remote tracking branch with \`git push -u <remote> HEAD\`.
+4. Push the current branch to \`${remoteName}\`. If needed, create the remote tracking branch with \`git push -u ${remoteName} HEAD\`.
 5. Report the resulting commit SHA and pushed ref.
 
 Don't stop to ask for confirmation — execute each step automatically. If a pre-commit / pre-push hook fails, report the failure and stop without force-pushing.`;
@@ -60,6 +63,7 @@ Use \`${dialect.reopenCommand}\` + \`${dialect.commentCommand}\`. Report the ${d
 				repoPreferences,
 				targetBranch,
 				forge,
+				remote,
 			});
 	}
 }

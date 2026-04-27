@@ -36,7 +36,7 @@ import {
 	helmorQueryKeys,
 	sessionThreadMessagesQueryOptions,
 } from "@/lib/query-client";
-import { prependGeneralPreferencePrompt } from "@/lib/repo-preferences-prompts";
+import { resolveGeneralPreferencePrefix } from "@/lib/repo-preferences-prompts";
 import {
 	appendUserMessage,
 	readSessionThread,
@@ -1181,16 +1181,21 @@ export function useConversationStreaming({
 				(currentThread ?? []).every((message) => message.role !== "user") &&
 				(currentTitle == null || currentTitle === "Untitled");
 			const repoPreferences = repoId ? await loadRepoPreferences(repoId) : null;
-			const finalPrompt =
+			// The general-preference preamble is prepended ONLY on the wire
+			// to the agent (Rust side stitches it onto `prompt_prefix`).
+			// `trimmedPrompt` is what the user typed — that's what we
+			// optimistically render in the chat bubble and what the Rust
+			// side persists to `session_messages` as the user_prompt body.
+			const promptPrefix =
 				isFirstUserMessage && !isCompactCommand
-					? prependGeneralPreferencePrompt(trimmedPrompt, repoPreferences)
-					: trimmedPrompt;
+					? resolveGeneralPreferencePrefix(repoPreferences)
+					: null;
 			const now = new Date().toISOString();
 			const userMessageId = crypto.randomUUID();
 			const optimisticUserMessage = createLiveThreadMessage({
 				id: userMessageId,
 				role: "user",
-				text: finalPrompt,
+				text: trimmedPrompt,
 				createdAt: now,
 				files: filePaths,
 			});
@@ -1317,7 +1322,8 @@ export function useConversationStreaming({
 					{
 						provider: model.provider,
 						modelId: model.id,
-						prompt: finalPrompt,
+						prompt: trimmedPrompt,
+						promptPrefix,
 						sessionId: providerSessionId,
 						helmorSessionId: targetSessionId,
 						workingDirectory,

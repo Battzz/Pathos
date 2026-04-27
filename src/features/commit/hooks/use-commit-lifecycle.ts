@@ -93,6 +93,7 @@ export function useWorkspaceCommitLifecycle({
 	selectedWorkspaceIdRef,
 	selectedRepoId,
 	selectedWorkspaceTargetBranch,
+	selectedWorkspaceRemote,
 	changeRequest,
 	forgeDetection,
 	forgeActionStatus,
@@ -109,6 +110,10 @@ export function useWorkspaceCommitLifecycle({
 	selectedWorkspaceIdRef: MutableRefObject<string | null>;
 	selectedRepoId: string | null;
 	selectedWorkspaceTargetBranch?: string | null;
+	/** Git remote name (e.g. "origin") for the selected workspace's repo.
+	 *  Threaded into PR/push prompts so the agent gets a concrete remote
+	 *  instead of a literal `<remote>` placeholder. */
+	selectedWorkspaceRemote?: string | null;
 	changeRequest?: ChangeRequestInfo | null;
 	forgeDetection?: ForgeDetection | null;
 	forgeActionStatus?: ForgeActionStatus | null;
@@ -303,6 +308,7 @@ export function useWorkspaceCommitLifecycle({
 					repoPreferences,
 					selectedWorkspaceTargetBranch,
 					forge,
+					selectedWorkspaceRemote,
 				);
 				console.log("[commitButton] session created", { sessionId });
 
@@ -337,6 +343,7 @@ export function useWorkspaceCommitLifecycle({
 			queryClient,
 			selectedRepoId,
 			selectedWorkspaceTargetBranch,
+			selectedWorkspaceRemote,
 			selectedWorkspaceIdRef,
 		],
 	);

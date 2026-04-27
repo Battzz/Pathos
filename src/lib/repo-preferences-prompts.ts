@@ -21,7 +21,19 @@ type ResolveRepoPreferencePromptArgs = {
 	targetRef?: string | null;
 	dirtyWorktree?: boolean;
 	forge?: ForgeDetection | null;
+	/** Git remote name for this workspace (e.g. "origin"). Falls back to
+	 *  "origin" when unknown — matches the default git produces for a
+	 *  fresh clone, so the agent doesn't see a literal `<remote>`
+	 *  placeholder in the prompt. */
+	remote?: string | null;
 };
+
+const DEFAULT_REMOTE = "origin";
+
+function normalizeRemote(remote?: string | null): string {
+	const trimmed = remote?.trim();
+	return trimmed && trimmed.length > 0 ? trimmed : DEFAULT_REMOTE;
+}
 
 const DEFAULT_BRANCH_RENAME_PROMPT = `When you generate the branch name segment for a new chat:
 
@@ -66,15 +78,17 @@ If a conflict is too ambiguous to resolve automatically, stop and ask.`;
 function createPrPrompt(
 	dialect: ForgePromptDialect,
 	targetBranch?: string | null,
+	remote?: string | null,
 ): string {
 	const branch = requireTargetBranch("createPr", targetBranch);
+	const remoteName = normalizeRemote(remote);
 	return `Create a ${dialect.changeRequestFullName} for the uncommitted work in this workspace.
 
 Do the following, in order:
 1. Run \`git status\` and \`git diff\` to survey what's changed.
 2. Stage everything that should ship with \`git add\`.
 3. Commit with a concise, Conventional-Commits-style message (\`feat:\`, \`fix:\`, \`refactor:\`, \`chore:\`, etc.) that summarizes the change in one line.
-4. Push the current branch to its remote. If needed, create the remote tracking branch with \`git push -u <remote> HEAD\`.
+4. Push the current branch to \`${remoteName}\`. If needed, create the remote tracking branch with \`git push -u ${remoteName} HEAD\`.
 5. Open a ${dialect.changeRequestFullName} against \`${branch}\` using \`${dialect.createCommand(branch)}\`. Use a clear ${dialect.changeRequestName} title and a body that explains: what changed, why it changed, and any follow-up / test notes.
 6. Report the ${dialect.changeRequestName} URL in your final message so I can click it.
 
@@ -96,9 +110,10 @@ function resolveConflictsPrompt({
 	targetBranch,
 	targetRef,
 	dirtyWorktree,
+	remote,
 }: Pick<
 	ResolveRepoPreferencePromptArgs,
-	"targetBranch" | "targetRef" | "dirtyWorktree"
+	"targetBranch" | "targetRef" | "dirtyWorktree" | "remote"
 >): string {
 	if (targetRef) {
 		return dirtyWorktree
@@ -107,15 +122,16 @@ function resolveConflictsPrompt({
 	}
 
 	const branch = requireTargetBranch("resolveConflicts", targetBranch);
+	const remoteName = normalizeRemote(remote);
 
 	return `This branch has merge conflicts with \`${branch}\`, this workspace's target branch. Resolve them.
 
 Do the following, in order:
-1. Fetch the latest \`${branch}\` from its remote.
+1. Fetch the latest \`${branch}\` from \`${remoteName}\`.
 2. Rebase or merge \`${branch}\` into the current branch.
 3. Resolve each conflict, preserving intent from both sides where possible. Explain your resolution choices briefly in the session.
 4. Run the relevant tests locally to confirm nothing broke.
-5. Commit the resolution and push.
+5. Commit the resolution and push to \`${remoteName}\`.
 6. Report the conflicted files and how you resolved them.
 
 If a conflict is too ambiguous to resolve automatically, stop and ask.`;
@@ -205,6 +221,7 @@ export function resolveRepoPreferencePrompt({
 	targetRef,
 	dirtyWorktree = false,
 	forge,
+	remote,
 }: ResolveRepoPreferencePromptArgs): string {
 	const override = repoPreferenceOverride(key, repoPreferences);
 	const targetPlaceholderValue = targetRef ?? targetBranch ?? null;
@@ -221,12 +238,17 @@ export function resolveRepoPreferencePrompt({
 	switch (key) {
 		case "resolveConflicts":
 			return appendUserPreferences(
-				resolveConflictsPrompt({ targetBranch, targetRef, dirtyWorktree }),
+				resolveConflictsPrompt({
+					targetBranch,
+					targetRef,
+					dirtyWorktree,
+					remote,
+				}),
 				resolvedOverride,
 			);
 		case "createPr":
 			return appendUserPreferences(
-				createPrPrompt(forgePromptDialect(forge), targetBranch),
+				createPrPrompt(forgePromptDialect(forge), targetBranch, remote),
 				resolvedOverride,
 			);
 		case "fixErrors":
@@ -242,16 +264,25 @@ export function resolveRepoPreferencePrompt({
 	}
 }
 
-export function prependGeneralPreferencePrompt(
-	prompt: string,
+/** Bare "general preferences" prefix — the preamble we want the agent to
+ *  receive but the user's chat bubble (and the persisted user_prompt row)
+ *  should NOT contain. Returns `null` when there's nothing to prepend. The
+ *  Rust side stitches `${prefix}\n\nUser request:\n${prompt}` on the wire;
+ *  see `AgentSendRequest.prompt_prefix`. */
+export function resolveGeneralPreferencePrefix(
 	repoPreferences?: RepoPreferences | null,
-): string {
+): string | null {
 	const general = resolveRepoPreferencePrompt({
 		key: "general",
 		repoPreferences,
 	}).trim();
-	if (!general) {
-		return prompt;
-	}
-	return `${general}\n\nUser request:\n${prompt}`;
+	return general ? general : null;
+}
+
+export function prependGeneralPreferencePrompt(
+	prompt: string,
+	repoPreferences?: RepoPreferences | null,
+): string {
+	const prefix = resolveGeneralPreferencePrefix(repoPreferences);
+	return prefix ? `${prefix}\n\nUser request:\n${prompt}` : prompt;
 }

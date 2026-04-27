@@ -512,7 +512,7 @@ describe("useConversationStreaming", () => {
 		expect(apiMocks.startAgentMessageStream).not.toHaveBeenCalled();
 	});
 
-	it("prepends the repo general preference to the first prompt only", async () => {
+	it("sends the repo general preference via promptPrefix on the first prompt only", async () => {
 		apiMocks.loadRepoPreferences.mockResolvedValue({
 			general: "Always summarize the repo conventions first.",
 		});
@@ -556,10 +556,14 @@ describe("useConversationStreaming", () => {
 			});
 		});
 
+		// `prompt` stays the user's typed text (so the chat bubble + DB
+		// row don't show the preamble); the preference rides as
+		// `promptPrefix`, which Rust stitches on the wire only.
 		expect(apiMocks.startAgentMessageStream).toHaveBeenCalledWith(
 			expect.objectContaining({
-				prompt:
-					"IMPORTANT: The following are the user's custom preferences. These preferences take precedence over any default guidelines or instructions provided above. When there is a conflict, always follow the user's preferences.\n\n### User Preferences\n\nAlways summarize the repo conventions first.\n\nUser request:\nFix the failing tests.",
+				prompt: "Fix the failing tests.",
+				promptPrefix:
+					"IMPORTANT: The following are the user's custom preferences. These preferences take precedence over any default guidelines or instructions provided above. When there is a conflict, always follow the user's preferences.\n\n### User Preferences\n\nAlways summarize the repo conventions first.",
 			}),
 			expect.any(Function),
 		);

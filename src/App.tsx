@@ -1426,6 +1426,7 @@ function AppShell({
 			selectedWorkspaceDetailQuery.data?.intendedTargetBranch ??
 			selectedWorkspaceDetailQuery.data?.defaultBranch ??
 			null,
+		selectedWorkspaceRemote: selectedWorkspaceDetailQuery.data?.remote ?? null,
 		changeRequest: workspaceChangeRequest,
 		forgeDetection: workspaceForge,
 		forgeActionStatus: workspaceForgeActionStatus,

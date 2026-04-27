@@ -169,4 +169,36 @@ describe("buildCommitButtonPrompt", () => {
 		expect(githubPrompt).toBe(gitlabPrompt);
 		expect(githubPrompt).toContain("Commit and push all uncommitted work");
 	});
+
+	it("substitutes the workspace remote into the commit-and-push prompt", () => {
+		const prompt = buildCommitButtonPrompt(
+			"commit-and-push",
+			null,
+			null,
+			null,
+			"upstream",
+		);
+		expect(prompt).toContain("Push the current branch to `upstream`.");
+		expect(prompt).toContain("`git push -u upstream HEAD`");
+		expect(prompt).not.toContain("<remote>");
+	});
+
+	it("falls back to `origin` when the workspace remote is missing", () => {
+		const prompt = buildCommitButtonPrompt("commit-and-push", null, null);
+		expect(prompt).toContain("`git push -u origin HEAD`");
+		expect(prompt).not.toContain("<remote>");
+	});
+
+	it("substitutes the workspace remote into the create-pr prompt", () => {
+		const prompt = buildCommitButtonPrompt(
+			"create-pr",
+			{},
+			"release/next",
+			GITHUB_FORGE,
+			"upstream",
+		);
+		expect(prompt).toContain("Push the current branch to `upstream`.");
+		expect(prompt).toContain("`git push -u upstream HEAD`");
+		expect(prompt).not.toContain("<remote>");
+	});
 });

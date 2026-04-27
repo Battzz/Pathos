@@ -103,9 +103,23 @@ pub(super) fn stream_via_sidecar(
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
+    // Combine the optional hidden preamble with the user's prompt. Only
+    // the wire payload sees the combined string — `prompt` (user text
+    // only) is what gets persisted in `persist_user_message` below, so
+    // the chat bubble + DB stay free of the preference prefix.
+    let prefix_trimmed = request
+        .prompt_prefix
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty());
+    let combined_prompt = match prefix_trimmed {
+        Some(prefix) => format!("{prefix}\n\nUser request:\n{prompt}"),
+        None => prompt.to_string(),
+    };
+
     let params = build_send_message_params(BuildSendMessageParamsInput {
         sidecar_session_id: &sidecar_session_id,
-        prompt,
+        prompt: &combined_prompt,
         cli_model: &model.cli_model,
         cwd: &working_directory.display().to_string(),
         resume_session_id: resume_session_id.as_deref(),

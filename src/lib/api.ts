@@ -125,6 +125,11 @@ export type AgentSendRequest = {
 	provider: AgentProvider;
 	modelId: string;
 	prompt: string;
+	/** Hidden preamble prepended to `prompt` only on the wire to the agent
+	 *  (e.g. the user's "general preferences"). Persisted user-prompt
+	 *  content keeps `prompt` only — the prefix never enters the DB or
+	 *  the chat bubble. */
+	promptPrefix?: string | null;
 	resumeOnly?: boolean | null;
 	sessionId?: string | null;
 	helmorSessionId?: string | null;
