@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import conductorLogoSrc from "@/assets/conductor.webp";
 import helmorLogoSrc from "@/assets/helmor-logo.png";
 import { type ConductorWorkspace, importConductorWorkspaces } from "@/lib/api";
+import { Button } from "./ui/button";
 import { NumberTicker } from "./ui/number-ticker";
 import {
 	Tooltip,
@@ -422,6 +423,28 @@ const SKELETON_IDS = Array.from(
 	(_, i) => `skeleton-${i}`,
 );
 const LOGO_SIZE = 56;
+const CONDUCTOR_ONBOARDING_LIGHT_THEME = {
+	"--background": "oklch(1 0 0)",
+	"--foreground": "oklch(0.145 0 0)",
+	"--card": "oklch(1 0 0)",
+	"--card-foreground": "oklch(0.145 0 0)",
+	"--muted": "oklch(0.97 0 0)",
+	"--muted-foreground": "oklch(0.556 0 0)",
+	"--border": "oklch(0.922 0 0)",
+	"--primary": "oklch(0.205 0 0)",
+	"--primary-foreground": "oklch(0.985 0 0)",
+	"--destructive": "oklch(0.577 0.245 27.325)",
+	"--color-background": "var(--background)",
+	"--color-foreground": "var(--foreground)",
+	"--color-card": "var(--card)",
+	"--color-card-foreground": "var(--card-foreground)",
+	"--color-muted": "var(--muted)",
+	"--color-muted-foreground": "var(--muted-foreground)",
+	"--color-border": "var(--border)",
+	"--color-primary": "var(--primary)",
+	"--color-primary-foreground": "var(--primary-foreground)",
+	"--color-destructive": "var(--destructive)",
+} as React.CSSProperties;
 
 export function ConductorOnboarding({
 	onComplete,
@@ -529,6 +552,7 @@ export function ConductorOnboarding({
 		<div
 			ref={containerRef}
 			className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden bg-background font-sans text-foreground antialiased"
+			style={CONDUCTOR_ONBOARDING_LIGHT_THEME}
 		>
 			{/* Drag region */}
 			<div
@@ -798,17 +822,13 @@ export function ConductorOnboarding({
 												{importedCount === 1 ? "workspace" : "workspaces"} ready
 											</p>
 										</div>
-										<button
+										<Button
 											type="button"
 											onClick={onComplete}
-											className="rounded-lg px-7 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90 active:opacity-75"
-											style={{
-												background: "var(--color-foreground)",
-												color: "var(--color-background)",
-											}}
+											className="h-10 px-7 text-sm font-semibold"
 										>
 											Get started
-										</button>
+										</Button>
 									</motion.div>
 								</motion.div>
 							)}
@@ -842,15 +862,11 @@ export function ConductorOnboarding({
 								transition={{ duration: 0 }}
 								className="flex flex-col items-center gap-2"
 							>
-								<button
+								<Button
 									type="button"
 									onClick={() => void handleImport()}
 									disabled={isLoadingWorkspaces}
-									className="group relative flex items-center gap-2 overflow-hidden rounded-lg px-7 py-3 text-sm font-semibold tracking-[0.01em] transition-opacity hover:opacity-90 active:opacity-75 disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
-									style={{
-										background: "var(--color-foreground)",
-										color: "var(--color-background)",
-									}}
+									className="group relative h-11 gap-2 overflow-hidden px-7 text-sm font-semibold tracking-[0.01em] disabled:opacity-40"
 								>
 									<div
 										className="pointer-events-none absolute inset-0 -translate-x-full bg-linear-to-r from-transparent via-white/15 to-transparent transition-transform duration-700 group-hover:translate-x-full"
@@ -864,7 +880,7 @@ export function ConductorOnboarding({
 										className="size-3.5 transition-transform group-hover:translate-x-0.5"
 										strokeWidth={2.5}
 									/>
-								</button>
+								</Button>
 								<div className="relative flex items-center justify-center">
 									<button
 										type="button"

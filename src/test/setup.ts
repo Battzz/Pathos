@@ -113,6 +113,10 @@ vi.mock("@tauri-apps/api/core", () => ({
 	convertFileSrc: vi.fn((path: string) => `asset://localhost${path}`),
 	invoke: vi.fn(async (command: string) => {
 		switch (command) {
+			case "get_app_settings":
+				return {
+					"app.onboarding_completed": "true",
+				};
 			case "get_github_identity_session":
 				return {
 					status: "connected",
@@ -153,6 +157,21 @@ vi.mock("@tauri-apps/api/core", () => ({
 				return { lastCloneDirectory: null };
 			case "get_data_info":
 				return null;
+			case "get_cli_status":
+				return {
+					installed: false,
+					installPath: null,
+					buildMode: "development",
+					installState: "missing",
+				};
+			case "get_helmor_skills_status":
+				return {
+					installed: false,
+					claude: false,
+					codex: false,
+					command:
+						"npx --yes skills add dohooo/helmor/.codex/skills/helmor-cli -g -s helmor-cli -y --copy -a claude-code -a codex",
+				};
 			case "get_app_update_status":
 				return {
 					stage: "idle",
@@ -230,6 +249,12 @@ vi.mock("@tauri-apps/api/core", () => ({
 				};
 			case "open_forge_cli_auth_terminal":
 				return undefined;
+			case "spawn_forge_cli_auth_terminal":
+				return undefined;
+			case "stop_forge_cli_auth_terminal":
+			case "write_forge_cli_auth_terminal_stdin":
+			case "resize_forge_cli_auth_terminal":
+				return false;
 			case "get_workspace_forge_check_insert_text":
 				return "";
 			case "drain_pending_cli_sends":

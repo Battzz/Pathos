@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import {
 	cleanup,
 	fireEvent,
@@ -156,7 +157,9 @@ async function openGithubMenu() {
 
 describe("App GitHub identity states", () => {
 	beforeEach(() => {
+		window.localStorage.clear();
 		installTauriRuntime();
+		vi.mocked(invoke).mockClear();
 		Object.defineProperty(navigator, "clipboard", {
 			configurable: true,
 			value: {
@@ -193,6 +196,46 @@ describe("App GitHub identity states", () => {
 	afterEach(() => {
 		removeTauriRuntime();
 		cleanup();
+	});
+
+	it("shows app onboarding once before checking GitHub identity", async () => {
+		const invokeMock = vi.mocked(invoke);
+		invokeMock.mockImplementationOnce(async (command) => {
+			if (command === "get_app_settings") {
+				return {
+					"app.onboarding_completed": "false",
+				};
+			}
+			return undefined;
+		});
+
+		const user = userEvent.setup();
+		render(<App />);
+
+		expect(
+			await screen.findByRole("main", { name: "Helmor onboarding" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByLabelText("Helmor workspace preview"),
+		).toBeInTheDocument();
+		expect(screen.getByText("Auth feature plan")).toBeInTheDocument();
+		expect(screen.getByText("Actions")).toBeInTheDocument();
+		expect(apiMocks.loadGithubIdentitySession).not.toHaveBeenCalled();
+		expect(
+			screen.queryByRole("main", { name: "GitHub identity gate" }),
+		).not.toBeInTheDocument();
+
+		await user.click(screen.getByRole("button", { name: "Explore" }));
+
+		expect(
+			await screen.findByRole("main", { name: "Helmor onboarding" }),
+		).toBeInTheDocument();
+		expect(apiMocks.loadGithubIdentitySession).not.toHaveBeenCalled();
+		expect(invokeMock).not.toHaveBeenCalledWith("update_app_settings", {
+			settingsMap: {
+				"app.onboarding_completed": "true",
+			},
+		});
 	});
 
 	it("renders the shell while GitHub account is disconnected", async () => {

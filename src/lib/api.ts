@@ -623,6 +623,64 @@ export async function openForgeCliAuthTerminal(
 	}
 }
 
+export async function spawnForgeCliAuthTerminal(
+	provider: ForgeProvider,
+	host: string | null,
+	instanceId: string,
+	onEvent: (event: ScriptEvent) => void,
+): Promise<void> {
+	const channel = new Channel<ScriptEvent>();
+	channel.onmessage = onEvent;
+	await invoke("spawn_forge_cli_auth_terminal", {
+		provider,
+		host,
+		instanceId,
+		channel,
+	});
+}
+
+export async function stopForgeCliAuthTerminal(
+	provider: ForgeProvider,
+	host: string | null,
+	instanceId: string,
+): Promise<boolean> {
+	return invoke<boolean>("stop_forge_cli_auth_terminal", {
+		provider,
+		host,
+		instanceId,
+	});
+}
+
+export async function writeForgeCliAuthTerminalStdin(
+	provider: ForgeProvider,
+	host: string | null,
+	instanceId: string,
+	data: string,
+): Promise<boolean> {
+	return invoke<boolean>("write_forge_cli_auth_terminal_stdin", {
+		provider,
+		host,
+		instanceId,
+		data,
+	});
+}
+
+export async function resizeForgeCliAuthTerminal(
+	provider: ForgeProvider,
+	host: string | null,
+	instanceId: string,
+	cols: number,
+	rows: number,
+): Promise<boolean> {
+	return invoke<boolean>("resize_forge_cli_auth_terminal", {
+		provider,
+		host,
+		instanceId,
+		cols,
+		rows,
+	});
+}
+
 export async function loadDataInfo(): Promise<DataInfo | null> {
 	try {
 		return await invoke<DataInfo>("get_data_info");
@@ -640,6 +698,23 @@ export type CliStatus = {
 
 export async function getCliStatus(): Promise<CliStatus> {
 	return await invoke<CliStatus>("get_cli_status");
+}
+
+export type HelmorSkillsStatus = {
+	installed: boolean;
+	claude: boolean;
+	codex: boolean;
+	command: string;
+};
+
+export async function getHelmorSkillsStatus(): Promise<HelmorSkillsStatus> {
+	try {
+		return await invoke<HelmorSkillsStatus>("get_helmor_skills_status");
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to load Helmor skills status."),
+		);
+	}
 }
 
 export async function getAppUpdateStatus(): Promise<AppUpdateStatus> {
@@ -666,6 +741,91 @@ export async function listenAppUpdateStatus(
 
 export async function installCli(): Promise<CliStatus> {
 	return await invoke<CliStatus>("install_cli");
+}
+
+export async function installHelmorSkills(): Promise<HelmorSkillsStatus> {
+	try {
+		return await invoke<HelmorSkillsStatus>("install_helmor_skills");
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to install Helmor skills."),
+		);
+	}
+}
+
+export async function enterOnboardingWindowMode(): Promise<void> {
+	await invoke("enter_onboarding_window_mode");
+}
+
+export async function exitOnboardingWindowMode(): Promise<void> {
+	await invoke("exit_onboarding_window_mode");
+}
+
+export type AgentLoginProvider = "claude" | "codex";
+
+export type AgentLoginStatusResult = {
+	claude: boolean;
+	codex: boolean;
+};
+
+export async function getAgentLoginStatus(): Promise<AgentLoginStatusResult> {
+	return await invoke<AgentLoginStatusResult>("get_agent_login_status");
+}
+
+export async function openAgentLoginTerminal(
+	provider: AgentLoginProvider,
+): Promise<void> {
+	await invoke("open_agent_login_terminal", { provider });
+}
+
+export async function spawnAgentLoginTerminal(
+	provider: AgentLoginProvider,
+	instanceId: string,
+	onEvent: (event: ScriptEvent) => void,
+): Promise<void> {
+	const channel = new Channel<ScriptEvent>();
+	channel.onmessage = onEvent;
+	await invoke("spawn_agent_login_terminal", {
+		provider,
+		instanceId,
+		channel,
+	});
+}
+
+export async function stopAgentLoginTerminal(
+	provider: AgentLoginProvider,
+	instanceId: string,
+): Promise<boolean> {
+	return invoke<boolean>("stop_agent_login_terminal", {
+		provider,
+		instanceId,
+	});
+}
+
+export async function writeAgentLoginTerminalStdin(
+	provider: AgentLoginProvider,
+	instanceId: string,
+	data: string,
+): Promise<boolean> {
+	return invoke<boolean>("write_agent_login_terminal_stdin", {
+		provider,
+		instanceId,
+		data,
+	});
+}
+
+export async function resizeAgentLoginTerminal(
+	provider: AgentLoginProvider,
+	instanceId: string,
+	cols: number,
+	rows: number,
+): Promise<boolean> {
+	return invoke<boolean>("resize_agent_login_terminal", {
+		provider,
+		instanceId,
+		cols,
+		rows,
+	});
 }
 
 export type DevResetResult = {

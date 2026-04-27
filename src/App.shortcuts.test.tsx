@@ -769,7 +769,12 @@ describe("App global navigation shortcuts", () => {
 		const repositoryPicker = await screen.findByRole("listbox", {
 			name: "Suggestions",
 		});
-		expect(repositoryPicker).toHaveFocus();
+		// Picker focus is moved on the rAF after `onOpenAutoFocus`. Under load
+		// from prior tests the rAF can land after the synchronous assertion,
+		// so wait for it.
+		await waitFor(() => {
+			expect(repositoryPicker).toHaveFocus();
+		});
 
 		fireEvent.keyDown(repositoryPicker, {
 			key: "ArrowDown",

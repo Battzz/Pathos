@@ -30,6 +30,7 @@ export type AppSettings = {
 	 *  `CONTEXT_USAGE_AUTO_REVEAL_THRESHOLD`. */
 	alwaysShowContextUsage: boolean;
 	showUsageStats: boolean;
+	onboardingCompleted: boolean;
 	shortcuts: ShortcutOverrides;
 };
 
@@ -55,6 +56,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	followUpBehavior: "steer",
 	alwaysShowContextUsage: true,
 	showUsageStats: true,
+	onboardingCompleted: false,
 	shortcuts: {},
 };
 
@@ -75,6 +77,7 @@ const SETTINGS_KEY_MAP: Record<Exclude<keyof AppSettings, "theme">, string> = {
 	followUpBehavior: "app.follow_up_behavior",
 	alwaysShowContextUsage: "app.always_show_context_usage",
 	showUsageStats: "app.show_usage_stats",
+	onboardingCompleted: "app.onboarding_completed",
 	shortcuts: "app.shortcuts",
 };
 
@@ -147,6 +150,10 @@ export async function loadSettings(): Promise<AppSettings> {
 				raw[SETTINGS_KEY_MAP.showUsageStats] !== undefined
 					? raw[SETTINGS_KEY_MAP.showUsageStats] === "true"
 					: DEFAULT_SETTINGS.showUsageStats,
+			onboardingCompleted:
+				raw[SETTINGS_KEY_MAP.onboardingCompleted] !== undefined
+					? raw[SETTINGS_KEY_MAP.onboardingCompleted] === "true"
+					: DEFAULT_SETTINGS.onboardingCompleted,
 			shortcuts: parseShortcutOverrides(raw[SETTINGS_KEY_MAP.shortcuts]),
 		};
 	} catch {

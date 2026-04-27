@@ -33,6 +33,7 @@ mod types;
 mod workspace;
 
 pub use bundled::init as init_bundled_cli_paths;
+pub(crate) use cli_status::forge_cli_auth_command;
 pub use cli_status::{get_forge_cli_status, open_forge_cli_auth_terminal};
 pub use detect::detect_provider_for_repo;
 pub(crate) use detect::detect_provider_for_repo_offline;

@@ -1,8 +1,9 @@
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { devResetAllData, loadDataInfo } from "@/lib/api";
+import { saveSettings } from "@/lib/settings";
 import {
 	SettingsGroup,
 	SettingsNotice,
@@ -14,6 +15,7 @@ export function DevToolsPanel() {
 	const [confirmOpen, setConfirmOpen] = useState(false);
 	const [resetting, setResetting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [onboardingReset, setOnboardingReset] = useState(false);
 
 	useEffect(() => {
 		void loadDataInfo().then((info) => {
@@ -37,9 +39,42 @@ export function DevToolsPanel() {
 		}
 	}, []);
 
+	const handleResetOnboarding = useCallback(() => {
+		void saveSettings({ onboardingCompleted: false });
+		setOnboardingReset(true);
+	}, []);
+
 	return (
 		<>
 			<SettingsGroup>
+				<SettingsRow
+					align="start"
+					title={
+						<span className="flex items-center gap-1.5">
+							<RotateCcw
+								className="size-3.5 text-muted-foreground"
+								strokeWidth={1.8}
+							/>
+							<span>Show Onboarding Again</span>
+						</span>
+					}
+					description={
+						<>
+							Mark onboarding as incomplete so it appears the next time Helmor
+							starts.
+							{onboardingReset ? (
+								<SettingsNotice tone="ok">
+									Onboarding will be shown on the next launch.
+								</SettingsNotice>
+							) : null}
+						</>
+					}
+				>
+					<Button variant="outline" size="sm" onClick={handleResetOnboarding}>
+						Reset Onboarding
+					</Button>
+				</SettingsRow>
+
 				<SettingsRow
 					align="start"
 					title={
