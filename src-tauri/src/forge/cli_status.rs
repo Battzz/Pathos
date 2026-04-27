@@ -14,7 +14,7 @@ use super::types::{ForgeCliStatus, ForgeLabels, ForgeProvider};
 
 const OPEN_TERMINAL_TIMEOUT: Duration = Duration::from_secs(10);
 const GITLAB_CLI_STATUS_CACHE_TTL: Duration = Duration::from_secs(2);
-const GITLAB_CLI_READY_DOWNGRADE_GRACE: Duration = Duration::from_secs(30);
+const GITLAB_CLI_READY_DOWNGRADE_GRACE: Duration = Duration::from_secs(600);
 
 type GitlabStatusCache = Mutex<HashMap<String, CachedEntry<ForgeCliStatus>>>;
 static GITLAB_STATUS_CACHE: LazyLock<GitlabStatusCache> =

@@ -536,7 +536,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 									/>
 								}
 								placeholder={
-									<div className="pointer-events-none absolute left-0 top-0 text-[14px] leading-5 tracking-[-0.01em] text-muted-foreground">
+									<div className="pointer-events-none absolute left-0 top-0 text-[14px] leading-5 tracking-[-0.01em] text-muted-foreground/70">
 										{hasPlanReview && permissionMode === "plan"
 											? "Describe what to change, then click Request Changes"
 											: "Ask to make changes, @mention files, run /commands"}
@@ -781,7 +781,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 											`gap-1 px-1.5 text-[11px] ${composerToolbarTriggerClassName}`,
 											permissionMode === "plan"
 												? "text-plan hover:text-plan"
-												: "text-muted-foreground/55 hover:text-muted-foreground/55",
+												: "text-muted-foreground/70 hover:text-muted-foreground/70",
 										)}
 										onClick={() =>
 											onChangePermissionMode(

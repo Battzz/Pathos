@@ -196,10 +196,25 @@ pub fn get_github_identity_session() -> Result<GithubIdentitySnapshot> {
     let client = ReqwestGithubClient::new()?;
     let secret_store = active_secret_store();
     match get_github_identity_session_with(github_client_id(), &client, &secret_store) {
-        Ok(snapshot) => Ok(snapshot),
-        Err(error) => Ok(GithubIdentitySnapshot::Error {
-            message: format!("{error:#}"),
-        }),
+        Ok(snapshot) => {
+            tracing::debug!(snapshot = ?snapshot_kind(&snapshot), "GitHub identity session resolved");
+            Ok(snapshot)
+        }
+        Err(error) => {
+            tracing::error!(error = %format!("{error:#}"), "GitHub identity session lookup failed");
+            Ok(GithubIdentitySnapshot::Error {
+                message: format!("{error:#}"),
+            })
+        }
+    }
+}
+
+fn snapshot_kind(snapshot: &GithubIdentitySnapshot) -> &'static str {
+    match snapshot {
+        GithubIdentitySnapshot::Connected { .. } => "connected",
+        GithubIdentitySnapshot::Disconnected => "disconnected",
+        GithubIdentitySnapshot::Error { .. } => "error",
+        GithubIdentitySnapshot::Unconfigured { .. } => "unconfigured",
     }
 }
 
@@ -247,10 +262,12 @@ pub fn disconnect_github_identity_headless() -> Result<()> {
 /// snapshot API.
 pub(crate) fn load_valid_github_access_token() -> Result<Option<String>> {
     let Some(client_id) = github_client_id() else {
+        tracing::debug!("GitHub client_id not configured; skipping access token load");
         return Ok(None);
     };
     let secret_store = active_secret_store();
     let Some((_meta, mut secret)) = load_stored_identity(&secret_store)? else {
+        tracing::debug!("No stored GitHub identity; access token unavailable");
         return Ok(None);
     };
 
@@ -259,18 +276,30 @@ pub(crate) fn load_valid_github_access_token() -> Result<Option<String>> {
     }
 
     if is_expired(secret.refresh_token_expires_at.as_deref()) || secret.refresh_token.is_none() {
+        tracing::warn!(
+            refresh_token_expired = is_expired(secret.refresh_token_expires_at.as_deref()),
+            has_refresh_token = secret.refresh_token.is_some(),
+            "GitHub refresh token expired/missing; clearing stored identity"
+        );
         clear_stored_identity(&secret_store)?;
         return Ok(None);
     }
 
     let client = ReqwestGithubClient::new()?;
     let Some(refresh_token) = secret.refresh_token.as_deref() else {
+        tracing::warn!("GitHub refresh token unexpectedly absent after expiry check");
         return Ok(None);
     };
 
     let refreshed = match client.refresh_user_token(client_id, refresh_token) {
         Ok(response) => response,
-        Err(_) => {
+        Err(error) => {
+            // FIXME: this clears keychain on any error including transient
+            // network blips. We should classify error kind before wiping.
+            tracing::error!(
+                error = %format!("{error:#}"),
+                "GitHub OAuth refresh failed; clearing stored identity (load_valid_github_access_token)"
+            );
             clear_stored_identity(&secret_store)?;
             return Ok(None);
         }
@@ -307,21 +336,30 @@ fn get_github_identity_session_with(
 
     let stored = load_stored_identity(secret_store)?;
     let Some((mut meta, mut secret)) = stored else {
+        tracing::debug!("No stored GitHub identity");
         return Ok(GithubIdentitySnapshot::Disconnected);
     };
 
     if !is_expired(secret.access_token_expires_at.as_deref()) {
         sync_meta_expiry_fields(&mut meta, &secret);
+        tracing::debug!(login = %meta.login, "GitHub identity loaded from cache (token still fresh)");
         return Ok(GithubIdentitySnapshot::Connected {
             session: meta.into_session(),
         });
     }
 
     if is_expired(secret.refresh_token_expires_at.as_deref()) || secret.refresh_token.is_none() {
+        tracing::warn!(
+            login = %meta.login,
+            refresh_token_expired = is_expired(secret.refresh_token_expires_at.as_deref()),
+            has_refresh_token = secret.refresh_token.is_some(),
+            "GitHub refresh token expired/missing; clearing stored identity"
+        );
         clear_stored_identity(secret_store)?;
         return Ok(GithubIdentitySnapshot::Disconnected);
     }
 
+    tracing::info!(login = %meta.login, "Refreshing expired GitHub access token");
     let refreshed = match client.refresh_user_token(
         client_id,
         secret
@@ -330,7 +368,15 @@ fn get_github_identity_session_with(
             .context("Missing refresh token for GitHub identity refresh")?,
     ) {
         Ok(response) => response,
-        Err(_) => {
+        Err(error) => {
+            // FIXME: this clears keychain on any error including transient
+            // network blips. The right fix is to classify error kind (reqwest
+            // connect/timeout = transient = keep stored identity) before wipe.
+            tracing::error!(
+                login = %meta.login,
+                error = %format!("{error:#}"),
+                "GitHub OAuth refresh failed; clearing stored identity (network blip indistinguishable from invalid_grant)"
+            );
             clear_stored_identity(secret_store)?;
             return Ok(GithubIdentitySnapshot::Disconnected);
         }
@@ -344,6 +390,7 @@ fn get_github_identity_session_with(
     sync_meta_expiry_fields(&mut meta, &secret);
     save_stored_identity(&meta, &secret, secret_store)?;
 
+    tracing::info!(login = %meta.login, "GitHub access token refreshed successfully");
     Ok(GithubIdentitySnapshot::Connected {
         session: meta.into_session(),
     })
@@ -373,9 +420,19 @@ fn spawn_identity_poll_loop(
     flow: GithubIdentityDeviceFlowStart,
 ) {
     thread::spawn(move || {
+        tracing::info!(
+            generation,
+            interval_seconds = flow.interval_seconds,
+            "GitHub device flow poll loop started"
+        );
         let client = match ReqwestGithubClient::new() {
             Ok(client) => client,
             Err(error) => {
+                tracing::error!(
+                    generation,
+                    error = %format!("{error:#}"),
+                    "GitHub device flow: failed to construct HTTP client"
+                );
                 let _ = emit_github_identity_snapshot(
                     &app,
                     &GithubIdentitySnapshot::Error {
@@ -390,6 +447,10 @@ fn spawn_identity_poll_loop(
 
         loop {
             if !runtime.is_current_flow(generation) {
+                tracing::debug!(
+                    generation,
+                    "GitHub device flow superseded, exiting poll loop"
+                );
                 return;
             }
 
@@ -413,6 +474,11 @@ fn spawn_identity_poll_loop(
                 Ok(DeviceFlowPollOutcome::Pending {
                     interval_seconds: next_interval,
                 }) => {
+                    tracing::debug!(
+                        generation,
+                        next_interval_seconds = next_interval,
+                        "GitHub device flow still pending"
+                    );
                     interval_seconds = next_interval.max(1);
                 }
                 Ok(DeviceFlowPollOutcome::Connected { meta, secret }) => {
@@ -425,6 +491,12 @@ fn spawn_identity_poll_loop(
                             return;
                         }
 
+                        tracing::error!(
+                            generation,
+                            login = %meta.login,
+                            error = %format!("{error:#}"),
+                            "GitHub device flow: failed to persist stored identity"
+                        );
                         let _ = emit_github_identity_snapshot(
                             &app,
                             &GithubIdentitySnapshot::Error {
@@ -438,6 +510,11 @@ fn spawn_identity_poll_loop(
                         return;
                     }
 
+                    tracing::info!(
+                        generation,
+                        login = %meta.login,
+                        "GitHub device flow completed (Connected)"
+                    );
                     let _ = emit_github_identity_snapshot(
                         &app,
                         &GithubIdentitySnapshot::Connected {
@@ -446,11 +523,22 @@ fn spawn_identity_poll_loop(
                     );
                     return;
                 }
-                Ok(DeviceFlowPollOutcome::Error { message, .. }) => {
+                Ok(DeviceFlowPollOutcome::Error {
+                    code,
+                    message,
+                    retryable,
+                }) => {
                     if !runtime.is_current_flow(generation) {
                         return;
                     }
 
+                    tracing::warn!(
+                        generation,
+                        code = %code,
+                        retryable,
+                        message = %message,
+                        "GitHub device flow: server returned terminal error"
+                    );
                     let _ = emit_github_identity_snapshot(
                         &app,
                         &GithubIdentitySnapshot::Error { message },
@@ -462,6 +550,11 @@ fn spawn_identity_poll_loop(
                         return;
                     }
 
+                    tracing::error!(
+                        generation,
+                        error = %format!("{error:#}"),
+                        "GitHub device flow: poll request failed (network/transport)"
+                    );
                     let _ = emit_github_identity_snapshot(
                         &app,
                         &GithubIdentitySnapshot::Error {

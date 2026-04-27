@@ -22,7 +22,7 @@ pub struct CachedEntry<S: Clone> {
     pub downgrade_observed_at: Option<Instant>,
 }
 
-pub trait CacheableStatus: Clone {
+pub trait CacheableStatus: Clone + std::fmt::Debug {
     fn is_ready(&self) -> bool;
     /// Whether a Ready → this transition should be suppressed during the
     /// grace window. Use it for genuinely transient failures, not
@@ -97,13 +97,23 @@ fn stabilize<S: CacheableStatus>(
         return loaded;
     }
     let observed_at = cached.downgrade_observed_at.unwrap_or(now);
-    if now.duration_since(observed_at) <= grace {
+    let elapsed = now.duration_since(observed_at);
+    if elapsed <= grace {
         tracing::warn!(
-            previous = ?std::any::type_name::<S>(),
-            "Ignoring transient forge CLI status downgrade"
+            type_name = std::any::type_name::<S>(),
+            transient_status = ?loaded,
+            grace_elapsed_ms = elapsed.as_millis() as u64,
+            grace_remaining_ms = (grace.saturating_sub(elapsed)).as_millis() as u64,
+            "Ignoring transient forge CLI status downgrade (grace window active)"
         );
         return cached.status.clone();
     }
+    tracing::warn!(
+        type_name = std::any::type_name::<S>(),
+        downgraded_status = ?loaded,
+        grace_elapsed_ms = elapsed.as_millis() as u64,
+        "Forge CLI status grace window expired; surfacing downgrade"
+    );
     loaded
 }
 

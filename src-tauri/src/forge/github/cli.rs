@@ -12,7 +12,7 @@ const GITHUB_HOST: &str = "github.com";
 const GITHUB_REPOS_ENDPOINT: &str =
     "/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member";
 const GITHUB_CLI_STATUS_CACHE_TTL: Duration = Duration::from_secs(2);
-const GITHUB_CLI_READY_DOWNGRADE_GRACE: Duration = Duration::from_secs(30);
+const GITHUB_CLI_READY_DOWNGRADE_GRACE: Duration = Duration::from_secs(600);
 
 type GithubStatusCache = Mutex<HashMap<&'static str, CachedEntry<GithubCliStatus>>>;
 static SYSTEM_GH_STATUS_CACHE: LazyLock<GithubStatusCache> =
@@ -129,10 +129,11 @@ pub fn list_github_accessible_repositories() -> Result<Vec<GithubRepositorySumma
 }
 
 fn get_github_cli_status_with(runner: &impl GhCommandRunner) -> Result<GithubCliStatus> {
-    tracing::debug!("Checking GitHub CLI status");
+    tracing::debug!(host = GITHUB_HOST, "Checking GitHub CLI status");
     let version = match runner.run(["--version"]) {
         Ok(output) => Some(parse_gh_version(&output.stdout)),
         Err(GhCommandError::NotFound) => {
+            tracing::warn!(host = GITHUB_HOST, "GitHub CLI binary not found");
             return Ok(GithubCliStatus::Unavailable {
                 host: GITHUB_HOST.to_string(),
                 message: "GitHub CLI is not installed on this machine.".to_string(),
@@ -143,16 +144,25 @@ fn get_github_cli_status_with(runner: &impl GhCommandRunner) -> Result<GithubCli
             stderr,
             code,
         }) => {
+            let detail = command_error_detail(&stdout, &stderr, code);
+            tracing::warn!(
+                host = GITHUB_HOST,
+                code = ?code,
+                detail = %detail,
+                "GitHub CLI version probe exited non-zero"
+            );
             return Ok(GithubCliStatus::Error {
                 host: GITHUB_HOST.to_string(),
                 version: None,
-                message: format!(
-                    "Unable to read GitHub CLI version: {}",
-                    command_error_detail(&stdout, &stderr, code)
-                ),
+                message: format!("Unable to read GitHub CLI version: {detail}"),
             });
         }
         Err(GhCommandError::Other(message)) => {
+            tracing::warn!(
+                host = GITHUB_HOST,
+                error = %message,
+                "GitHub CLI version probe failed (IO error)"
+            );
             return Ok(GithubCliStatus::Error {
                 host: GITHUB_HOST.to_string(),
                 version: None,
@@ -171,6 +181,10 @@ fn get_github_cli_status_with(runner: &impl GhCommandRunner) -> Result<GithubCli
     ]) {
         Ok(output) => output,
         Err(GhCommandError::NotFound) => {
+            tracing::warn!(
+                host = GITHUB_HOST,
+                "GitHub CLI binary disappeared between probes"
+            );
             return Ok(GithubCliStatus::Unavailable {
                 host: GITHUB_HOST.to_string(),
                 message: "GitHub CLI is not installed on this machine.".to_string(),
@@ -183,6 +197,12 @@ fn get_github_cli_status_with(runner: &impl GhCommandRunner) -> Result<GithubCli
         }) => {
             let detail = command_error_detail(&stdout, &stderr, code);
             if looks_like_unauthenticated(&detail) {
+                tracing::warn!(
+                    host = GITHUB_HOST,
+                    code = ?code,
+                    detail = %detail,
+                    "GitHub CLI unauthenticated"
+                );
                 return Ok(GithubCliStatus::Unauthenticated {
                     host: GITHUB_HOST.to_string(),
                     version,
@@ -190,6 +210,12 @@ fn get_github_cli_status_with(runner: &impl GhCommandRunner) -> Result<GithubCli
                 });
             }
 
+            tracing::warn!(
+                host = GITHUB_HOST,
+                code = ?code,
+                detail = %detail,
+                "GitHub CLI auth check failed (transient or unknown)"
+            );
             return Ok(GithubCliStatus::Error {
                 host: GITHUB_HOST.to_string(),
                 version,
@@ -197,6 +223,11 @@ fn get_github_cli_status_with(runner: &impl GhCommandRunner) -> Result<GithubCli
             });
         }
         Err(GhCommandError::Other(message)) => {
+            tracing::warn!(
+                host = GITHUB_HOST,
+                error = %message,
+                "GitHub CLI auth check failed (IO error)"
+            );
             return Ok(GithubCliStatus::Error {
                 host: GITHUB_HOST.to_string(),
                 version,
@@ -229,6 +260,12 @@ fn get_github_cli_status_with(runner: &impl GhCommandRunner) -> Result<GithubCli
     let login = host_entry.login.unwrap_or_default();
 
     if host_entry.state.as_deref() != Some("success") || login.trim().is_empty() {
+        tracing::warn!(
+            host = %host,
+            state = ?host_entry.state,
+            login_blank = login.trim().is_empty(),
+            "GitHub CLI auth status JSON missing success/login"
+        );
         return Ok(GithubCliStatus::Unauthenticated {
             host,
             version,
@@ -236,6 +273,7 @@ fn get_github_cli_status_with(runner: &impl GhCommandRunner) -> Result<GithubCli
         });
     }
 
+    tracing::debug!(host = %host, login = %login, "GitHub CLI authenticated");
     Ok(GithubCliStatus::Ready {
         host,
         login: login.clone(),
@@ -260,7 +298,10 @@ fn get_github_cli_user_with_status(
 
     let output = match runner.run(["api", "/user"]) {
         Ok(output) => output,
-        Err(GhCommandError::NotFound) => return Ok(None),
+        Err(GhCommandError::NotFound) => {
+            tracing::warn!("gh binary missing during /user lookup");
+            return Ok(None);
+        }
         Err(GhCommandError::Failed {
             stdout,
             stderr,
@@ -268,12 +309,15 @@ fn get_github_cli_user_with_status(
         }) => {
             let detail = command_error_detail(&stdout, &stderr, code);
             if looks_like_unauthenticated(&detail) {
+                tracing::warn!(code = ?code, detail = %detail, "gh /user unauthenticated");
                 return Ok(None);
             }
 
+            tracing::warn!(code = ?code, detail = %detail, "gh /user lookup failed");
             return Err(anyhow!("GitHub CLI user lookup failed: {detail}"));
         }
         Err(GhCommandError::Other(message)) => {
+            tracing::warn!(error = %message, "gh /user lookup failed (IO error)");
             return Err(anyhow!("GitHub CLI user lookup failed: {message}"));
         }
     };
@@ -308,7 +352,10 @@ fn list_github_accessible_repositories_with_status(
 
     let output = match runner.run(["api", GITHUB_REPOS_ENDPOINT]) {
         Ok(output) => output,
-        Err(GhCommandError::NotFound) => return Ok(Vec::new()),
+        Err(GhCommandError::NotFound) => {
+            tracing::warn!("gh binary missing during /user/repos lookup");
+            return Ok(Vec::new());
+        }
         Err(GhCommandError::Failed {
             stdout,
             stderr,
@@ -316,12 +363,15 @@ fn list_github_accessible_repositories_with_status(
         }) => {
             let detail = command_error_detail(&stdout, &stderr, code);
             if looks_like_unauthenticated(&detail) {
+                tracing::warn!(code = ?code, detail = %detail, "gh /user/repos unauthenticated");
                 return Ok(Vec::new());
             }
 
+            tracing::warn!(code = ?code, detail = %detail, "gh /user/repos lookup failed");
             return Err(anyhow!("GitHub CLI repository lookup failed: {detail}"));
         }
         Err(GhCommandError::Other(message)) => {
+            tracing::warn!(error = %message, "gh /user/repos lookup failed (IO error)");
             return Err(anyhow!("GitHub CLI repository lookup failed: {message}"));
         }
     };
@@ -371,14 +421,22 @@ fn command_error_detail(stdout: &str, stderr: &str, code: Option<i32>) -> String
     }
 }
 
+/// Match `gh` output that conclusively means "no valid auth on file".
+/// Avoid bare `401` / `unauthorized` / `unauthenticated` — those leak into
+/// transient network errors (e.g. `401 Service Unavailable`,
+/// `unauthenticated upstream timeout`) and would flap the UI on a network
+/// blip. Mirror the whitelist style used by `looks_like_glab_unauthenticated`.
 fn looks_like_unauthenticated(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
-    normalized.contains("401")
-        || normalized.contains("unauthorized")
-        || normalized.contains("unauthenticated")
+    normalized.contains("401 unauthorized")
+        || normalized.contains("bad credentials")
         || normalized.contains("not logged into")
+        || normalized.contains("not logged in")
+        || normalized.contains("not authenticated")
         || normalized.contains("authentication failed")
         || normalized.contains("gh auth login")
+        || normalized.contains("no token found")
+        || normalized.contains("has not been authenticated")
 }
 
 fn github_cli_is_ready(status: &GithubCliStatus) -> bool {
@@ -695,5 +753,34 @@ mod tests {
                 message: "Unable to read GitHub CLI version: permission denied".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn looks_like_unauthenticated_matches_canonical_phrases() {
+        assert!(looks_like_unauthenticated(
+            "You are not logged into any GitHub hosts. Run gh auth login"
+        ));
+        assert!(looks_like_unauthenticated("HTTP 401: Bad credentials"));
+        assert!(looks_like_unauthenticated("authentication failed"));
+        assert!(looks_like_unauthenticated("no token found"));
+    }
+
+    #[test]
+    fn looks_like_unauthenticated_ignores_transient_network_errors() {
+        // 401 codes returned for non-auth reasons (rate limit, service degraded).
+        assert!(!looks_like_unauthenticated("401 Service Unavailable"));
+        // Bare "unauthenticated" / "unauthorized" must not match — they leak
+        // into transient upstream errors.
+        assert!(!looks_like_unauthenticated(
+            "unauthenticated upstream timeout"
+        ));
+        assert!(!looks_like_unauthenticated("unauthorized origin: EOF"));
+        // DNS / connect failures.
+        assert!(!looks_like_unauthenticated(
+            "Get \"https://api.github.com\": dial tcp: lookup api.github.com: no such host"
+        ));
+        assert!(!looks_like_unauthenticated(
+            "connection reset by peer while reading response"
+        ));
     }
 }
