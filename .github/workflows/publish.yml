@@ -35,7 +35,9 @@ env:
 jobs:
   preflight:
     name: Release Preflight
-    runs-on: macos-latest
+    # macos-26 ensures the bundled binary links against macOS 26 SDK; pre-26
+    # SDK targets get Tahoe's legacy compat scrollbar rendering (always-on bg).
+    runs-on: macos-26
     outputs:
       version: ${{ steps.version.outputs.version }}
       release_body: ${{ steps.notes.outputs.release_body }}
@@ -104,7 +106,7 @@ jobs:
             tauri-args: "--target aarch64-apple-darwin"
           - target-triple: x86_64-apple-darwin
             tauri-args: "--target x86_64-apple-darwin"
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v6
