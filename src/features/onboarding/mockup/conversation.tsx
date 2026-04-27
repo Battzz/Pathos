@@ -180,7 +180,12 @@ export function MockConversation() {
 						input={<ComposerInputPlaceholderUI />}
 						toolbar={
 							<>
-								<span className="flex items-center gap-1.5 rounded-[9px] px-1 py-0.5 text-[13px] font-medium text-muted-foreground">
+								<span
+									className={cn(
+										"flex items-center gap-1.5 rounded-[9px] px-1 py-0.5 text-[13px] font-medium",
+										"relative z-40 bg-background/95 text-foreground shadow-[0_0_0_1px_hsl(var(--border)),0_0_28px_rgba(0,0,0,0.18)]",
+									)}
+								>
 									<ClaudeIcon className="size-[13px]" />
 									Opus 4.7M
 									<ChevronDown className="size-3 opacity-40" />

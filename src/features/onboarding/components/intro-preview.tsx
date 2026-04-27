@@ -32,7 +32,7 @@ export function IntroPreview({
 				<h1 className="mt-7 text-[2.625rem] font-semibold leading-[1.1] tracking-normal text-foreground max-lg:text-3xl">
 					Hi, Helmor!
 				</h1>
-				<p className="mt-9 max-w-md text-sm leading-6 text-muted-foreground">
+				<p className="mt-6 max-w-md text-base font-medium leading-7 text-muted-foreground">
 					AI generates the code. Helmor is where you orchestrate, review, and
 					ship it.
 				</p>
@@ -75,7 +75,7 @@ export function IntroPreview({
 					className="absolute bottom-9 right-2 h-32 w-72 border-r border-b border-border/70"
 				/>
 				<div
-					className={`relative w-full max-w-[760px] overflow-hidden rounded-lg border border-border/70 bg-card shadow-2xl shadow-black/35 transition-transform duration-1000 ease-[cubic-bezier(.22,.82,.2,1)] ${
+					className={`relative w-[760px] max-w-full overflow-hidden rounded-lg bg-card shadow-2xl shadow-black/35 transition-transform duration-1000 ease-[cubic-bezier(.22,.82,.2,1)] ${
 						step === "intro"
 							? "scale-[1.05]"
 							: step === "skills"
@@ -93,7 +93,10 @@ export function IntroPreview({
 													: "scale-100"
 					}`}
 				>
-					<HelmorOnboardingMockup interactive={step !== "intro"} />
+					<HelmorOnboardingMockup
+						interactive={step !== "intro"}
+						providerSpotlight={step === "agents"}
+					/>
 				</div>
 			</section>
 		</div>

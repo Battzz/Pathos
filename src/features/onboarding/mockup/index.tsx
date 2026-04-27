@@ -17,6 +17,7 @@ const MOCKUP_INSPECTOR_WIDTH = 280;
 
 export function HelmorOnboardingMockup({
 	interactive = false,
+	providerSpotlight = false,
 }: {
 	/**
 	 * When false (default), interactive affordances inside the mockup
@@ -26,6 +27,7 @@ export function HelmorOnboardingMockup({
 	 * interactions ("look, you can open this") add narrative polish.
 	 */
 	interactive?: boolean;
+	providerSpotlight?: boolean;
 } = {}) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [scale, setScale] = useState(0.5);
@@ -47,10 +49,12 @@ export function HelmorOnboardingMockup({
 		<div
 			ref={containerRef}
 			aria-label="Helmor workspace preview"
-			className="aspect-[1300/900] w-full overflow-hidden bg-background text-foreground"
+			className={`aspect-[1300/900] w-full overflow-hidden text-foreground transition-colors duration-1000 ${
+				providerSpotlight ? "bg-black/42" : "bg-background"
+			}`}
 		>
 			<div
-				className="flex min-h-0 origin-top-left bg-background"
+				className="relative flex min-h-0 origin-top-left bg-background"
 				style={{
 					width: `${MOCKUP_LOGICAL_WIDTH}px`,
 					height: `${MOCKUP_LOGICAL_HEIGHT}px`,
@@ -72,6 +76,12 @@ export function HelmorOnboardingMockup({
 				>
 					<MockInspector />
 				</div>
+				<div
+					aria-hidden
+					className={`pointer-events-none absolute -inset-2 z-20 bg-black/42 backdrop-grayscale transition-opacity duration-1000 ${
+						providerSpotlight ? "opacity-100" : "opacity-0"
+					}`}
+				/>
 			</div>
 		</div>
 	);
