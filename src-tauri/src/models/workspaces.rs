@@ -69,6 +69,12 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
     -- session_count, unread_session_count, message_count, last_user_msg.
     -- One scan of `sessions` (covered by idx_sessions_workspace_id)
     -- + one LEFT JOIN to the cached session_message_counts.
+    --
+    -- `last_user_message_at` intentionally MAXes across ALL sessions
+    -- (including hidden / action sessions). It signals "any user
+    -- activity in this workspace at all" — distinct from
+    -- `primary_session` below which excludes hidden / action sessions
+    -- because that is for choosing the displayed conversation title.
     workspace_session_stats AS (
       SELECT
         s.workspace_id,
@@ -98,7 +104,7 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
             PARTITION BY s.workspace_id
             ORDER BY
               COALESCE(smc.message_count, 0) DESC,
-              datetime(s.updated_at) DESC,
+              s.updated_at DESC,
               s.id DESC
           ) AS rn
         FROM sessions s

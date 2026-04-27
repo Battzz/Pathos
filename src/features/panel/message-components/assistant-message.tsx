@@ -5,6 +5,7 @@ import {
 	ReasoningContent,
 	ReasoningTrigger,
 } from "@/components/ai/reasoning";
+import { LazyStreamdown } from "@/components/streamdown-loader";
 import {
 	type ExtendedMessagePart,
 	partKey,
@@ -24,7 +25,6 @@ import {
 	isToolCallPart,
 	reasoningLifecycle,
 } from "./shared";
-import { LazyStreamdown } from "./streamdown-loader";
 import { AssistantToolCall, CollapsedToolGroup } from "./tool-call";
 
 // --- AssistantText ---

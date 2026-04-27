@@ -12,18 +12,17 @@ import {
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { HelmorThinkingIndicator } from "@/components/helmor-thinking-indicator";
 import {
+	LazyStreamdown,
+	preloadStreamdown,
+} from "@/components/streamdown-loader";
+import {
 	HoverCardContent,
 	HoverCard as HoverCardRoot,
 	HoverCardTrigger,
 } from "@/components/ui/hover-card";
-import {
-	LazyStreamdown,
-	preloadStreamdown,
-} from "@/features/panel/message-components/streamdown-loader";
 import type {
 	ExtendedMessagePart,
 	ThreadMessageLike,
-	ToolCallPart,
 	WorkspaceRow,
 	WorkspaceSessionSummary,
 } from "@/lib/api";
@@ -36,6 +35,7 @@ import {
 	readSessionThread,
 	sessionThreadCacheKey,
 } from "@/lib/session-thread-cache";
+import { summarizeToolCall } from "@/lib/tool-summary";
 import { cn } from "@/lib/utils";
 import { WorkspaceAvatar } from "./avatar";
 import { humanizeBranch } from "./shared";
@@ -63,11 +63,7 @@ function relativeTime(iso?: string | null): string | null {
 	return formatDistanceToNow(date, { addSuffix: true });
 }
 
-/**
- * Single tiny stat chip used in the top-right cluster: an icon + a
- * compact number. Tuned for ~10px size so it sits flush next to the
- * workspace status dot without hijacking visual weight.
- */
+/** Tiny icon + number chip for the top-right git status cluster. */
 function CompactStat({
 	icon: Icon,
 	value,
@@ -97,20 +93,11 @@ function CompactStat({
 	);
 }
 
-/**
- * Compact git status, designed to live inline next to the status dot
- * in the top-right corner of the card. When the branch is clean we
- * collapse to a single tiny green branch icon (state visible at a
- * glance, no text). When there are changes we show stat chips:
- * `±N` uncommitted, `↓N` behind target, `↑N` unpushed.
- */
+/** Compact git status: chips when dirty, single green icon when clean. */
 function GitStats({ workspaceId }: { workspaceId: string }) {
 	const { data, isLoading, isError } = useQuery(
 		workspaceGitActionStatusQueryOptions(workspaceId),
 	);
-
-	// Stay silent while loading / on error — the status dot still
-	// communicates workspace state, no need for placeholder text.
 	if (isLoading || isError || !data) return null;
 
 	const uncommitted = data.uncommittedCount;
@@ -154,7 +141,6 @@ function GitStats({ workspaceId }: { workspaceId: string }) {
 	}
 
 	if (chips.length === 0) {
-		// Clean — single small icon, tooltip carries the explanation.
 		return (
 			<span
 				className="inline-flex shrink-0 items-center"
@@ -169,80 +155,12 @@ function GitStats({ workspaceId }: { workspaceId: string }) {
 	return <span className="flex items-center gap-1.5">{chips}</span>;
 }
 
-/** Strip path → basename for compact tool-call labels. */
-function basename(path: string): string {
-	const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-	return idx >= 0 ? path.slice(idx + 1) : path;
-}
-
 /**
- * Compact one-line summary of a tool call for the live preview pane.
- * Inlined (rather than reusing `getToolInfo` from the panel feature) so
- * the navigation feature stays self-contained — and because we want
- * very short, scannable text rather than the panel's rich rendering.
+ * Pick the streaming session for the live preview: prefer non-hidden,
+ * non-action sessions in `sendingSessionIds`; tiebreak on thread length;
+ * fall back to `primarySessionId` if none are streaming.
  */
-function summarizeToolCall(part: ToolCallPart): string {
-	const args = part.args ?? {};
-	const filePath = typeof args.file_path === "string" ? args.file_path : null;
-	const path = typeof args.path === "string" ? args.path : null;
-	const command = typeof args.command === "string" ? args.command : null;
-	const pattern = typeof args.pattern === "string" ? args.pattern : null;
-	const url = typeof args.url === "string" ? args.url : null;
-	const query = typeof args.query === "string" ? args.query : null;
-	const file = filePath ?? path;
-
-	switch (part.toolName) {
-		case "Read":
-			return file ? `Reading ${basename(file)}` : "Reading file";
-		case "Edit":
-			return file ? `Editing ${basename(file)}` : "Editing file";
-		case "Write":
-			return file ? `Writing ${basename(file)}` : "Writing file";
-		case "apply_patch":
-			return "Applying patch";
-		case "Bash":
-			return command ? `$ ${command.slice(0, 80)}` : "Running shell";
-		case "Grep":
-			return pattern ? `Grep "${pattern}"` : "Searching";
-		case "Glob":
-			return pattern ? `Glob ${pattern}` : "Listing files";
-		case "WebFetch":
-			return url ? `Fetching ${url}` : "Fetching URL";
-		case "WebSearch":
-			return query ? `Searching "${query}"` : "Web search";
-		case "Task":
-		case "Agent":
-			return "Running sub-agent";
-		case "TodoWrite":
-			return "Updating todos";
-		default: {
-			if (part.toolName.startsWith("mcp__")) {
-				const segments = part.toolName.split("__");
-				const tool = segments.slice(2).join("__") || part.toolName;
-				return `MCP ${tool}`;
-			}
-			return part.toolName;
-		}
-	}
-}
-
-/**
- * Pick the session whose stream should drive the live preview pane.
- *
- * Priority:
- *   1. Sessions in this workspace that are currently streaming (per
- *      `sendingSessionIds`), excluding hidden / one-off action sessions.
- *      - Exactly one match → use it.
- *      - Multiple matches → the one whose loaded thread has the most
- *        messages wins (best proxy for "the main conversation"). Falls
- *        back to id-stable order on ties.
- *   2. No streaming match → fall back to `primarySessionId` so we still
- *      show the most-recently-active conversation if data is around.
- *
- * Pure & cheap: scans the cached session list (already prefetched on
- * mouseEnter) and reads thread cache lengths via `readSessionThread`.
- */
-function chooseLiveSessionId({
+export function chooseLiveSessionId({
 	workspaceSessions,
 	sendingSessionIds,
 	primarySessionId,
@@ -286,28 +204,15 @@ type LiveBlock =
 	| { kind: "markdown"; key: string; text: string; reasoning: boolean }
 	| { kind: "tool"; key: string; label: string };
 
-/**
- * Cap markdown text fed to Streamdown so long reasoning blocks (which
- * Claude can stretch into thousands of tokens) don't blow up parse time
- * on every streaming tick. Keeps the **tail** since that's what the
- * user actually sees through the bottom-anchored flex layout, prefixed
- * with an ellipsis so they know there's more above.
- */
-const LIVE_BLOCK_CHAR_BUDGET = 600;
-function truncateLiveText(text: string): string {
+/** Cap markdown fed to Streamdown so long reasoning doesn't blow up parse time. */
+export const LIVE_BLOCK_CHAR_BUDGET = 600;
+export function truncateLiveText(text: string): string {
 	if (text.length <= LIVE_BLOCK_CHAR_BUDGET) return text;
 	return `…${text.slice(-LIVE_BLOCK_CHAR_BUDGET)}`;
 }
 
-/**
- * Build a "live activity log" from the most recent assistant message:
- * one block per content part (text, reasoning, tool call, or collapsed
- * group), in original order. This matches what the user sees streaming
- * in the main panel — text, thinking, and tool calls all surface here
- * so the hover card never sits stuck on a "Thinking…" placeholder
- * just because the model happens to be mid-tool-call.
- */
-function extractLiveActivity(
+/** Latest assistant message → ordered blocks (text/reasoning/tool/group). */
+export function extractLiveActivity(
 	thread: ThreadMessageLike[] | undefined,
 ): LiveBlock[] {
 	if (!thread?.length) return [];
@@ -367,12 +272,8 @@ function extractLiveActivity(
 	return blocks;
 }
 
-/**
- * Format a millisecond duration into a compact "stopwatch" string:
- * `42s`, `2m 34s`, `1h 5m`. Designed for narrow display next to the
- * Helmor logo in the streaming title row.
- */
-function formatElapsed(ms: number): string {
+/** Compact "stopwatch" string: `42s`, `2m 34s`, `1h 5m`. */
+export function formatElapsed(ms: number): string {
 	const totalSec = Math.max(0, Math.floor(ms / 1000));
 	if (totalSec < 60) return `${totalSec}s`;
 	const totalMin = Math.floor(totalSec / 60);
@@ -383,23 +284,8 @@ function formatElapsed(ms: number): string {
 	return remMin > 0 ? `${hr}h ${remMin}m` : `${hr}h`;
 }
 
-/**
- * Live "running for X" indicator pinned next to the Helmor logo while
- * a workspace is streaming. Reuses the same session-selection logic as
- * `LiveSessionPreview` so the timer always tracks the *streaming*
- * session (not just primary).
- *
- * Start time is read from the **thread cache**, not the session
- * summary's `lastUserMessageAt` — the optimistic user message is
- * appended to the thread the instant the user clicks Send, so its
- * `createdAt` is the most reliable "this turn started at" marker
- * (and is available immediately, without waiting for DB persistence
- * to bubble back up through the workspace-sessions IPC).
- *
- * Ticks once per second via setInterval. Only mounted while the hover
- * card is open *and* `isSending` is true (see WorkspaceHoverCard), so
- * the timer is dormant the rest of the time.
- */
+/** "Running for X" timer next to the Helmor logo. Start time = last user
+ *  message's optimistic createdAt (in thread cache the moment Send is hit). */
 function StreamingElapsed({
 	workspaceId,
 	primarySessionId,
@@ -409,10 +295,9 @@ function StreamingElapsed({
 }) {
 	const queryClient = useQueryClient();
 	const sendingSessionIds = useSendingSessionIds();
-	const { data: workspaceSessions } = useQuery({
-		...workspaceSessionsQueryOptions(workspaceId),
-		staleTime: 5_000,
-	});
+	const { data: workspaceSessions } = useQuery(
+		workspaceSessionsQueryOptions(workspaceId, { staleTime: 5_000 }),
+	);
 
 	const sessionId = chooseLiveSessionId({
 		workspaceSessions,
@@ -421,9 +306,6 @@ function StreamingElapsed({
 		queryClient,
 	});
 
-	// Subscribe to the same thread cache `LiveSessionPreview` reads from.
-	// Re-renders when the latest user message arrives in the optimistic
-	// snapshot so the timer can start as soon as the prompt is sent.
 	const { data: thread } = useQuery({
 		queryKey: sessionThreadCacheKey(sessionId ?? "__none__"),
 		queryFn: () =>
@@ -433,11 +315,6 @@ function StreamingElapsed({
 		gcTime: 30_000,
 	});
 
-	// Walk the thread in reverse to find the most recent user message —
-	// its `createdAt` is when the current turn kicked off. Falls back to
-	// the cached session summary's `lastUserMessageAt` if the thread is
-	// empty (e.g. opened the hover card before the first stream tick
-	// repopulated the cache).
 	let startedAtIso: string | null = null;
 	if (thread?.length) {
 		for (let i = thread.length - 1; i >= 0; i--) {
@@ -454,8 +331,7 @@ function StreamingElapsed({
 				?.lastUserMessageAt ?? null;
 	}
 
-	// Drive a 1-second tick so the elapsed value updates live. A single
-	// setInterval per open hover card; cleaned up on unmount.
+	// 1s tick to refresh the elapsed value; cleaned up on unmount.
 	const [, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -499,23 +375,9 @@ function MarkdownFallback({
 	);
 }
 
-/**
- * Live, streaming-aware preview pane. Subscribes to the relevant
- * session's thread cache (which `use-streaming` updates on every
- * delta) and renders the latest assistant message's parts in order:
- *
- *   - text & reasoning → markdown via streamdown
- *   - tool calls / collapsed groups → compact monospace label
- *
- * Blocks are stacked at the bottom of a fixed-height container with a
- * top-fade mask, so older content gracefully clips out as new tokens
- * stream in.
- *
- * NOTE: All React Query hooks live inside this component (which is
- * only mounted while the HoverCard is *open* — see Radix Portal). That
- * keeps the parent `WorkspaceHoverCard` zero-cost and zero-dependency
- * for tests that don't open the hover.
- */
+/** Live preview pane: bottom-anchored blocks fading at the top. Mounted
+ *  only when the HoverCard is open + `isSending`, so all queries here
+ *  stay dormant in idle / unit-test scenarios. */
 function LiveSessionPreview({
 	workspaceId,
 	primarySessionId,
@@ -526,25 +388,16 @@ function LiveSessionPreview({
 	const queryClient = useQueryClient();
 	const sendingSessionIds = useSendingSessionIds();
 
-	// Prime the streamdown chunk eagerly while the user is still inside
-	// the hover-open delay. By the time `LazyStreamdown` mounts below,
-	// the chunk is usually warm and Suspense never visibly fires.
+	// Pre-warm streamdown so Suspense rarely fires once the card opens.
 	useEffect(() => {
 		preloadStreamdown();
 	}, []);
 
-	// Cached session list — already prefetched on row mouseEnter via
-	// `prefetchWorkspace` in `use-controller`. Override the global
-	// `staleTime: 0` with a short hover-scoped window so re-opening the
-	// card doesn't re-fire `loadWorkspaceSessions` IPC every time.
-	const { data: workspaceSessions } = useQuery({
-		...workspaceSessionsQueryOptions(workspaceId),
-		staleTime: 5_000,
-	});
+	// Override the global `staleTime: 0` so re-hover doesn't re-fire IPC.
+	const { data: workspaceSessions } = useQuery(
+		workspaceSessionsQueryOptions(workspaceId, { staleTime: 5_000 }),
+	);
 
-	// Choose which session's stream to follow: prefer a non-hidden,
-	// non-action session that's currently sending; tiebreak on most
-	// loaded messages; fall back to primary when nothing's streaming.
 	const sessionId =
 		chooseLiveSessionId({
 			workspaceSessions,
@@ -553,10 +406,7 @@ function LiveSessionPreview({
 			queryClient,
 		}) ?? null;
 
-	// `useQuery` against the same cache key the streaming pipeline writes
-	// to — every `setQueryData` from `use-streaming` triggers a re-render
-	// here. queryFn is essentially a no-op that returns whatever's
-	// currently cached, since the data is owned externally.
+	// Subscribe to the same cache key `use-streaming` writes deltas into.
 	const { data: thread } = useQuery({
 		queryKey: sessionThreadCacheKey(sessionId ?? "__none__"),
 		queryFn: () =>
@@ -566,9 +416,6 @@ function LiveSessionPreview({
 		gcTime: 30_000,
 	});
 
-	// `shareMessages` (in session-thread-cache) keeps the thread array
-	// reference stable when nothing changed, so this memo bails out for
-	// every "noise" tick that doesn't touch the latest assistant message.
 	const blocks = useMemo(() => extractLiveActivity(thread), [thread]);
 
 	if (blocks.length === 0) {
@@ -579,28 +426,19 @@ function LiveSessionPreview({
 		);
 	}
 
-	// Render reversed (newest → DOM[0]) and use `flex-col-reverse` so the
-	// flex container fills bottom-up: the newest block sits at the bottom,
-	// older blocks pile up above. The container has `max-height` only —
-	// it shrinks to fit a single short response and only starts clipping
-	// (and fading via mask) once content actually exceeds the cap.
+	// `flex-col-reverse` + reversed array → newest at bottom, oldest clips at top.
 	const reversed = [...blocks].reverse();
 
 	return (
 		<div
 			className={cn(
 				"flex max-h-32 flex-col-reverse gap-1.5 overflow-hidden text-[11px] leading-[1.4]",
-				// Compact prose tweaks so streamdown's default vertical
-				// rhythm doesn't blow out the small pane.
+				// Compact streamdown prose so default rhythm fits the small pane.
 				"[&_p]:my-0 [&_pre]:my-1 [&_pre]:max-h-20 [&_pre]:overflow-hidden",
 				"[&_ul]:my-1 [&_ol]:my-1 [&_h1]:text-[12px] [&_h2]:text-[12px] [&_h3]:text-[12px]",
 				"[&_h1]:my-1 [&_h2]:my-1 [&_h3]:my-1 [&_code]:text-[10px]",
 			)}
 			style={{
-				// Gentle fade at the very top of the container — proportional
-				// to current container height. Stays subtle when content is
-				// short (just a few px shimmer), becomes a clear "more above"
-				// hint at full height. Only the top ~12% fades.
 				maskImage: "linear-gradient(to top, black 88%, transparent 100%)",
 				WebkitMaskImage: "linear-gradient(to top, black 88%, transparent 100%)",
 			}}
@@ -642,9 +480,7 @@ function LiveSessionPreview({
 	);
 }
 
-/** Small visual gap between the sidebar's right edge and the card's left edge. */
 const HOVER_CARD_DIVIDER_GAP = 8;
-/** Default fallback when we can't locate the sidebar (e.g. row not yet in DOM). */
 const HOVER_CARD_DEFAULT_SIDE_OFFSET = 10;
 
 export function WorkspaceHoverCard({
@@ -656,10 +492,7 @@ export function WorkspaceHoverCard({
 	isSending?: boolean;
 	children: React.ReactNode;
 }) {
-	// `sideOffset` distance is measured at open time so the card's left edge
-	// snaps to the sidebar/main-pane divider regardless of row width or
-	// internal sidebar padding. Falls back to a small static offset if we
-	// can't find the sidebar element (defensive — shouldn't happen).
+	// Measured on open so the card's left edge snaps to the sidebar divider.
 	const [sideOffset, setSideOffset] = useState(HOVER_CARD_DEFAULT_SIDE_OFFSET);
 	const handleOpenChange = useCallback(
 		(open: boolean) => {
@@ -669,7 +502,7 @@ export function WorkspaceHoverCard({
 			);
 			if (!rowEl) return;
 			const sidebarEl = rowEl.closest<HTMLElement>(
-				'aside[aria-label="Workspace sidebar"]',
+				"[data-helmor-sidebar-root]",
 			);
 			if (!sidebarEl) return;
 			const rowRight = rowEl.getBoundingClientRect().right;
@@ -691,9 +524,8 @@ export function WorkspaceHoverCard({
 			: repoLabel
 		: branch;
 
-	// Title preference: PR title (most authoritative) > primary session
-	// (the long-running conversation) > active session (last opened) >
-	// humanized branch > raw row title.
+	// Title fallback chain: PR title → primary session → active session → branch.
+	const trimmedPrTitle = row.prTitle?.trim() || null;
 	const primarySessionTitle =
 		row.primarySessionTitle && row.primarySessionTitle !== "Untitled"
 			? row.primarySessionTitle
@@ -702,17 +534,15 @@ export function WorkspaceHoverCard({
 		row.activeSessionTitle && row.activeSessionTitle !== "Untitled"
 			? row.activeSessionTitle
 			: null;
-	const title = row.prTitle?.trim()
-		? row.prTitle
-		: (primarySessionTitle ??
-			activeSessionTitleRaw ??
-			(branch ? humanizeBranch(branch) : row.title));
+	const title =
+		trimmedPrTitle ??
+		primarySessionTitle ??
+		activeSessionTitleRaw ??
+		(branch ? humanizeBranch(branch) : row.title);
 
 	const status = row.status ?? "in-progress";
 
-	// Prefer "last user message" — that's the human-meaningful "I last
-	// touched this" signal. Fall back to workspace `updatedAt` (bumped by
-	// status/pin/sync changes too) and finally `createdAt`.
+	// "Last touched" prefers the most human-meaningful signal available.
 	const lastActivityIso =
 		row.lastUserMessageAt ?? row.updatedAt ?? row.createdAt ?? null;
 	const lastActivity = relativeTime(lastActivityIso);
@@ -739,8 +569,7 @@ export function WorkspaceHoverCard({
 				className="w-72 p-3"
 			>
 				<div className="flex flex-col gap-2.5">
-					{/* Header: repo › branch on the left, compact git status +
-					    workspace status dot clustered tightly on the right. */}
+					{/* Header: repo › branch | git status + status dot. */}
 					<div className="flex items-start justify-between gap-2">
 						<div className="flex min-w-0 items-center gap-2">
 							<WorkspaceAvatar
@@ -769,13 +598,7 @@ export function WorkspaceHoverCard({
 						</div>
 					</div>
 
-					{/* Title — paired with the Helmor logo while the workspace is
-					    actively sending so users get an at-a-glance "this one is
-					    working right now" signal even before the live preview
-					    pane below has any text to show. The elapsed timer on
-					    the right surfaces "how long has this been running" at a
-					    glance, which is the most-asked question for a streaming
-					    workspace you're not currently watching. */}
+					{/* Title row + Helmor logo + elapsed timer (when streaming). */}
 					<div className="flex items-start gap-2">
 						{isSending ? (
 							<HelmorThinkingIndicator size={14} className="mt-0.5 shrink-0" />
@@ -791,10 +614,6 @@ export function WorkspaceHoverCard({
 						) : null}
 					</div>
 
-					{/* Live streaming preview — picks the right session inside
-					    (preferring one that's actually sending, with max-message
-					    tiebreak) and reads its thread cache, which `use-streaming`
-					    keeps current regardless of which workspace is selected. */}
 					{isSending ? (
 						<LiveSessionPreview
 							workspaceId={row.id}
@@ -802,15 +621,15 @@ export function WorkspaceHoverCard({
 						/>
 					) : null}
 
-					{/* PR row (only when there's a PR title and it isn't the main title) */}
-					{row.prTitle && row.prTitle !== title ? (
+					{/* PR title (only when it isn't already the main title). */}
+					{trimmedPrTitle && trimmedPrTitle !== title ? (
 						<div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
 							<GitPullRequest className="size-3 shrink-0" strokeWidth={1.8} />
-							<span className="truncate">{row.prTitle}</span>
+							<span className="truncate">{trimmedPrTitle}</span>
 						</div>
 					) : null}
 
-					{/* Footer meta */}
+					{/* Footer: counts on the left, last-activity timestamp on the right. */}
 					<div className="flex items-center justify-between gap-2 pt-1 text-[11px] text-muted-foreground/80">
 						<div className="flex items-center gap-2.5">
 							{sessionCount > 0 ? (

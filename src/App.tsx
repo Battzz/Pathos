@@ -2151,6 +2151,7 @@ function AppShell({
 											{!sidebarCollapsed && (
 												<aside
 													aria-label="Workspace sidebar"
+													data-helmor-sidebar-root
 													className="relative flex h-full shrink-0 flex-col overflow-hidden bg-sidebar"
 													style={{ width: `${sidebarWidth}px` }}
 												>
