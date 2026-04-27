@@ -402,11 +402,12 @@ describe("deriveCommitButtonState", () => {
 		expect(deriveCommitButtonState(null)).toBe("idle");
 	});
 
-	it("returns disabled when mergeable is UNKNOWN", () => {
+	it("returns disabled when merge mode hits UNKNOWN mergeable", () => {
 		expect(
 			deriveCommitButtonState(
 				null,
 				makeChangeRequestActionStatus({ mergeable: "UNKNOWN" }),
+				"merge",
 			),
 		).toBe("disabled");
 	});
@@ -416,6 +417,59 @@ describe("deriveCommitButtonState", () => {
 			deriveCommitButtonState(
 				null,
 				makeChangeRequestActionStatus({ mergeable: "MERGEABLE" }),
+				"merge",
+			),
+		).toBe("idle");
+	});
+
+	// Regression: GitLab maps `not_open` → "UNKNOWN" and the action-status
+	// poller stops once a PR is merged/closed, so the last recorded mergeable
+	// sticks on UNKNOWN forever. Tying the disabled gate to mode="merge"
+	// (not "merged"/"closed") prevents that stale UNKNOWN from leaking into
+	// the ghost-mode header.
+	it("returns idle for merged mode even when mergeable is UNKNOWN", () => {
+		expect(
+			deriveCommitButtonState(
+				null,
+				makeChangeRequestActionStatus({ mergeable: "UNKNOWN" }),
+				"merged",
+			),
+		).toBe("idle");
+	});
+
+	it("returns idle for closed mode even when mergeable is UNKNOWN", () => {
+		expect(
+			deriveCommitButtonState(
+				null,
+				makeChangeRequestActionStatus({ mergeable: "UNKNOWN" }),
+				"closed",
+			),
+		).toBe("idle");
+	});
+
+	// Regression: actions like Fix CI / Push / Commit-and-push don't depend
+	// on mergeability — they shouldn't be greyed out while GitHub is still
+	// computing it.
+	it.each([
+		"fix",
+		"push",
+		"commit-and-push",
+		"resolve-conflicts",
+	] as const)("returns idle for %s mode even when mergeable is UNKNOWN", (mode) => {
+		expect(
+			deriveCommitButtonState(
+				null,
+				makeChangeRequestActionStatus({ mergeable: "UNKNOWN" }),
+				mode,
+			),
+		).toBe("idle");
+	});
+
+	it("returns idle when mode is undefined (no PR yet)", () => {
+		expect(
+			deriveCommitButtonState(
+				null,
+				makeChangeRequestActionStatus({ mergeable: "UNKNOWN" }),
 			),
 		).toBe("idle");
 	});

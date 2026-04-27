@@ -654,8 +654,13 @@ export function useWorkspaceCommitLifecycle({
 	);
 
 	const commitButtonState = useMemo<CommitButtonState>(
-		() => deriveCommitButtonState(activeLifecycle, currentForgeActionStatus),
-		[activeLifecycle, currentForgeActionStatus],
+		() =>
+			deriveCommitButtonState(
+				activeLifecycle,
+				currentForgeActionStatus,
+				commitButtonMode,
+			),
+		[activeLifecycle, currentForgeActionStatus, commitButtonMode],
 	);
 
 	return {

@@ -103,16 +103,23 @@ export function deriveCommitButtonMode(
 
 /**
  * Derive the commit button's visible state from the lifecycle + action
- * status. Returns `"disabled"` while the provider is still computing the
- * mergeable status so the user can't click Merge prematurely.
+ * status + visible mode. Returns `"disabled"` only while the user is about
+ * to click "Merge" but the provider hasn't finished computing mergeability
+ * yet — `mode` already encodes "what action is the button offering"; tying
+ * the disabled gate to it avoids accidentally greying out the Fix CI /
+ * Push / Commit-and-push buttons (which don't depend on mergeable) and
+ * stops `merged`/`closed` ghost-mode buttons from inheriting a stale
+ * UNKNOWN that polling no longer refreshes.
  */
 export function deriveCommitButtonState(
 	lifecycle: CommitLifecycle,
 	forgeActionStatus?: ForgeActionStatus | null,
+	mode?: WorkspaceCommitButtonMode,
 ): CommitButtonState {
 	if (!lifecycle) {
-		// Provider is still computing mergeable — disable the button
-		if (forgeActionStatus?.mergeable === "UNKNOWN") return "disabled";
+		if (mode === "merge" && forgeActionStatus?.mergeable === "UNKNOWN") {
+			return "disabled";
+		}
 		return "idle";
 	}
 	switch (lifecycle.phase) {
