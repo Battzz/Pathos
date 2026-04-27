@@ -329,11 +329,16 @@ export function summaryToArchivedRow(summary: WorkspaceSummary): WorkspaceRow {
 		activeSessionTitle: summary.activeSessionTitle ?? null,
 		activeSessionAgentType: summary.activeSessionAgentType ?? null,
 		activeSessionStatus: summary.activeSessionStatus ?? null,
+		primarySessionId: summary.primarySessionId ?? null,
+		primarySessionTitle: summary.primarySessionTitle ?? null,
+		primarySessionAgentType: summary.primarySessionAgentType ?? null,
 		prTitle: summary.prTitle ?? null,
 		pinnedAt: summary.pinnedAt ?? null,
 		sessionCount: summary.sessionCount,
 		messageCount: summary.messageCount,
 		createdAt: summary.createdAt,
+		updatedAt: summary.updatedAt,
+		lastUserMessageAt: summary.lastUserMessageAt ?? null,
 	};
 }
 
@@ -424,11 +429,16 @@ export function rowToWorkspaceSummary(
 		activeSessionTitle: row.activeSessionTitle ?? null,
 		activeSessionAgentType: row.activeSessionAgentType ?? null,
 		activeSessionStatus: row.activeSessionStatus ?? null,
+		primarySessionId: row.primarySessionId ?? null,
+		primarySessionTitle: row.primarySessionTitle ?? null,
+		primarySessionAgentType: row.primarySessionAgentType ?? null,
 		prTitle: row.prTitle ?? null,
 		pinnedAt: row.pinnedAt ?? null,
 		sessionCount: row.sessionCount,
 		messageCount: row.messageCount,
 		createdAt: row.createdAt ?? new Date().toISOString(),
+		updatedAt: row.updatedAt,
+		lastUserMessageAt: row.lastUserMessageAt ?? null,
 		...overrides,
 	};
 }

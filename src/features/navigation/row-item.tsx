@@ -44,6 +44,7 @@ import {
 	humanizeBranch,
 	STATUS_OPTIONS,
 } from "./shared";
+import { WorkspaceHoverCard } from "./workspace-hover-card";
 
 const rowVariants = cva(
 	"group/row relative flex h-7.5 select-none items-center gap-2 rounded-md px-2.5 text-[13px] cursor-pointer",
@@ -328,7 +329,9 @@ export const WorkspaceRowItem = memo(
 
 		return (
 			<ContextMenu>
-				<ContextMenuTrigger className="block">{rowBody}</ContextMenuTrigger>
+				<WorkspaceHoverCard row={row} isSending={isSending}>
+					<ContextMenuTrigger className="block">{rowBody}</ContextMenuTrigger>
+				</WorkspaceHoverCard>
 				<ContextMenuContent className="min-w-48">
 					<ContextMenuItem onClick={() => onTogglePin?.(row.id, isPinned)}>
 						{isPinned ? (

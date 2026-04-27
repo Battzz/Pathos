@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Eye } from "lucide-react";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { LazyStreamdown } from "@/components/streamdown-loader";
 import { Button } from "@/components/ui/button";
 import {
 	Collapsible,
@@ -9,7 +10,6 @@ import {
 } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { LazyStreamdown } from "@/features/panel/message-components/streamdown-loader";
 import {
 	loadRepoPreferences,
 	type RepoPreferences,

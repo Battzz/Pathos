@@ -54,6 +54,9 @@ pub struct WorkspaceSidebarRow {
     pub active_session_title: Option<String>,
     pub active_session_agent_type: Option<String>,
     pub active_session_status: Option<String>,
+    pub primary_session_id: Option<String>,
+    pub primary_session_title: Option<String>,
+    pub primary_session_agent_type: Option<String>,
     pub pr_title: Option<String>,
     pub pr_sync_state: PrSyncState,
     pub pr_url: Option<String>,
@@ -61,6 +64,8 @@ pub struct WorkspaceSidebarRow {
     pub session_count: i64,
     pub message_count: i64,
     pub created_at: String,
+    pub updated_at: String,
+    pub last_user_message_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -91,6 +96,9 @@ pub struct WorkspaceSummary {
     pub active_session_title: Option<String>,
     pub active_session_agent_type: Option<String>,
     pub active_session_status: Option<String>,
+    pub primary_session_id: Option<String>,
+    pub primary_session_title: Option<String>,
+    pub primary_session_agent_type: Option<String>,
     pub pr_title: Option<String>,
     pub pr_sync_state: PrSyncState,
     pub pr_url: Option<String>,
@@ -98,6 +106,8 @@ pub struct WorkspaceSummary {
     pub session_count: i64,
     pub message_count: i64,
     pub created_at: String,
+    pub updated_at: String,
+    pub last_user_message_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -716,6 +726,9 @@ pub fn record_to_sidebar_row(record: WorkspaceRecord) -> WorkspaceSidebarRow {
         active_session_title: record.active_session_title,
         active_session_agent_type: record.active_session_agent_type,
         active_session_status: record.active_session_status,
+        primary_session_id: record.primary_session_id,
+        primary_session_title: record.primary_session_title,
+        primary_session_agent_type: record.primary_session_agent_type,
         pr_title: record.pr_title,
         pr_sync_state: record.pr_sync_state,
         pr_url: record.pr_url,
@@ -723,6 +736,8 @@ pub fn record_to_sidebar_row(record: WorkspaceRecord) -> WorkspaceSidebarRow {
         session_count: record.session_count,
         message_count: record.message_count,
         created_at: record.created_at,
+        updated_at: record.updated_at,
+        last_user_message_at: record.last_user_message_at,
     }
 }
 
@@ -746,6 +761,9 @@ pub fn record_to_summary(record: WorkspaceRecord) -> WorkspaceSummary {
         active_session_title: record.active_session_title,
         active_session_agent_type: record.active_session_agent_type,
         active_session_status: record.active_session_status,
+        primary_session_id: record.primary_session_id,
+        primary_session_title: record.primary_session_title,
+        primary_session_agent_type: record.primary_session_agent_type,
         pr_title: record.pr_title,
         pr_sync_state: record.pr_sync_state,
         pr_url: record.pr_url,
@@ -753,6 +771,8 @@ pub fn record_to_summary(record: WorkspaceRecord) -> WorkspaceSummary {
         session_count: record.session_count,
         message_count: record.message_count,
         created_at: record.created_at,
+        updated_at: record.updated_at,
+        last_user_message_at: record.last_user_message_at,
     }
 }
 

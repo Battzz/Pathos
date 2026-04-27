@@ -33,6 +33,7 @@ import {
 	repositoriesQueryOptions,
 	sessionThreadMessagesQueryOptions,
 	workspaceDetailQueryOptions,
+	workspaceGitActionStatusQueryOptions,
 	workspaceGroupsQueryOptions,
 	workspaceSessionsQueryOptions,
 } from "@/lib/query-client";
@@ -425,6 +426,15 @@ export function useWorkspacesSidebarController({
 	const prefetchWorkspace = useCallback(
 		(workspaceId: string) => {
 			void (async () => {
+				// Kick off the git-status prefetch immediately — it's the single
+				// data source that gates the sidebar hover card and runs `git
+				// status` synchronously, which can take 100–500ms. Starting it
+				// in parallel with the detail/session prefetch means by the
+				// time the HoverCard's openDelay (~400ms) elapses, the data is
+				// usually already cached.
+				void queryClient.prefetchQuery(
+					workspaceGitActionStatusQueryOptions(workspaceId),
+				);
 				const [workspaceDetail, workspaceSessions] = await Promise.all([
 					queryClient.ensureQueryData(workspaceDetailQueryOptions(workspaceId)),
 					queryClient.ensureQueryData(

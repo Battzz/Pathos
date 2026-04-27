@@ -249,11 +249,20 @@ export function forgeCliStatusQueryOptions(
 	});
 }
 
-export function workspaceSessionsQueryOptions(workspaceId: string) {
+/**
+ * Default `staleTime: 0` matches the panel's "always re-validate sessions"
+ * expectation. Callers that *peek* at the cache (e.g. sidebar hover card)
+ * can pass a small `staleTime` so re-mounts inside the same hover session
+ * don't refire the IPC.
+ */
+export function workspaceSessionsQueryOptions(
+	workspaceId: string,
+	overrides: { staleTime?: number } = {},
+) {
 	return queryOptions({
 		queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
 		queryFn: () => loadWorkspaceSessions(workspaceId),
-		staleTime: 0,
+		staleTime: overrides.staleTime ?? 0,
 	});
 }
 

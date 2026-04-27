@@ -30,6 +30,13 @@ pub struct WorkspaceRecord {
     pub active_session_title: Option<String>,
     pub active_session_agent_type: Option<String>,
     pub active_session_status: Option<String>,
+    /// "Primary" session = the non-hidden, non-action session in this
+    /// workspace with the most messages. Falls back to most recently
+    /// updated when message counts tie. None for workspaces with no
+    /// real conversation yet (only action / hidden sessions).
+    pub primary_session_id: Option<String>,
+    pub primary_session_title: Option<String>,
+    pub primary_session_agent_type: Option<String>,
     pub pr_title: Option<String>,
     pub pr_sync_state: PrSyncState,
     pub pr_url: Option<String>,
@@ -39,24 +46,73 @@ pub struct WorkspaceRecord {
     pub remote: Option<String>,
     pub forge_provider: Option<String>,
     pub created_at: String,
+    pub updated_at: String,
+    /// Most recent `last_user_message_at` across all sessions in the
+    /// workspace. `None` for workspaces with no user messages yet.
+    pub last_user_message_at: Option<String>,
 }
 
 pub const WORKSPACE_RECORD_SQL: &str = r#"
-    WITH session_stats AS (
-      SELECT
-        workspace_id,
-        SUM(CASE WHEN COALESCE(unread_count, 0) > 0 THEN 1 ELSE 0 END) AS unread_session_count,
-        COUNT(*) AS session_count
-      FROM sessions
-      GROUP BY workspace_id
+    WITH
+    -- One per-session message count, computed once. Reused by both
+    -- `message_stats` (workspace-level total via SUM) and
+    -- `primary_session` (per-session ranking). Avoids scanning the
+    -- (potentially huge) `session_messages` table twice. Index
+    -- `idx_session_messages_sent_at(session_id, sent_at)` makes the
+    -- group-by index-only.
+    session_message_counts AS (
+      SELECT session_id, COUNT(*) AS message_count
+      FROM session_messages
+      GROUP BY session_id
     ),
-    message_stats AS (
+    -- Per-workspace session aggregates derived in a single sweep:
+    -- session_count, unread_session_count, message_count, last_user_msg.
+    -- One scan of `sessions` (covered by idx_sessions_workspace_id)
+    -- + one LEFT JOIN to the cached session_message_counts.
+    --
+    -- `last_user_message_at` intentionally MAXes across ALL sessions
+    -- (including hidden / action sessions). It signals "any user
+    -- activity in this workspace at all" — distinct from
+    -- `primary_session` below which excludes hidden / action sessions
+    -- because that is for choosing the displayed conversation title.
+    workspace_session_stats AS (
       SELECT
-        ws.workspace_id,
-        COUNT(*) AS message_count
-      FROM sessions ws
-      JOIN session_messages sm ON sm.session_id = ws.id
-      GROUP BY ws.workspace_id
+        s.workspace_id,
+        COUNT(*) AS session_count,
+        SUM(CASE WHEN COALESCE(s.unread_count, 0) > 0 THEN 1 ELSE 0 END) AS unread_session_count,
+        COALESCE(SUM(smc.message_count), 0) AS message_count,
+        MAX(s.last_user_message_at) AS last_user_message_at
+      FROM sessions s
+      LEFT JOIN session_message_counts smc ON smc.session_id = s.id
+      GROUP BY s.workspace_id
+    ),
+    -- Pick the "real" conversation per workspace: the non-hidden,
+    -- non-action session with the most messages. Ties broken by most
+    -- recent updated_at, then session id for determinism. Action /
+    -- hidden sessions (commit-and-push, create-pr, etc.) are excluded
+    -- so a fleeting one-off doesn't masquerade as the workspace's
+    -- topic.
+    primary_session AS (
+      SELECT session_id, workspace_id, session_title, session_agent_type
+      FROM (
+        SELECT
+          s.id AS session_id,
+          s.workspace_id,
+          s.title AS session_title,
+          s.agent_type AS session_agent_type,
+          ROW_NUMBER() OVER (
+            PARTITION BY s.workspace_id
+            ORDER BY
+              COALESCE(smc.message_count, 0) DESC,
+              s.updated_at DESC,
+              s.id DESC
+          ) AS rn
+        FROM sessions s
+        LEFT JOIN session_message_counts smc ON smc.session_id = s.id
+        WHERE COALESCE(s.is_hidden, 0) = 0
+          AND s.action_kind IS NULL
+      )
+      WHERE rn = 1
     )
     SELECT
       w.id,
@@ -68,11 +124,11 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
       w.directory_name,
       w.state,
       CASE
-        WHEN COALESCE(w.unread, 0) > 0 OR COALESCE(ss.unread_session_count, 0) > 0 THEN 1
+        WHEN COALESCE(w.unread, 0) > 0 OR COALESCE(wss.unread_session_count, 0) > 0 THEN 1
         ELSE 0
       END AS has_unread,
       COALESCE(w.unread, 0) AS workspace_unread,
-      COALESCE(ss.unread_session_count, 0) AS unread_session_count,
+      COALESCE(wss.unread_session_count, 0) AS unread_session_count,
       COALESCE(w.status, 'in-progress') AS status,
       w.branch,
       w.initialization_parent_branch,
@@ -82,20 +138,25 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
       s.title AS active_session_title,
       s.agent_type AS active_session_agent_type,
       s.status AS active_session_status,
+      ps.session_id AS primary_session_id,
+      ps.session_title AS primary_session_title,
+      ps.session_agent_type AS primary_session_agent_type,
       w.pr_title,
       COALESCE(w.pr_sync_state, 'none') AS pr_sync_state,
       w.pr_url,
       w.archive_commit,
-      COALESCE(ss.session_count, 0) AS session_count,
-      COALESCE(ms.message_count, 0) AS message_count,
+      COALESCE(wss.session_count, 0) AS session_count,
+      COALESCE(wss.message_count, 0) AS message_count,
       r.remote,
       r.forge_provider,
-      w.created_at
+      w.created_at,
+      w.updated_at,
+      wss.last_user_message_at
     FROM workspaces w
     JOIN repos r ON r.id = w.repository_id
     LEFT JOIN sessions s ON s.id = w.active_session_id
-    LEFT JOIN session_stats ss ON ss.workspace_id = w.id
-    LEFT JOIN message_stats ms ON ms.workspace_id = w.id
+    LEFT JOIN workspace_session_stats wss ON wss.workspace_id = w.id
+    LEFT JOIN primary_session ps ON ps.workspace_id = w.id
 "#;
 
 pub fn load_workspace_records() -> Result<Vec<WorkspaceRecord>> {
@@ -390,14 +451,19 @@ fn workspace_record_from_row(row: &Row<'_>) -> rusqlite::Result<WorkspaceRecord>
         active_session_title: row.get(17)?,
         active_session_agent_type: row.get(18)?,
         active_session_status: row.get(19)?,
-        pr_title: row.get(20)?,
-        pr_sync_state: row.get(21)?,
-        pr_url: row.get(22)?,
-        archive_commit: row.get(23)?,
-        session_count: row.get(24)?,
-        message_count: row.get(25)?,
-        remote: row.get(26)?,
-        forge_provider: row.get(27)?,
-        created_at: row.get(28)?,
+        primary_session_id: row.get(20)?,
+        primary_session_title: row.get(21)?,
+        primary_session_agent_type: row.get(22)?,
+        pr_title: row.get(23)?,
+        pr_sync_state: row.get(24)?,
+        pr_url: row.get(25)?,
+        archive_commit: row.get(26)?,
+        session_count: row.get(27)?,
+        message_count: row.get(28)?,
+        remote: row.get(29)?,
+        forge_provider: row.get(30)?,
+        created_at: row.get(31)?,
+        updated_at: row.get(32)?,
+        last_user_message_at: row.get(33)?,
     })
 }

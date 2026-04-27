@@ -11,6 +11,7 @@ import {
 import { Suspense, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
+import { LazyStreamdown } from "@/components/streamdown-loader";
 import {
 	copyImageToClipboard,
 	type ImagePart,
@@ -19,7 +20,6 @@ import {
 	type TodoListPart,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { LazyStreamdown } from "./streamdown-loader";
 
 export function TodoList({ part }: { part: TodoListPart }) {
 	if (part.items.length === 0) {

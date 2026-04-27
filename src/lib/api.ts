@@ -76,6 +76,13 @@ export type WorkspaceRow = {
 	activeSessionTitle?: string | null;
 	activeSessionAgentType?: string | null;
 	activeSessionStatus?: string | null;
+	/** "Primary" conversation = the non-hidden, non-action session in this
+	 * workspace with the most messages (ties broken by recency). The
+	 * meaningful long-running chat — distinct from `activeSession*` which
+	 * may be a transient one-off action like create-pr. */
+	primarySessionId?: string | null;
+	primarySessionTitle?: string | null;
+	primarySessionAgentType?: string | null;
 	prTitle?: string | null;
 	prSyncState?: PrSyncState;
 	prUrl?: string | null;
@@ -85,6 +92,11 @@ export type WorkspaceRow = {
 	/** ISO-8601 timestamp — present for rows coming from the backend; absent
 	 * for ad-hoc optimistic rows that haven't been given one. */
 	createdAt?: string;
+	/** ISO-8601 timestamp — last DB-recorded change to the workspace. */
+	updatedAt?: string;
+	/** ISO-8601 timestamp — most recent user message across all sessions
+	 * in this workspace. Null when the workspace has no user messages yet. */
+	lastUserMessageAt?: string | null;
 };
 
 export type WorkspaceGroup = {
@@ -159,6 +171,9 @@ export type WorkspaceSummary = {
 	activeSessionTitle?: string | null;
 	activeSessionAgentType?: string | null;
 	activeSessionStatus?: string | null;
+	primarySessionId?: string | null;
+	primarySessionTitle?: string | null;
+	primarySessionAgentType?: string | null;
 	prTitle?: string | null;
 	prSyncState?: PrSyncState;
 	prUrl?: string | null;
@@ -166,6 +181,8 @@ export type WorkspaceSummary = {
 	sessionCount?: number;
 	messageCount?: number;
 	createdAt: string;
+	updatedAt?: string;
+	lastUserMessageAt?: string | null;
 };
 
 export type RepositoryCreateOption = {
