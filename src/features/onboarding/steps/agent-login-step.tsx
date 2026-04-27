@@ -40,8 +40,8 @@ export function AgentLoginStep({
 				<div
 					className={`transition-all duration-700 ease-[cubic-bezier(.22,.82,.2,1)] ${
 						terminalActive
-							? "w-1/2 max-w-[540px] translate-x-0"
-							: "mx-auto w-full max-w-[720px] translate-x-0"
+							? "ml-0 w-1/2 max-w-[540px]"
+							: "ml-[230px] w-full max-w-[720px]"
 					}`}
 				>
 					<h2 className="text-3xl font-semibold tracking-normal text-foreground">
