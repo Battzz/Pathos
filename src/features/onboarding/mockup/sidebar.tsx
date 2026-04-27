@@ -7,7 +7,6 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { mockSidebar } from "./data";
-import { humanizeBranch } from "./ui/shared";
 import { WorkspaceGroupHeaderUI } from "./ui/workspace-group-header.ui";
 import { WorkspaceRowUI } from "./ui/workspace-row.ui";
 import { WorkspaceSidebarShellUI } from "./ui/workspace-sidebar.ui";
@@ -25,8 +24,10 @@ import { WorkspaceSidebarShellUI } from "./ui/workspace-sidebar.ui";
  */
 export function MockSidebar({
 	interactive = false,
+	cliSplitSpotlight = false,
 }: {
 	interactive?: boolean;
+	cliSplitSpotlight?: boolean;
 }) {
 	return (
 		<WorkspaceSidebarShellUI
@@ -80,9 +81,16 @@ export function MockSidebar({
 								canCollapse
 							/>
 							{group.rows.map((row) => (
-								<div key={row.id} className="pl-2">
+								<div
+									key={row.id}
+									className={
+										cliSplitSpotlight && row.cliSplitTarget
+											? "relative z-40 isolate rounded-[10px] bg-sidebar pl-2"
+											: "pl-2"
+									}
+								>
 									<WorkspaceRowUI
-										displayTitle={humanizeBranch(row.branch) ?? row.title}
+										displayTitle={row.title}
 										repoInitials={row.repoInitials}
 										repoName={row.title}
 										branchTone={row.branchTone}

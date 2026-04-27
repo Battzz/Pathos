@@ -97,7 +97,13 @@ function MockTodoList({
 	);
 }
 
-function Message({ message }: { message: MockMessage }) {
+function Message({
+	message,
+	cliSplitSpotlight = false,
+}: {
+	message: MockMessage;
+	cliSplitSpotlight?: boolean;
+}) {
 	if (message.role === "user") {
 		return (
 			<div className="flow-root px-5 pb-1.5">
@@ -122,6 +128,11 @@ function Message({ message }: { message: MockMessage }) {
 								icon={<Wrench className="size-3.5" />}
 								name={part.name}
 								detail={part.detail}
+								className={
+									cliSplitSpotlight && part.cliSplitTarget
+										? "relative z-40 isolate bg-sidebar"
+										: undefined
+								}
 							/>
 						);
 					}
@@ -138,8 +149,10 @@ function Message({ message }: { message: MockMessage }) {
 
 export function MockConversation({
 	providerSpotlight = false,
+	cliSplitSpotlight = false,
 }: {
 	providerSpotlight?: boolean;
+	cliSplitSpotlight?: boolean;
 } = {}) {
 	return (
 		<section className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
@@ -173,7 +186,11 @@ export function MockConversation({
 						<div className="flex min-h-full flex-col">
 							<div className="h-6 shrink-0" />
 							{mockConversation.messages.map((message) => (
-								<Message key={message.id} message={message} />
+								<Message
+									key={message.id}
+									message={message}
+									cliSplitSpotlight={cliSplitSpotlight}
+								/>
 							))}
 							<WorkingIndicatorUI />
 						</div>

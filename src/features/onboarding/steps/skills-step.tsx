@@ -37,7 +37,7 @@ export function SkillsStep({
 		>
 			<div className="flex flex-col items-center">
 				<div className="relative h-[270px] w-[420px]">
-					<div className="absolute left-10 top-0 h-32 w-[340px] rotate-[-5deg] rounded-lg border border-border/55 bg-card/55 p-4 shadow-2xl shadow-black/20">
+					<div className="absolute left-10 top-0 h-32 w-[340px] rotate-[-5deg] rounded-lg border border-border/55 bg-card p-4 shadow-2xl shadow-black/20">
 						<div className="flex items-center gap-2">
 							<Sparkles className="size-4 text-muted-foreground" />
 							<div className="h-3 w-24 rounded-full bg-foreground/16" />
@@ -48,7 +48,7 @@ export function SkillsStep({
 							<div className="h-2 w-2/3 rounded-full bg-foreground/10" />
 						</div>
 					</div>
-					<div className="absolute left-[30px] top-14 h-32 w-[360px] rotate-[3deg] rounded-lg border border-border/60 bg-card/75 p-4 shadow-2xl shadow-black/25">
+					<div className="absolute left-[30px] top-14 h-32 w-[360px] rotate-[3deg] rounded-lg border border-border/60 bg-card p-4 shadow-2xl shadow-black/25">
 						<div className="flex items-center gap-2">
 							<Layers className="size-4 text-muted-foreground" />
 							<div className="h-3 w-28 rounded-full bg-foreground/18" />

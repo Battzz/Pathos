@@ -13,7 +13,7 @@ export function SetupItem({
 	actionLabel?: string;
 }) {
 	return (
-		<div className="flex items-center gap-3 rounded-lg border border-border/55 bg-card/70 px-4 py-3">
+		<div className="flex items-center gap-3 rounded-lg border border-border/55 bg-card px-4 py-3">
 			<div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-background text-foreground">
 				{icon}
 			</div>
@@ -23,12 +23,7 @@ export function SetupItem({
 					{description}
 				</p>
 			</div>
-			<Button
-				type="button"
-				variant="outline"
-				size="sm"
-				className="h-7 shrink-0 px-2 text-xs"
-			>
+			<Button type="button" size="sm" className="h-7 shrink-0 px-2 text-xs">
 				{actionLabel}
 			</Button>
 		</div>

@@ -24,9 +24,8 @@ export function AgentStatusAction({
 	return (
 		<Button
 			type="button"
-			variant="outline"
 			size="sm"
-			className="h-7 shrink-0 border-amber-500/45 px-2 text-xs text-amber-500 hover:bg-amber-500/10 hover:text-amber-500"
+			className="h-7 shrink-0 px-2 text-xs"
 			onClick={() => {
 				void openAgentLoginTerminal(provider);
 			}}

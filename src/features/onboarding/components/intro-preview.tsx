@@ -97,6 +97,7 @@ export function IntroPreview({
 						interactive={step !== "intro"}
 						providerSpotlight={step === "agents"}
 						gitHeaderSpotlight={step === "corner"}
+						cliSplitSpotlight={step === "skills"}
 					/>
 				</div>
 			</section>

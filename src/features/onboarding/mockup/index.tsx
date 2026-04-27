@@ -19,6 +19,7 @@ export function HelmorOnboardingMockup({
 	interactive = false,
 	providerSpotlight = false,
 	gitHeaderSpotlight = false,
+	cliSplitSpotlight = false,
 }: {
 	/**
 	 * When false (default), interactive affordances inside the mockup
@@ -30,8 +31,10 @@ export function HelmorOnboardingMockup({
 	interactive?: boolean;
 	providerSpotlight?: boolean;
 	gitHeaderSpotlight?: boolean;
+	cliSplitSpotlight?: boolean;
 } = {}) {
-	const spotlightActive = providerSpotlight || gitHeaderSpotlight;
+	const spotlightActive =
+		providerSpotlight || gitHeaderSpotlight || cliSplitSpotlight;
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [scale, setScale] = useState(0.5);
 
@@ -68,10 +71,16 @@ export function HelmorOnboardingMockup({
 					className="flex h-full shrink-0 bg-sidebar"
 					style={{ width: `${MOCKUP_SIDEBAR_WIDTH}px` }}
 				>
-					<MockSidebar interactive={interactive} />
+					<MockSidebar
+						interactive={interactive}
+						cliSplitSpotlight={cliSplitSpotlight}
+					/>
 				</div>
 				<div className="w-px shrink-0 bg-border" />
-				<MockConversation providerSpotlight={providerSpotlight} />
+				<MockConversation
+					providerSpotlight={providerSpotlight}
+					cliSplitSpotlight={cliSplitSpotlight}
+				/>
 				<div className="w-px shrink-0 bg-border" />
 				<div
 					className="flex h-full shrink-0"

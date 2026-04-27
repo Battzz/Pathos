@@ -40,7 +40,7 @@ export function AgentLoginStep({
 						({ icon: Icon, provider, label, description, status }) => (
 							<div
 								key={label}
-								className="flex min-h-20 items-center gap-3 rounded-lg border border-border/55 bg-card/70 px-4 py-3"
+								className="flex min-h-20 items-center gap-3 rounded-lg border border-border/55 bg-card px-4 py-3"
 							>
 								<div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-background text-foreground">
 									<Icon className="size-5" />

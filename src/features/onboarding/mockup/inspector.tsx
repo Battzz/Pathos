@@ -1,4 +1,3 @@
-import { MarkGithubIcon } from "@primer/octicons-react";
 import {
 	ChevronDown,
 	CloudIcon,
@@ -16,8 +15,8 @@ import { InspectorFolderHeaderUI } from "./ui/inspector-folder-header.ui";
 import { InspectorSectionUI } from "./ui/inspector-section.ui";
 import { InspectorShellUI } from "./ui/inspector-shell.ui";
 import {
-	InspectorTabsEmptyStateUI,
 	InspectorTabsHeaderUI,
+	InspectorTabsLogsUI,
 } from "./ui/inspector-tabs-section.ui";
 
 /**
@@ -117,9 +116,17 @@ export function MockInspector({
 					]}
 					activeTabId="setup"
 				/>
-				<InspectorTabsEmptyStateUI
-					icon={<MarkGithubIcon size={16} />}
-					message="Repository setup is ready."
+				<InspectorTabsLogsUI
+					entries={[
+						{ kind: "cmd", text: "helmor scripts run setup" },
+						{ kind: "step", text: "pnpm install (312 pkg, 2.4s)" },
+						{ kind: "step", text: "Running drizzle-kit migrate" },
+						{ kind: "success", text: "Database migrated" },
+						{ kind: "step", text: "Seeding test users" },
+						{ kind: "success", text: "Seed inserted 12 rows" },
+						{ kind: "step", text: "Booting dev server on :3000" },
+						{ kind: "success", text: "Ready in 1.2s" },
+					]}
 				/>
 			</section>
 		</InspectorShellUI>

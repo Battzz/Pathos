@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 /**
  * Pure-UI single-line tool-call row used as the collapsed/static preview of
@@ -12,13 +13,20 @@ export function ToolCallRowUI({
 	icon,
 	name,
 	detail,
+	className,
 }: {
 	icon: ReactNode;
 	name: string;
 	detail?: ReactNode;
+	className?: string;
 }) {
 	return (
-		<div className="my-1 flex w-fit max-w-full items-center gap-2 rounded-md bg-accent/35 px-2.5 py-1.5 text-[12px] text-muted-foreground">
+		<div
+			className={cn(
+				"my-1 flex w-fit max-w-full items-center gap-2 rounded-md bg-accent/35 px-2.5 py-1.5 text-[12px] text-muted-foreground",
+				className,
+			)}
+		>
 			{icon}
 			<span className="font-medium text-foreground">{name}</span>
 			{detail ? (

@@ -90,3 +90,47 @@ export function InspectorTabsEmptyStateUI({
 		</div>
 	);
 }
+
+/**
+ * Terminal-style log pane shown inside the Setup/Run tab body when a script is
+ * running. Mockup-only — kept here so the onboarding preview can render a
+ * realistic stream of setup output without pulling in the production terminal
+ * machinery.
+ *
+ * Each entry is one line:
+ *   - `cmd`     → prefixed with `$ ` and rendered in foreground (the command).
+ *   - `step`    → prefixed with `↳ ` (an in-progress step the script ran).
+ *   - `success` → prefixed with `✓ ` and rendered in chart-2 green (a result).
+ */
+export type InspectorTabsLogEntry =
+	| { kind: "cmd"; text: string }
+	| { kind: "step"; text: string }
+	| { kind: "success"; text: string };
+
+export function InspectorTabsLogsUI({
+	entries,
+}: {
+	entries: InspectorTabsLogEntry[];
+}) {
+	return (
+		<div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden bg-muted/10 px-3 py-2 font-mono text-[10.5px] leading-[14px] text-muted-foreground">
+			{entries.map((entry, i) => {
+				if (entry.kind === "cmd") {
+					return (
+						<div key={i} className="text-foreground">
+							$ {entry.text}
+						</div>
+					);
+				}
+				if (entry.kind === "success") {
+					return (
+						<div key={i} className="text-chart-2">
+							✓ {entry.text}
+						</div>
+					);
+				}
+				return <div key={i}>↳ {entry.text}</div>;
+			})}
+		</div>
+	);
+}

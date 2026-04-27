@@ -23,6 +23,13 @@ export type MockWorkspaceRow = {
 	isSelected?: boolean;
 	state?: "active" | "archived";
 	status?: "backlog" | "in-progress" | "review" | "done" | "canceled";
+	/**
+	 * When true, this row is a spotlight target during the `cliSplitSpotlight`
+	 * onboarding pass — used to highlight the three workspaces the assistant
+	 * just spun up via `helmor workspace new` so the punch-through effect
+	 * draws the eye to them.
+	 */
+	cliSplitTarget?: boolean;
 };
 
 export type MockWorkspaceGroup = {
@@ -44,7 +51,18 @@ export type MockSession = {
 export type MockMessagePart =
 	| { type: "reasoning"; label: string }
 	| { type: "todo"; items: Array<{ label: string; done?: boolean }> }
-	| { type: "tool"; name: string; detail: string }
+	| {
+			type: "tool";
+			name: string;
+			detail: string;
+			/**
+			 * When true, this tool call is a spotlight target during the
+			 * `cliSplitSpotlight` onboarding pass — paired with the matching
+			 * sidebar row so both render as the same bright island under the
+			 * mask.
+			 */
+			cliSplitTarget?: boolean;
+	  }
 	| { type: "text"; text: string };
 
 export type MockMessage =
@@ -69,7 +87,7 @@ export const mockSidebar: {
 	selectedWorkspaceId: string;
 	groups: MockWorkspaceGroup[];
 } = {
-	selectedWorkspaceId: "workspace-onboarding",
+	selectedWorkspaceId: "workspace-auth-main",
 	groups: [
 		{
 			id: "done",
@@ -78,8 +96,8 @@ export const mockSidebar: {
 			rows: [
 				{
 					id: "workspace-release",
-					title: "Release Notes",
-					branch: "release/notes",
+					title: "Release v1.2",
+					branch: "release/v1.2",
 					repoInitials: "HE",
 					branchTone: "merged",
 				},
@@ -91,10 +109,10 @@ export const mockSidebar: {
 			tone: "review",
 			rows: [
 				{
-					id: "workspace-pr",
-					title: "PR Polish",
-					branch: "review/pr-polish",
-					repoInitials: "PR",
+					id: "workspace-settings",
+					title: "Settings refresh",
+					branch: "review/settings",
+					repoInitials: "ST",
 					branchTone: "open",
 					hasUnread: true,
 				},
@@ -106,20 +124,37 @@ export const mockSidebar: {
 			tone: "progress",
 			rows: [
 				{
-					id: "workspace-onboarding",
-					title: "Onboarding Flow",
-					branch: "feature/onboarding-flow",
-					repoInitials: "ON",
+					id: "workspace-auth-main",
+					title: "Auth feature plan",
+					branch: "feature/user-auth",
+					repoInitials: "UA",
 					branchTone: "working",
 					isSending: true,
 					isSelected: true,
 				},
 				{
-					id: "workspace-import",
-					title: "Repo Import",
-					branch: "feature/import",
-					repoInitials: "RI",
+					id: "workspace-auth-db",
+					title: "User Auth - Database",
+					branch: "feature/user-auth-db",
+					repoInitials: "DB",
 					branchTone: "working",
+					cliSplitTarget: true,
+				},
+				{
+					id: "workspace-auth-be",
+					title: "User Auth - Backend",
+					branch: "feature/user-auth-be",
+					repoInitials: "BE",
+					branchTone: "working",
+					cliSplitTarget: true,
+				},
+				{
+					id: "workspace-auth-fe",
+					title: "User Auth - Frontend",
+					branch: "feature/user-auth-fe",
+					repoInitials: "FE",
+					branchTone: "working",
+					cliSplitTarget: true,
 				},
 			],
 		},
@@ -129,10 +164,10 @@ export const mockSidebar: {
 			tone: "backlog",
 			rows: [
 				{
-					id: "workspace-cli",
-					title: "CLI Setup",
-					branch: "task/cli-setup",
-					repoInitials: "CL",
+					id: "workspace-cleanup",
+					title: "API cleanup",
+					branch: "task/api-cleanup",
+					repoInitials: "AC",
 					branchTone: "inactive",
 				},
 			],
@@ -147,19 +182,19 @@ export const mockConversation: {
 	sessions: MockSession[];
 	messages: MockMessage[];
 } = {
-	branch: "feature/onboarding-flow",
+	branch: "feature/user-auth",
 	branchTone: "working" as WorkspaceBranchTone,
 	targetBranch: { remote: "origin", branch: "main" },
 	sessions: [
 		{
 			id: "session-plan",
-			title: "Plan onboarding polish",
+			title: "Plan workspace split",
 			provider: "claude",
 			active: true,
 		},
 		{
-			id: "session-copy",
-			title: "Refine import copy",
+			id: "session-contracts",
+			title: "Refine API contracts",
 			provider: "codex",
 			unread: true,
 			streaming: true,
@@ -180,16 +215,19 @@ export const mockConversation: {
 					type: "tool",
 					name: "Bash",
 					detail: "helmor workspace new --repo helmor  # DB migration",
+					cliSplitTarget: true,
 				},
 				{
 					type: "tool",
 					name: "Bash",
 					detail: "helmor workspace new --repo helmor  # backend handlers",
+					cliSplitTarget: true,
 				},
 				{
 					type: "tool",
 					name: "Bash",
 					detail: "helmor workspace new --repo helmor  # frontend wiring",
+					cliSplitTarget: true,
 				},
 				{
 					type: "text",
@@ -207,24 +245,23 @@ export const mockInspector: {
 } = {
 	changes: [
 		{
-			name: "index.tsx",
-			path: "src/features/onboarding/mockup/index.tsx",
+			name: "0042_user_auth.sql",
+			path: "migrations/0042_user_auth.sql",
 			status: "A",
-			insertions: 26,
-			deletions: 18,
+			insertions: 86,
 		},
 		{
-			name: "intro-preview.tsx",
-			path: "src/features/onboarding/components/intro-preview.tsx",
+			name: "users_seed.sql",
+			path: "seed/users_seed.sql",
+			status: "A",
+			insertions: 24,
+		},
+		{
+			name: "schema.ts",
+			path: "src/db/schema.ts",
 			status: "M",
-			insertions: 3,
-			deletions: 1,
-		},
-		{
-			name: "data.ts",
-			path: "src/features/onboarding/mockup/data.ts",
-			status: "A",
-			insertions: 38,
+			insertions: 12,
+			deletions: 4,
 		},
 	],
 	gitActions: [

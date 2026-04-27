@@ -51,15 +51,15 @@ export function RepoImportStep({
 						type="button"
 						onClick={onAddLocalRepository}
 						disabled={isAddingLocalRepository}
-						className="flex cursor-pointer flex-col items-start rounded-lg border border-border/55 bg-card/70 p-4 text-left transition-colors hover:bg-card disabled:cursor-default disabled:opacity-70"
+						className="flex cursor-pointer flex-col items-start rounded-lg border border-primary bg-primary p-4 text-left text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-70"
 					>
-						<div className="flex size-10 items-center justify-center rounded-lg border border-border/50 bg-background text-foreground">
+						<div className="flex size-10 items-center justify-center rounded-lg border border-primary-foreground/20 bg-primary-foreground/12 text-primary-foreground">
 							<FolderOpen className="size-5" />
 						</div>
-						<div className="mt-4 text-sm font-medium text-foreground">
+						<div className="mt-4 text-sm font-medium text-primary-foreground">
 							Choose local project
 						</div>
-						<p className="mt-1 text-xs leading-5 text-muted-foreground">
+						<p className="mt-1 text-xs leading-5 text-primary-foreground/75">
 							Add a folder already on this machine.
 						</p>
 					</button>
@@ -67,21 +67,21 @@ export function RepoImportStep({
 						type="button"
 						onClick={onOpenCloneDialog}
 						disabled={githubImportProgress !== null}
-						className="flex cursor-pointer flex-col items-start rounded-lg border border-border/55 bg-card/70 p-4 text-left transition-colors hover:bg-card disabled:cursor-default disabled:opacity-70"
+						className="flex cursor-pointer flex-col items-start rounded-lg border border-primary bg-primary p-4 text-left text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-70"
 					>
-						<div className="flex size-10 items-center justify-center rounded-lg border border-border/50 bg-background text-foreground">
+						<div className="flex size-10 items-center justify-center rounded-lg border border-primary-foreground/20 bg-primary-foreground/12 text-primary-foreground">
 							<Cloud className="size-5" />
 						</div>
-						<div className="mt-4 text-sm font-medium text-foreground">
+						<div className="mt-4 text-sm font-medium text-primary-foreground">
 							Import from GitHub
 						</div>
-						<p className="mt-1 text-xs leading-5 text-muted-foreground">
+						<p className="mt-1 text-xs leading-5 text-primary-foreground/75">
 							Clone a remote project into Helmor.
 						</p>
 						{githubImportProgress !== null ? (
-							<div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+							<div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-primary-foreground/20">
 								<div
-									className="h-full rounded-full bg-foreground transition-[width] duration-200"
+									className="h-full rounded-full bg-primary-foreground transition-[width] duration-200"
 									style={{ width: `${githubImportProgress}%` }}
 								/>
 							</div>
@@ -100,13 +100,13 @@ export function RepoImportStep({
 						<span>Imported repositories</span>
 						<span>{importedRepositories.length}</span>
 					</div>
-					<div className="h-full max-h-[230px] overflow-y-auto rounded-lg border border-border/55 bg-card/35 p-2">
+					<div className="h-full max-h-[230px] overflow-y-auto rounded-lg border border-border/55 bg-card p-2">
 						{importedRepositories.length > 0 ? (
 							<div className="grid gap-1.5">
 								{importedRepositories.map((repo) => (
 									<div
 										key={repo.id}
-										className="flex h-10 items-center gap-2 rounded-md border border-border/45 bg-background/75 px-3"
+										className="flex h-10 items-center gap-2 rounded-md border border-border/45 bg-background px-3"
 									>
 										{repo.source === "local" ? (
 											<FolderOpen className="size-3.5 text-muted-foreground" />
