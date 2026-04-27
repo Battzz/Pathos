@@ -9,6 +9,7 @@ import type {
 	WorkspaceGroup,
 	WorkspaceRow,
 	WorkspaceSessionSummary,
+	WorkspaceStatus,
 	WorkspaceSummary,
 } from "./api";
 import { extractError } from "./errors";
@@ -180,6 +181,46 @@ export function insertRowByCreatedAtDesc(
 	const index = rows.findIndex((existing) => key(existing) < incoming);
 	if (index === -1) return [...rows, row];
 	return [...rows.slice(0, index), row, ...rows.slice(index)];
+}
+
+/**
+ * Move a workspace row from its current sidebar group to the group implied by
+ * `nextStatus`. Preserves the row's existing fields (createdAt, pinnedAt, …)
+ * and uses `insertRowByCreatedAtDesc` so the optimistic position matches the
+ * spot the server will place the row on refetch — no reorder flicker.
+ *
+ * Returns `groups` unchanged when the workspace isn't in any live group
+ * (likely pinned-only / archived) — we don't fabricate a row out of thin air;
+ * the next event-driven invalidation will reconcile.
+ */
+export function moveWorkspaceToGroup(
+	groups: WorkspaceGroup[] | undefined,
+	workspaceId: string,
+	nextStatus: WorkspaceStatus,
+): WorkspaceGroup[] | undefined {
+	if (!groups) return groups;
+
+	let row: WorkspaceRow | null = null;
+	const stripped = groups.map((group) => {
+		const idx = group.rows.findIndex((r) => r.id === workspaceId);
+		if (idx === -1) return group;
+		row = group.rows[idx]!;
+		return { ...group, rows: group.rows.filter((_, i) => i !== idx) };
+	});
+	if (!row) return groups;
+
+	const sourceRow: WorkspaceRow = row;
+	const updatedRow: WorkspaceRow = { ...sourceRow, status: nextStatus };
+	const targetGroupId = workspaceGroupIdFromStatus(
+		nextStatus,
+		updatedRow.pinnedAt,
+	);
+
+	return stripped.map((group) =>
+		group.id === targetGroupId
+			? { ...group, rows: insertRowByCreatedAtDesc(group.rows, updatedRow) }
+			: group,
+	);
 }
 
 export type WorkspaceBranchTone =

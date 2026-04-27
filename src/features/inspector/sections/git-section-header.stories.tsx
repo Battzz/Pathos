@@ -277,6 +277,20 @@ export const Merge: Story = {
 	},
 };
 
+// Captures the case the user complained about: a merge button that's
+// visibly disabled because GitHub is still computing mergeability. The
+// bottom shimmer signals to the user that this is a transient sync state,
+// not a permanent block.
+export const MergeComputing: Story = {
+	decorators: [singleDecorator],
+	args: {
+		commitButtonMode: "merge",
+		commitButtonState: "disabled",
+		changeRequest: CHANGE_REQUEST_OPEN,
+		hasChanges: false,
+	},
+};
+
 export const Merged: Story = {
 	decorators: [singleDecorator],
 	args: {

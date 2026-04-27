@@ -21,6 +21,8 @@ import {
 	refreshWorkspaceChangeRequest,
 	type WorkspaceDetail,
 	type WorkspaceGitActionStatus,
+	type WorkspaceGroup,
+	type WorkspaceStatus,
 } from "@/lib/api";
 import {
 	deriveCommitButtonMode,
@@ -34,8 +36,60 @@ import {
 	helmorQueryKeys,
 	workspaceForgeQueryOptions,
 } from "@/lib/query-client";
+import { moveWorkspaceToGroup } from "@/lib/workspace-helpers";
 import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import type { CommitButtonState, WorkspaceCommitButtonMode } from "../button";
+
+/**
+ * Derive the workspace lane this PR state implies. Mirrors the backend's
+ * `pr_sync_state_from_change_request` + `sync_workspace_pr_state` mapping
+ * in `src-tauri/src/workspace/workspaces.rs` so the optimistic placement
+ * lands in the same group the next refetch will choose.
+ */
+function deriveStatusFromChangeRequest(
+	changeRequest: ChangeRequestInfo | null,
+): WorkspaceStatus | null {
+	if (!changeRequest) return null;
+	if (changeRequest.isMerged || changeRequest.state === "MERGED") return "done";
+	if (changeRequest.state === "OPEN") return "review";
+	if (changeRequest.state === "CLOSED") return "canceled";
+	return null;
+}
+
+/**
+ * Snapshot the slice of caches we touch in an optimistic PR-state update so
+ * we can roll back atomically on error. Returned restore() is a no-op once
+ * we know the action succeeded.
+ */
+function applyOptimisticWorkspaceStatus(
+	queryClient: QueryClient,
+	workspaceId: string,
+	nextStatus: WorkspaceStatus,
+): () => void {
+	const previousGroups = queryClient.getQueryData<WorkspaceGroup[]>(
+		helmorQueryKeys.workspaceGroups,
+	);
+	const previousDetail = queryClient.getQueryData<WorkspaceDetail | null>(
+		helmorQueryKeys.workspaceDetail(workspaceId),
+	);
+
+	queryClient.setQueryData<WorkspaceGroup[] | undefined>(
+		helmorQueryKeys.workspaceGroups,
+		(current) => moveWorkspaceToGroup(current, workspaceId, nextStatus),
+	);
+	queryClient.setQueryData<WorkspaceDetail | null | undefined>(
+		helmorQueryKeys.workspaceDetail(workspaceId),
+		(detail) => (detail ? { ...detail, status: nextStatus } : detail),
+	);
+
+	return () => {
+		queryClient.setQueryData(helmorQueryKeys.workspaceGroups, previousGroups);
+		queryClient.setQueryData(
+			helmorQueryKeys.workspaceDetail(workspaceId),
+			previousDetail,
+		);
+	};
+}
 
 function getActionFailureTitle(
 	mode: WorkspaceCommitButtonMode,
@@ -133,13 +187,15 @@ export function useWorkspaceCommitLifecycle({
 	const forgeActionStatusRef = useRef(currentForgeActionStatus);
 	forgeActionStatusRef.current = currentForgeActionStatus;
 
+	// `workspaceChangeRequest` is intentionally NOT invalidated here. Callers
+	// that need fresh PR data already write it directly via setQueryData
+	// (either from `await refreshWorkspaceChangeRequest(...)` or from an
+	// optimistic snapshot), so an invalidation would just trigger a duplicate
+	// `gh pr view` round-trip.
 	const refreshWorkspaceRemoteStatus = useCallback(
 		(workspaceId: string) => {
 			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.workspaceGitActionStatus(workspaceId),
-			});
-			void queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId),
 			});
 			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.workspaceForgeActionStatus(workspaceId),
@@ -220,6 +276,15 @@ export function useWorkspaceCommitLifecycle({
 					helmorQueryKeys.workspaceChangeRequest(workspaceId),
 					optimisticChangeRequest,
 				);
+				// Move the workspace to its target sidebar group + flip the
+				// detail status in the same tick so the inspector header tone
+				// AND the sidebar lane reflect the new state immediately,
+				// instead of waiting for the GitHub round-trip + event invalidation.
+				const restoreWorkspaceStatus = applyOptimisticWorkspaceStatus(
+					queryClient,
+					workspaceId,
+					mode === "merge" ? "done" : "canceled",
+				);
 
 				void (async () => {
 					try {
@@ -242,6 +307,7 @@ export function useWorkspaceCommitLifecycle({
 							helmorQueryKeys.workspaceChangeRequest(workspaceId),
 							cachedChangeRequest,
 						);
+						restoreWorkspaceStatus();
 						setCommitLifecycle((prev) =>
 							prev
 								? {
@@ -448,6 +514,25 @@ export function useWorkspaceCommitLifecycle({
 					"[commitButton] refreshWorkspaceChangeRequest result",
 					currentChangeRequest,
 				);
+				// Seed caches directly from the result we just awaited so the
+				// downstream invalidation in `refreshWorkspaceRemoteStatus`
+				// doesn't trigger a duplicate `gh pr view`, and so the sidebar
+				// lane / inspector header reflect the PR state on the same
+				// frame as the lifecycle transition.
+				queryClient.setQueryData(
+					helmorQueryKeys.workspaceChangeRequest(workspaceId),
+					currentChangeRequest ?? null,
+				);
+				const optimisticStatus = deriveStatusFromChangeRequest(
+					currentChangeRequest ?? null,
+				);
+				if (optimisticStatus) {
+					applyOptimisticWorkspaceStatus(
+						queryClient,
+						workspaceId,
+						optimisticStatus,
+					);
+				}
 				setCommitLifecycle((prev) => {
 					if (!prev || prev.workspaceId !== workspaceId) return prev;
 					return {
@@ -477,6 +562,7 @@ export function useWorkspaceCommitLifecycle({
 		abortedSessionIds,
 		interactionRequiredSessionIds,
 		pushToast,
+		queryClient,
 		refreshWorkspaceRemoteStatus,
 		sendingSessionIds,
 	]);

@@ -291,6 +291,107 @@ describe("GitSectionHeader forge onboarding", () => {
 		});
 	});
 
+	it("shows shimmer when the commit button is disabled (mergeable computing)", () => {
+		renderWithProviders(
+			<GitSectionHeader
+				commitButtonMode="merge"
+				commitButtonState="disabled"
+				changeRequest={changeRequest}
+				changeRequestName="MR"
+				forgeDetection={gitlabDetection({
+					cli: {
+						status: "ready",
+						provider: "gitlab",
+						host: "gitlab.com",
+						cliName: "glab",
+						login: "liangeqiang",
+						version: "1.55.0",
+						message: "Connected.",
+					},
+				})}
+				workspaceId="workspace-1"
+			/>,
+		);
+
+		expect(screen.getByTestId("git-header-shimmer")).toBeInTheDocument();
+	});
+
+	it("shows shimmer on the first cold fetch", () => {
+		renderWithProviders(
+			<GitSectionHeader
+				commitButtonMode="merge"
+				commitButtonState="idle"
+				changeRequest={changeRequest}
+				changeRequestName="MR"
+				isRefreshing
+				forgeDetection={gitlabDetection({
+					cli: {
+						status: "ready",
+						provider: "gitlab",
+						host: "gitlab.com",
+						cliName: "glab",
+						login: "liangeqiang",
+						version: "1.55.0",
+						message: "Connected.",
+					},
+				})}
+				workspaceId="workspace-1"
+			/>,
+		);
+
+		expect(screen.getByTestId("git-header-shimmer")).toBeInTheDocument();
+	});
+
+	it("does not shimmer in idle / busy / done states", () => {
+		const { rerender } = renderWithProviders(
+			<GitSectionHeader
+				commitButtonMode="merge"
+				commitButtonState="idle"
+				changeRequest={changeRequest}
+				changeRequestName="MR"
+				forgeDetection={gitlabDetection({
+					cli: {
+						status: "ready",
+						provider: "gitlab",
+						host: "gitlab.com",
+						cliName: "glab",
+						login: "liangeqiang",
+						version: "1.55.0",
+						message: "Connected.",
+					},
+				})}
+				workspaceId="workspace-1"
+			/>,
+		);
+		expect(screen.queryByTestId("git-header-shimmer")).not.toBeInTheDocument();
+
+		for (const state of ["busy", "done", "error"] as const) {
+			rerender(
+				<GitSectionHeader
+					commitButtonMode="merge"
+					commitButtonState={state}
+					changeRequest={changeRequest}
+					changeRequestName="MR"
+					forgeDetection={gitlabDetection({
+						cli: {
+							status: "ready",
+							provider: "gitlab",
+							host: "gitlab.com",
+							cliName: "glab",
+							login: "liangeqiang",
+							version: "1.55.0",
+							message: "Connected.",
+						},
+					})}
+					workspaceId="workspace-1"
+				/>,
+			);
+			expect(
+				screen.queryByTestId("git-header-shimmer"),
+			).not.toBeInTheDocument();
+		}
+	});
+
 	it("uses the same connect CTA for GitHub onboarding", async () => {
 		apiMocks.getWorkspaceForge.mockResolvedValue(githubDetection());
 

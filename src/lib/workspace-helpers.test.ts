@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
 	AgentModelSection,
+	WorkspaceGroup,
 	WorkspaceRow,
 	WorkspaceSessionSummary,
 } from "./api";
@@ -12,6 +13,7 @@ import {
 	inferDefaultModelId,
 	insertRowByCreatedAtDesc,
 	isNewSession,
+	moveWorkspaceToGroup,
 	resolveSessionDisplayProvider,
 	resolveSessionSelectedModelId,
 	splitTextWithFiles,
@@ -211,6 +213,113 @@ describe("insertRowByCreatedAtDesc", () => {
 		];
 		const inserted = insertRowByCreatedAtDesc(rows, row("new"));
 		expect(inserted.map((r) => r.id)).toEqual(["new", "a", "b"]);
+	});
+});
+
+describe("moveWorkspaceToGroup", () => {
+	const row = (
+		id: string,
+		createdAt?: string,
+		extras: Partial<WorkspaceRow> = {},
+	): WorkspaceRow => ({
+		id,
+		title: id,
+		...(createdAt ? { createdAt } : {}),
+		...extras,
+	});
+
+	const buildGroups = (
+		init: Record<string, WorkspaceRow[]>,
+	): WorkspaceGroup[] =>
+		(
+			["pinned", "done", "review", "progress", "backlog", "canceled"] as const
+		).map((id) => ({
+			id,
+			label: id,
+			tone: "progress",
+			rows: init[id] ?? [],
+		}));
+
+	it("moves a workspace from progress to review preserving createdAt order", () => {
+		const groups = buildGroups({
+			progress: [
+				row("a", "2024-03-01T00:00:00Z"),
+				row("target", "2024-02-01T00:00:00Z"),
+			],
+			review: [
+				row("r1", "2024-03-15T00:00:00Z"),
+				row("r2", "2024-01-10T00:00:00Z"),
+			],
+		});
+
+		const next = moveWorkspaceToGroup(groups, "target", "review");
+
+		const progress = next?.find((g) => g.id === "progress");
+		const review = next?.find((g) => g.id === "review");
+		expect(progress?.rows.map((r) => r.id)).toEqual(["a"]);
+		// target has createdAt 2024-02-01, lands between r1 (2024-03-15) and r2 (2024-01-10)
+		expect(review?.rows.map((r) => r.id)).toEqual(["r1", "target", "r2"]);
+		expect(review?.rows.find((r) => r.id === "target")?.status).toBe("review");
+	});
+
+	it("moves merged workspace to done group", () => {
+		const groups = buildGroups({
+			review: [row("merged-target", "2024-02-01T00:00:00Z")],
+		});
+
+		const next = moveWorkspaceToGroup(groups, "merged-target", "done");
+
+		expect(next?.find((g) => g.id === "review")?.rows).toHaveLength(0);
+		expect(next?.find((g) => g.id === "done")?.rows.map((r) => r.id)).toEqual([
+			"merged-target",
+		]);
+	});
+
+	it("routes a pinned row to the pinned group regardless of nextStatus", () => {
+		const groups = buildGroups({
+			pinned: [
+				row("pin-target", "2024-02-01T00:00:00Z", {
+					pinnedAt: "2024-04-01T00:00:00Z",
+				}),
+			],
+		});
+
+		const next = moveWorkspaceToGroup(groups, "pin-target", "done");
+
+		// Stays pinned because workspaceGroupIdFromStatus respects pinnedAt.
+		expect(next?.find((g) => g.id === "pinned")?.rows.map((r) => r.id)).toEqual(
+			["pin-target"],
+		);
+		expect(next?.find((g) => g.id === "done")?.rows).toHaveLength(0);
+	});
+
+	it("returns groups unchanged when the workspace isn't in any group", () => {
+		const groups = buildGroups({
+			progress: [row("a", "2024-03-01T00:00:00Z")],
+		});
+
+		const next = moveWorkspaceToGroup(groups, "missing", "done");
+
+		expect(next).toBe(groups);
+	});
+
+	it("returns undefined when groups is undefined", () => {
+		expect(moveWorkspaceToGroup(undefined, "x", "done")).toBeUndefined();
+	});
+
+	it("updates the row's status to the new value", () => {
+		const groups = buildGroups({
+			progress: [
+				row("target", "2024-02-01T00:00:00Z", { status: "in-progress" }),
+			],
+		});
+
+		const next = moveWorkspaceToGroup(groups, "target", "canceled");
+
+		const moved = next
+			?.find((g) => g.id === "canceled")
+			?.rows.find((r) => r.id === "target");
+		expect(moved?.status).toBe("canceled");
 	});
 });
 

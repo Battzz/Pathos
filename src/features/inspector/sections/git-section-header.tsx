@@ -71,9 +71,12 @@ export type GitSectionHeaderProps = {
 	changeRequest: ChangeRequestInfo | null;
 	hasChanges?: boolean;
 	/**
-	 * Whether change request data is currently being (re)fetched. Drives the bottom
-	 * shimmer bar. Gated by a min display duration so fast responses don't
-	 * flicker.
+	 * Whether change request data is currently being (re)fetched. Drives the
+	 * bottom shimmer bar (combined with `commitButtonState === "disabled"`).
+	 * Gated by a min display duration so fast responses don't flicker.
+	 *
+	 * Scope: ONLY first cold fetch — owned by App. Background polling does
+	 * not flip this true (would be visually noisy).
 	 */
 	isRefreshing?: boolean;
 	changeRequestName?: string;
@@ -119,8 +122,20 @@ export function GitSectionHeader({
 		"action.openPullRequest",
 	);
 
+	// Shimmer fires while the header is in a transient "computing" state that
+	// directly affects what the user can do:
+	//   1. First cold fetch of PR / forge-action data (`isRefreshing`).
+	//   2. The commit button is `disabled` because GitHub is still computing
+	//      mergeability (`mergeable === "UNKNOWN"`). Without this cue, a
+	//      grayed-out merge button looks broken — the user can't tell whether
+	//      it's a transient sync or a permanent block.
+	// We deliberately do NOT shimmer for:
+	//   - Background polling on stable data (would be noisy).
+	//   - Active lifecycle phases (creating/streaming/verifying) — the button
+	//     itself shows a busy spinner, additional shimmer is redundant.
+	const isComputing = isRefreshing || commitButtonState === "disabled";
 	const showShimmer = useMinDisplayDuration(
-		isRefreshing,
+		isComputing,
 		SHIMMER_MIN_DISPLAY_MS,
 	);
 
@@ -234,6 +249,7 @@ export function GitSectionHeader({
 		>
 			{showShimmer && (
 				<div
+					data-testid="git-header-shimmer"
 					aria-hidden="true"
 					className="pointer-events-none absolute inset-x-0 bottom-0 h-px motion-safe:animate-[shine_2s_infinite_linear]"
 					style={{
