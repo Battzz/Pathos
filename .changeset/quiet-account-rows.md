@@ -2,8 +2,11 @@
 "helmor": patch
 ---
 
-Polish the Settings → Account CLI integration rows:
-- Pin every state (Connect / Ready / Error) to the same height so the row no longer jumps when the CLI status loads.
-- Refresh the row's cached status when the main UI detects the CLI auth has dropped, so Account no longer shows a stale "ready" after auth has failed elsewhere.
-- Surface CLI command errors (e.g. `gh` not on PATH) immediately during the auth flow instead of waiting out the full poll budget.
-- When the inspector's Connect button is shown because the remote disagrees with the local CLI snapshot, the terminal hand-off is no longer skipped — clicking Connect actually re-authenticates instead of toasting a misleading "connected".
+A round of CLI auth and UI polish:
+- Pin Settings → Account CLI rows to a fixed height so they stop jumping between Connect / Ready / Error.
+- Edge-detect forge `Unauthenticated` in the backend so the 60s poll stops republishing on every tick, and fan it out to the Account CLI cache so it can't go stale.
+- Reflect external GitHub sign-in / sign-out in Settings → Account via the shared identity hook.
+- Surface CLI command errors (e.g. `gh` not on PATH) immediately during auth instead of waiting out the full poll budget.
+- Make the inspector Connect button actually re-authenticate when the remote disagrees with the local CLI snapshot, instead of toasting a misleading "connected".
+- Replace the editor close-button tooltip with an inline `Esc` shortcut next to the X.
+- Fall back to `logo.svg` / `public/logo.svg` when picking a workspace repo icon.

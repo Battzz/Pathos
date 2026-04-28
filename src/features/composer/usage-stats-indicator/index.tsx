@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
+import { ClaudeIcon, OpenAIIcon } from "@/components/icons";
 import {
 	HoverCard,
 	HoverCardContent,
@@ -110,9 +111,16 @@ export function UsageStatsIndicator({ agentType, disabled, className }: Props) {
 						<div className="text-[14px] font-semibold text-foreground">
 							Usage Stats
 						</div>
-						<div className="text-[12px] text-muted-foreground">
-							{agentType === "claude" ? "Claude" : "Codex"}
-						</div>
+						<span
+							className="text-muted-foreground"
+							aria-label={agentType === "claude" ? "Claude" : "Codex"}
+						>
+							{agentType === "claude" ? (
+								<ClaudeIcon className="size-[13px]" />
+							) : (
+								<OpenAIIcon className="size-[13px]" />
+							)}
+						</span>
 					</div>
 					{stats.primary || stats.secondary || stats.extraWindows.length > 0 ? (
 						<div className="flex flex-col gap-2.5">

@@ -7,7 +7,6 @@ import {
 	GitBranch,
 	GitPullRequest,
 	type LucideIcon,
-	MessageSquare,
 } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { HelmorThinkingIndicator } from "@/components/helmor-thinking-indicator";
@@ -553,7 +552,6 @@ export function WorkspaceHoverCard({
 			: "Created";
 	const createdAt = relativeTime(row.createdAt);
 	const sessionCount = row.sessionCount ?? 0;
-	const messageCount = row.messageCount ?? 0;
 
 	return (
 		<HoverCardRoot
@@ -629,18 +627,12 @@ export function WorkspaceHoverCard({
 						</div>
 					) : null}
 
-					{/* Footer: counts on the left, last-activity timestamp on the right. */}
+					{/* Footer: session count on the left, last-activity timestamp on the right. */}
 					<div className="flex items-center justify-between gap-2 pt-1 text-[11px] text-muted-foreground/80">
 						<div className="flex items-center gap-2.5">
 							{sessionCount > 0 ? (
 								<span className="tabular-nums">
 									{sessionCount} {sessionCount === 1 ? "session" : "sessions"}
-								</span>
-							) : null}
-							{messageCount > 0 ? (
-								<span className="flex items-center gap-1 tabular-nums">
-									<MessageSquare className="size-3" strokeWidth={1.8} />
-									{messageCount}
 								</span>
 							) : null}
 						</div>
