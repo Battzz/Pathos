@@ -5,11 +5,15 @@ import { ConductorOnboarding } from "@/components/conductor-onboarding";
 import { CloneFromUrlDialog } from "@/features/navigation/clone-from-url-dialog";
 import {
 	addRepositoryFromLocalPath,
+	type ConductorWorkspace,
 	cloneRepositoryFromUrl,
 	deleteRepository,
 	enterOnboardingWindowMode,
 	exitOnboardingWindowMode,
 	getAgentLoginStatus,
+	isConductorAvailable,
+	listConductorRepos,
+	listConductorWorkspaces,
 	loadAddRepositoryDefaults,
 } from "@/lib/api";
 import { describeUnknownError } from "@/lib/workspace-helpers";
@@ -45,6 +49,9 @@ export function AppOnboarding({ onComplete }: AppOnboardingProps) {
 		string | null
 	>(null);
 	const [repoImportError, setRepoImportError] = useState<string | null>(null);
+	const [conductorWorkspaces, setConductorWorkspaces] = useState<
+		ConductorWorkspace[]
+	>([]);
 
 	const refreshLoginItems = useCallback(() => {
 		void getAgentLoginStatus()
@@ -74,14 +81,43 @@ export function AppOnboarding({ onComplete }: AppOnboardingProps) {
 		};
 	}, []);
 
-	const handleSkillsNext = useCallback(() => {
+	const handleSkillsNext = useCallback(async () => {
 		if (isRoutingImport) {
 			return;
 		}
 		setIsRoutingImport(true);
-		// Temporary hardcoded route for tuning the default repository import screen.
-		setStep("repoImport");
-		setIsRoutingImport(false);
+		try {
+			const conductorAvailable = await isConductorAvailable();
+			if (!conductorAvailable) {
+				setConductorWorkspaces([]);
+				setStep("repoImport");
+				return;
+			}
+
+			const repos = await listConductorRepos();
+			const workspaceGroups = await Promise.all(
+				repos
+					.filter((repo) => repo.workspaceCount > repo.alreadyImportedCount)
+					.map((repo) => listConductorWorkspaces(repo.id)),
+			);
+			const importableWorkspaces = workspaceGroups
+				.flat()
+				.filter((workspace) => !workspace.alreadyImported);
+
+			if (importableWorkspaces.length > 0) {
+				setConductorWorkspaces(importableWorkspaces);
+				setStep("conductor");
+				return;
+			}
+
+			setConductorWorkspaces([]);
+			setStep("repoImport");
+		} catch {
+			setConductorWorkspaces([]);
+			setStep("repoImport");
+		} finally {
+			setIsRoutingImport(false);
+		}
 	}, [isRoutingImport]);
 
 	const rememberImportedRepository = useCallback(
@@ -210,7 +246,12 @@ export function AppOnboarding({ onComplete }: AppOnboardingProps) {
 	}, [onComplete]);
 
 	if (step === "conductor") {
-		return <ConductorOnboarding onComplete={onComplete} />;
+		return (
+			<ConductorOnboarding
+				onComplete={onComplete}
+				workspaces={conductorWorkspaces}
+			/>
+		);
 	}
 
 	return (

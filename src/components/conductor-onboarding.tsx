@@ -423,29 +423,6 @@ const SKELETON_IDS = Array.from(
 	(_, i) => `skeleton-${i}`,
 );
 const LOGO_SIZE = 56;
-const CONDUCTOR_ONBOARDING_LIGHT_THEME = {
-	"--background": "oklch(1 0 0)",
-	"--foreground": "oklch(0.145 0 0)",
-	"--card": "oklch(1 0 0)",
-	"--card-foreground": "oklch(0.145 0 0)",
-	"--muted": "oklch(0.97 0 0)",
-	"--muted-foreground": "oklch(0.556 0 0)",
-	"--border": "oklch(0.922 0 0)",
-	"--primary": "oklch(0.205 0 0)",
-	"--primary-foreground": "oklch(0.985 0 0)",
-	"--destructive": "oklch(0.577 0.245 27.325)",
-	"--color-background": "var(--background)",
-	"--color-foreground": "var(--foreground)",
-	"--color-card": "var(--card)",
-	"--color-card-foreground": "var(--card-foreground)",
-	"--color-muted": "var(--muted)",
-	"--color-muted-foreground": "var(--muted-foreground)",
-	"--color-border": "var(--border)",
-	"--color-primary": "var(--primary)",
-	"--color-primary-foreground": "var(--primary-foreground)",
-	"--color-destructive": "var(--destructive)",
-} as React.CSSProperties;
-
 export function ConductorOnboarding({
 	onComplete,
 	workspaces = [],
@@ -552,7 +529,6 @@ export function ConductorOnboarding({
 		<div
 			ref={containerRef}
 			className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden bg-background font-sans text-foreground antialiased"
-			style={CONDUCTOR_ONBOARDING_LIGHT_THEME}
 		>
 			{/* Drag region */}
 			<div
