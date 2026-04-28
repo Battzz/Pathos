@@ -47,6 +47,7 @@ import {
 	type ShortcutHandler,
 	useAppShortcuts,
 } from "@/features/shortcuts/use-app-shortcuts";
+import { useGlobalHotkeySync } from "@/features/shortcuts/use-global-hotkey-sync";
 import { AppUpdateButton } from "@/features/updater/app-update-button";
 import { useAppUpdater } from "@/features/updater/use-app-updater";
 import { EditorIcon } from "@/shell/editor-icon";
@@ -111,6 +112,7 @@ import {
 	loadSettings,
 	resolveTheme,
 	SettingsContext,
+	type ShortcutOverrides,
 	saveSettings,
 	THEME_STORAGE_KEY,
 	type ThemeMode,
@@ -594,7 +596,11 @@ function AppShell({
 		workspaceReselectTick,
 	]);
 
-	const { settings: appSettings, updateSettings } = useSettings();
+	const {
+		settings: appSettings,
+		isLoaded: areSettingsLoaded,
+		updateSettings,
+	} = useSettings();
 	const appUpdateStatus = useAppUpdater();
 	useDockUnreadBadge();
 	useEnsureDefaultModel();
@@ -628,6 +634,15 @@ function AppShell({
 		appSettings.shortcuts,
 		"sidebar.right.toggle",
 	);
+	const handleUpdateGlobalHotkeyShortcuts = useCallback(
+		(shortcuts: ShortcutOverrides) => updateSettings({ shortcuts }),
+		[updateSettings],
+	);
+	useGlobalHotkeySync({
+		isLoaded: areSettingsLoaded,
+		shortcuts: appSettings.shortcuts,
+		updateShortcuts: handleUpdateGlobalHotkeyShortcuts,
+	});
 	const handleOpenPreferredEditor = useCallback(() => {
 		if (!selectedWorkspaceId || !preferredEditor) return;
 		void openWorkspaceInEditor(selectedWorkspaceId, preferredEditor.id).catch(

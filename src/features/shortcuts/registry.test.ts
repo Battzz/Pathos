@@ -16,6 +16,7 @@ describe("shortcut registry", () => {
 
 	it("resolves defaults, overrides, and disabled shortcuts", () => {
 		expect(getShortcut({}, "workspace.previous")).toBe("Mod+Alt+ArrowUp");
+		expect(getShortcut({}, "global.hotkey")).toBeNull();
 		expect(
 			getShortcut({ "workspace.previous": "Mod+A" }, "workspace.previous"),
 		).toBe("Mod+A");

@@ -98,10 +98,8 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		id: "script.run",
 		title: "Run / stop script",
 		group: "Actions",
-		// Excludes "terminal" so Mod+R stays free for shell readline
-		// (reverse-search). Anywhere else — chat, editor, sidebars — fires.
 		defaultHotkey: "Mod+R",
-		scopes: ["chat", "editor"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -157,6 +155,15 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Open settings",
 		group: "System",
 		defaultHotkey: "Mod+,",
+		scopes: ["app"],
+		editable: true,
+	},
+	{
+		id: "global.hotkey",
+		title: "Global hotkey",
+		description: "Show/hide Helmor from anywhere.",
+		group: "System",
+		defaultHotkey: null,
 		scopes: ["app"],
 		editable: true,
 	},

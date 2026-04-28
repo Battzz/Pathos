@@ -19,6 +19,7 @@ export type ShortcutId =
 	| "zoom.in"
 	| "zoom.out"
 	| "zoom.reset"
+	| "global.hotkey"
 	| "action.createPr"
 	| "action.commitAndPush"
 	| "action.pullLatest"

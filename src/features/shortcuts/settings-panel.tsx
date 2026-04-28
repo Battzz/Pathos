@@ -38,6 +38,8 @@ const GROUPS: ShortcutGroup[] = [
 	"Composer",
 	"Terminal",
 ];
+const PINNED_SHORTCUT_IDS: ShortcutId[] = ["global.hotkey"];
+const PINNED_SHORTCUT_ID_SET = new Set<ShortcutId>(PINNED_SHORTCUT_IDS);
 
 const MODIFIER_KEYS = new Set(["Alt", "Control", "Meta", "Shift"]);
 const FUNCTION_KEYS = new Set([
@@ -84,12 +86,46 @@ export function ShortcutsSettingsPanel({
 			}),
 		[normalizedQuery, overrides],
 	);
+	const pinnedDefinitions = useMemo(
+		() =>
+			SHORTCUT_DEFINITIONS.filter((definition) =>
+				PINNED_SHORTCUT_ID_SET.has(definition.id),
+			),
+		[],
+	);
+	const regularDefinitions = useMemo(
+		() =>
+			filteredDefinitions.filter(
+				(definition) => !PINNED_SHORTCUT_ID_SET.has(definition.id),
+			),
+		[filteredDefinitions],
+	);
 	const triggerConflictShake = (id: ShortcutId) => {
 		setShakeId(id);
 		window.setTimeout(() => {
 			setShakeId((current) => (current === id ? null : current));
 		}, 260);
 	};
+	const renderShortcutRow = (
+		definition: ShortcutDefinition,
+		isLastInGroup: boolean,
+	) => (
+		<ShortcutRow
+			key={definition.id}
+			definition={definition}
+			hotkey={getShortcut(overrides, definition.id)}
+			conflicts={conflicts.conflictById[definition.id] ?? []}
+			isRecording={recordingId === definition.id}
+			shake={shakeId === definition.id}
+			overrides={overrides}
+			onChange={onChange}
+			onConflictRecorded={() => triggerConflictShake(definition.id)}
+			onRecordingChange={(recording) =>
+				setRecordingId(recording ? definition.id : null)
+			}
+			isLastInGroup={isLastInGroup}
+		/>
+	);
 
 	return (
 		<TooltipProvider delayDuration={150}>
@@ -108,8 +144,17 @@ export function ShortcutsSettingsPanel({
 				</div>
 			</div>
 
+			<section className="pb-1">
+				<div className="pb-1 text-[12px] font-medium tracking-normal text-muted-foreground">
+					Pinned
+				</div>
+				{pinnedDefinitions.map((definition, index) =>
+					renderShortcutRow(definition, index === pinnedDefinitions.length - 1),
+				)}
+			</section>
+
 			{GROUPS.map((group) => {
-				const definitions = filteredDefinitions.filter(
+				const definitions = regularDefinitions.filter(
 					(definition) => definition.group === group,
 				);
 				if (definitions.length === 0) return null;
@@ -119,23 +164,9 @@ export function ShortcutsSettingsPanel({
 						<div className="pb-1 text-[12px] font-medium tracking-normal text-muted-foreground">
 							{group}
 						</div>
-						{definitions.map((definition, index) => (
-							<ShortcutRow
-								key={definition.id}
-								definition={definition}
-								hotkey={getShortcut(overrides, definition.id)}
-								conflicts={conflicts.conflictById[definition.id] ?? []}
-								isRecording={recordingId === definition.id}
-								shake={shakeId === definition.id}
-								overrides={overrides}
-								onChange={onChange}
-								onConflictRecorded={() => triggerConflictShake(definition.id)}
-								onRecordingChange={(recording) =>
-									setRecordingId(recording ? definition.id : null)
-								}
-								isLastInGroup={index === definitions.length - 1}
-							/>
-						))}
+						{definitions.map((definition, index) =>
+							renderShortcutRow(definition, index === definitions.length - 1),
+						)}
 					</section>
 				);
 			})}

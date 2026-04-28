@@ -753,6 +753,14 @@ export async function installDownloadedAppUpdate(): Promise<AppUpdateStatus> {
 	return invoke<AppUpdateStatus>("install_downloaded_app_update");
 }
 
+export async function syncGlobalHotkey(hotkey: string | null): Promise<void> {
+	try {
+		await invoke<void>("sync_global_hotkey", { hotkey });
+	} catch (error) {
+		throw new Error(describeInvokeError(error, "Unable to set global hotkey."));
+	}
+}
+
 export async function listenAppUpdateStatus(
 	callback: (payload: AppUpdateStatus) => void,
 ): Promise<UnlistenFn> {

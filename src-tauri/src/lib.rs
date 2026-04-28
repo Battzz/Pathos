@@ -5,6 +5,7 @@ pub mod data_dir;
 pub mod error;
 pub mod forge;
 pub mod git;
+pub mod global_hotkey;
 pub mod image_store;
 mod import;
 pub mod logging;
@@ -53,6 +54,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build());
@@ -69,6 +71,7 @@ pub fn run() {
         .manage(git_watcher::GitWatcherManager::new())
         .manage(workspace::scripts::ScriptProcessManager::new())
         .manage(ui_sync::UiSyncManager::new())
+        .manage(global_hotkey::GlobalHotkeyState::default())
         .manage(commands::forge_commands::ForgeAuthEdgeStore::default())
         .setup(|app| {
             // Ensure data directory structure exists
@@ -137,6 +140,12 @@ pub fn run() {
             updater::spawn_interval_worker(app.handle().clone());
 
             agents::prewarm_slash_command_cache(app.handle());
+            if let Err(error) = global_hotkey::sync_from_settings(app.handle()) {
+                tracing::warn!(
+                    error = %format!("{error:#}"),
+                    "Failed to register startup global hotkey",
+                );
+            }
 
             // Start git filesystem watchers for all ready workspaces.
             let watcher_handle = app.handle().clone();
@@ -303,6 +312,7 @@ pub fn run() {
             commands::settings_commands::save_auto_close_action_kinds,
             commands::settings_commands::load_auto_close_opt_in_asked,
             commands::settings_commands::save_auto_close_opt_in_asked,
+            global_hotkey::sync_global_hotkey,
             ui_sync::subscribe_ui_mutations,
             commands::updater_commands::get_app_update_status,
             commands::updater_commands::check_for_app_update,
