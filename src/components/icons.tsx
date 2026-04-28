@@ -1,10 +1,10 @@
-import Claude from "@lobehub/icons/es/Claude";
-import Kimi from "@lobehub/icons/es/Kimi";
-import Minimax from "@lobehub/icons/es/Minimax";
-import OpenAI from "@lobehub/icons/es/OpenAI";
-import Qwen from "@lobehub/icons/es/Qwen";
-import XiaomiMiMo from "@lobehub/icons/es/XiaomiMiMo";
-import Zhipu from "@lobehub/icons/es/Zhipu";
+import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
+import KimiMono from "@lobehub/icons/es/Kimi/components/Mono";
+import MinimaxColor from "@lobehub/icons/es/Minimax/components/Color";
+import OpenAIMono from "@lobehub/icons/es/OpenAI/components/Mono";
+import QwenColor from "@lobehub/icons/es/Qwen/components/Color";
+import XiaomiMiMoMono from "@lobehub/icons/es/XiaomiMiMo/components/Mono";
+import ZhipuColor from "@lobehub/icons/es/Zhipu/components/Color";
 import type { SVGProps } from "react";
 
 export function ClaudeIcon(props: SVGProps<SVGSVGElement>) {
@@ -36,29 +36,29 @@ export function OpenAIIcon(props: SVGProps<SVGSVGElement>) {
 }
 
 export function ClaudeColorIcon(props: SVGProps<SVGSVGElement>) {
-	return <Claude.Color {...props} />;
+	return <ClaudeColor {...props} />;
 }
 
 export function OpenAIColorIcon(props: SVGProps<SVGSVGElement>) {
-	return <OpenAI {...props} />;
+	return <OpenAIMono {...props} />;
 }
 
 export function MinimaxIcon(props: SVGProps<SVGSVGElement>) {
-	return <Minimax.Color {...props} />;
+	return <MinimaxColor {...props} />;
 }
 
 export function KimiIcon(props: SVGProps<SVGSVGElement>) {
-	return <Kimi {...props} />;
+	return <KimiMono {...props} />;
 }
 
 export function QwenIcon(props: SVGProps<SVGSVGElement>) {
-	return <Qwen.Color {...props} />;
+	return <QwenColor {...props} />;
 }
 
 export function XiaomiMiMoIcon(props: SVGProps<SVGSVGElement>) {
-	return <XiaomiMiMo {...props} />;
+	return <XiaomiMiMoMono {...props} />;
 }
 
 export function ZhipuIcon(props: SVGProps<SVGSVGElement>) {
-	return <Zhipu.Color {...props} />;
+	return <ZhipuColor {...props} />;
 }
