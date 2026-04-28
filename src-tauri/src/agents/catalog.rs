@@ -40,12 +40,11 @@ pub fn static_model_sections() -> Vec<AgentModelSection> {
 fn model_sections_for_custom(
     custom: Vec<super::custom_providers::ClaudeProviderModel>,
 ) -> Vec<AgentModelSection> {
-    let mut sections = if custom.is_empty() {
-        vec![official_claude_section()]
-    } else {
-        custom_provider_sections(custom)
-    };
-
+    let mut claude_section = official_claude_section();
+    claude_section
+        .options
+        .extend(custom_provider_options(custom));
+    let mut sections = vec![claude_section];
     sections.push(codex_section());
 
     sections
@@ -91,33 +90,20 @@ fn codex_section() -> AgentModelSection {
     }
 }
 
-fn custom_provider_sections(
+fn custom_provider_options(
     custom: Vec<super::custom_providers::ClaudeProviderModel>,
-) -> Vec<AgentModelSection> {
-    let mut grouped = std::collections::BTreeMap::<(String, String), Vec<AgentModelOption>>::new();
-    for model in custom {
-        grouped
-            .entry((model.provider_key.clone(), model.provider_name.clone()))
-            .or_default()
-            .push(AgentModelOption {
-                id: model.id,
-                provider: "claude".to_string(),
-                label: model.label,
-                cli_model: model.cli_model,
-                provider_key: Some(model.provider_key),
-                effort_levels: claude_effort_levels(),
-                supports_fast_mode: false,
-                supports_context_usage: false,
-            });
-    }
-
-    grouped
+) -> Vec<AgentModelOption> {
+    custom
         .into_iter()
-        .map(|((provider_key, label), options)| AgentModelSection {
-            id: format!("claude-provider-{provider_key}"),
-            label,
-            status: AgentModelSectionStatus::Ready,
-            options,
+        .map(|model| AgentModelOption {
+            id: model.id,
+            provider: "claude".to_string(),
+            label: model.label,
+            cli_model: model.cli_model,
+            provider_key: Some(model.provider_key),
+            effort_levels: claude_effort_levels(),
+            supports_fast_mode: false,
+            supports_context_usage: false,
         })
         .collect()
 }
@@ -213,7 +199,7 @@ mod tests {
 
     #[test]
     fn static_model_sections_returns_hardcoded_catalog() {
-        let sections = static_model_sections();
+        let sections = model_sections_for_custom(Vec::new());
 
         assert_eq!(sections.len(), 2);
         assert_eq!(sections[0].id, "claude");
@@ -255,12 +241,11 @@ mod tests {
     }
 
     #[test]
-    fn custom_provider_sections_replace_official_claude_section() {
+    fn custom_provider_models_append_to_official_claude_section() {
         let sections =
             model_sections_for_custom(vec![super::super::custom_providers::ClaudeProviderModel {
                 id: "claude-custom|minimax|MiniMax-M2.7".to_string(),
                 provider_key: "minimax".to_string(),
-                provider_name: "MiniMax".to_string(),
                 label: "MiniMax M2.7".to_string(),
                 cli_model: "MiniMax-M2.7".to_string(),
                 base_url: "https://api.minimax.io/anthropic".to_string(),
@@ -268,19 +253,32 @@ mod tests {
             }]);
 
         assert_eq!(sections.len(), 2);
-        assert_eq!(sections[0].id, "claude-provider-minimax");
-        assert_eq!(sections[0].label, "MiniMax");
+        assert_eq!(sections[0].id, "claude");
+        assert_eq!(sections[0].label, "Claude Code");
         assert_eq!(
-            sections[0].options[0].provider_key.as_deref(),
+            sections[0]
+                .options
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "default",
+                "claude-opus-4-6[1m]",
+                "sonnet",
+                "haiku",
+                "claude-custom|minimax|MiniMax-M2.7",
+            ]
+        );
+        assert_eq!(
+            sections[0].options[4].provider_key.as_deref(),
             Some("minimax")
         );
         assert_eq!(
-            sections[0].options[0].effort_levels,
+            sections[0].options[4].effort_levels,
             vec!["low", "medium", "high", "xhigh", "max"]
         );
-        assert!(!sections[0].options[0].supports_context_usage);
+        assert!(!sections[0].options[4].supports_context_usage);
         assert_eq!(sections[1].id, "codex");
-        assert!(!sections.iter().any(|section| section.id == "claude"));
     }
 
     #[test]

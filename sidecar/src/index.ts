@@ -21,6 +21,7 @@ import {
 	parseElicitationResultContent,
 	parseGetContextUsageParams,
 	parseListSlashCommandsParams,
+	parseOptionalStringRecord,
 	parseProvider,
 	parseRequest,
 	parseSendMessageParams,
@@ -150,13 +151,19 @@ async function handleGenerateTitle(
 			typeof params.branchRenamePrompt === "string"
 				? params.branchRenamePrompt
 				: null;
+		const claudeModel = optionalString(params, "claudeModel");
+		const claudeEnvironment = parseOptionalStringRecord(
+			params,
+			"claudeEnvironment",
+		);
 		logger.debug(`[${id}] generateTitle`, {
 			userMessage: userMessage.slice(0, 100),
+			claudeModel: claudeModel ?? "haiku",
+			customClaudeEnvironment: Boolean(claudeEnvironment),
 		});
 
-		// Try Claude (cheap haiku) first; fall back to Codex if Claude is
-		// unavailable. Both implementations emit `titleGenerated` in the
-		// same shape, so the caller can't tell which one ran.
+		// Try the configured Claude-compatible model first when available;
+		// otherwise use official Claude, then fall back to Codex.
 		try {
 			await managers.claude.generateTitle(
 				id,
@@ -164,12 +171,34 @@ async function handleGenerateTitle(
 				branchRenamePrompt,
 				emitter,
 				TITLE_GENERATION_TIMEOUT_MS,
+				{ model: claudeModel, claudeEnvironment },
 			);
 			logger.debug(`[${id}] generateTitle completed (claude)`);
 		} catch (claudeErr) {
-			logger.debug(
-				`[${id}] generateTitle claude failed, trying codex: ${errorMessage(claudeErr)}`,
-			);
+			if (claudeModel || claudeEnvironment) {
+				logger.debug(
+					`[${id}] generateTitle custom claude failed, trying official claude: ${errorMessage(claudeErr)}`,
+				);
+				try {
+					await managers.claude.generateTitle(
+						id,
+						userMessage,
+						branchRenamePrompt,
+						emitter,
+						TITLE_GENERATION_TIMEOUT_MS,
+					);
+					logger.debug(`[${id}] generateTitle completed (official claude)`);
+					return;
+				} catch (officialClaudeErr) {
+					logger.debug(
+						`[${id}] generateTitle official claude failed, trying codex: ${errorMessage(officialClaudeErr)}`,
+					);
+				}
+			} else {
+				logger.debug(
+					`[${id}] generateTitle claude failed, trying codex: ${errorMessage(claudeErr)}`,
+				);
+			}
 			await managers.codex.generateTitle(
 				id,
 				userMessage,

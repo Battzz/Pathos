@@ -45,7 +45,6 @@ import {
 type ProviderKind = BuiltinClaudeProviderKey | "custom";
 
 type Draft = {
-	providerName: string;
 	baseUrl: string;
 	apiKey: string;
 	models: string;
@@ -87,7 +86,6 @@ export function ClaudeCustomProvidersPanel() {
 		const apiKey = draft.apiKey.trim();
 		if (kind === "custom") {
 			updateProvider({
-				customProviderName: draft.providerName.trim(),
 				customBaseUrl: draft.baseUrl.trim(),
 				customApiKey: apiKey,
 				customModels: draft.models.trim(),
@@ -103,15 +101,12 @@ export function ClaudeCustomProvidersPanel() {
 		}
 		updateProvider({
 			builtinProviderApiKeys: nextKeys,
-			...(kind === "minimax" ? { minimaxApiKey: apiKey } : {}),
-			...(kind === "minimax-cn" ? { minimaxCnApiKey: apiKey } : {}),
 		});
 	}
 
 	function removeProvider(itemKind: ProviderKind) {
 		if (itemKind === "custom") {
 			updateProvider({
-				customProviderName: "",
 				customBaseUrl: "",
 				customApiKey: "",
 				customModels: "",
@@ -124,8 +119,6 @@ export function ClaudeCustomProvidersPanel() {
 		delete nextKeys[itemKind];
 		updateProvider({
 			builtinProviderApiKeys: nextKeys,
-			...(itemKind === "minimax" ? { minimaxApiKey: "" } : {}),
-			...(itemKind === "minimax-cn" ? { minimaxCnApiKey: "" } : {}),
 		});
 	}
 
@@ -135,11 +128,11 @@ export function ClaudeCustomProvidersPanel() {
 	return (
 		<SettingsRow
 			title="Claude Code custom providers"
-			description="Enter API keys here to use third-party models instead of Claude Code's official models."
+			description="Enter API keys here to use third-party models. They can be used alongside Claude Code's official models."
 			align="start"
 			className="gap-8"
 		>
-			<div className="flex w-[340px] flex-col gap-3">
+			<div className="flex w-[360px] flex-col gap-3">
 				<div className="grid gap-2">
 					<ProviderPicker
 						kind={kind}
@@ -182,18 +175,6 @@ export function ClaudeCustomProvidersPanel() {
 					) : (
 						<div className="grid gap-2">
 							<Input
-								value={draft.providerName}
-								onBlur={saveDraftIfComplete}
-								onChange={(event) =>
-									setDraft((current) => ({
-										...current,
-										providerName: event.target.value,
-									}))
-								}
-								placeholder="Provider name"
-								className="h-8 border-border/50 bg-muted/20 text-[13px]"
-							/>
-							<Input
 								value={draft.baseUrl}
 								onBlur={saveDraftIfComplete}
 								onChange={(event) =>
@@ -227,8 +208,10 @@ export function ClaudeCustomProvidersPanel() {
 										models: event.target.value,
 									}))
 								}
-								placeholder="model-a, model-b"
-								className="min-h-20 border-border/50 bg-muted/20 text-[13px]"
+								placeholder={`model-a
+model-b
+model-c`}
+								className="h-20 resize-none overflow-y-auto border-border/50 bg-muted/20 text-[13px]"
 							/>
 						</div>
 					)}
@@ -256,7 +239,11 @@ function ProviderPicker({
 
 	return (
 		<DropdownMenu>
-			<DropdownMenuTrigger className="flex h-8 min-w-0 flex-1 cursor-pointer items-center justify-between rounded-lg border border-border/50 bg-background/70 px-3 text-[13px] text-foreground hover:bg-muted/50">
+			<DropdownMenuTrigger
+				className={cn(
+					"flex h-8 min-w-0 flex-1 cursor-pointer items-center justify-between rounded-lg border border-border/50 bg-muted/30 px-3 text-[13px] text-foreground hover:bg-muted/50",
+				)}
+			>
 				<span className="flex min-w-0 items-center gap-2">
 					{builtinProvider ? (
 						<BuiltinProviderIcon
@@ -270,7 +257,7 @@ function ProviderPicker({
 				</span>
 				<ChevronDown className="size-3 shrink-0 opacity-40" />
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align="end" className="w-[340px]">
+			<DropdownMenuContent align="end" className="w-[360px]">
 				{BUILTIN_CLAUDE_PROVIDERS.map((provider) => (
 					<DropdownMenuItem
 						key={provider.key}
@@ -319,7 +306,7 @@ function ConfiguredProvidersList({
 	}
 
 	return (
-		<div className="pt-1">
+		<div className="px-3 pt-1">
 			{items.map((item, index) => (
 				<div
 					key={item.kind}
@@ -328,17 +315,14 @@ function ConfiguredProvidersList({
 						index > 0 ? "border-t border-border/30" : null,
 					)}
 				>
-					<div className="flex size-5 shrink-0 items-center justify-center">
+					<div className="flex size-4 shrink-0 items-center justify-center">
 						<ProviderIcon item={item} className="size-4" />
 					</div>
-					<div className="min-w-0 flex-1 truncate">
-						<span className="text-[13px] font-medium text-foreground">
-							{item.label}
-						</span>
-						<span className="mx-2 text-muted-foreground/40">·</span>
-						<span className="font-mono text-[11px] text-muted-foreground">
-							{item.keyPreview}
-						</span>
+					<div className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
+						{item.label}
+					</div>
+					<div className="w-[88px] shrink-0 text-right font-mono text-[11px] text-muted-foreground">
+						{item.keyPreview}
 					</div>
 					<Button
 						type="button"
@@ -381,7 +365,7 @@ function getConfiguredItems(
 	if (isCustomConfigured(value)) {
 		items.push({
 			kind: "custom",
-			label: value.customProviderName.trim(),
+			label: "Custom",
 			keyPreview: maskSecret(value.customApiKey),
 		});
 	}
@@ -394,14 +378,12 @@ function draftFromSettings(
 ): Draft {
 	if (kind === "custom") {
 		return {
-			providerName: value.customProviderName,
 			baseUrl: value.customBaseUrl,
 			apiKey: value.customApiKey,
 			models: value.customModels,
 		};
 	}
 	return {
-		providerName: "",
 		baseUrl: "",
 		apiKey: value.builtinProviderApiKeys?.[kind] ?? "",
 		models: "",
@@ -411,8 +393,7 @@ function draftFromSettings(
 function canSave(kind: ProviderKind, draft: Draft): boolean {
 	if (kind === "custom") {
 		return Boolean(
-			draft.providerName.trim() &&
-				draft.baseUrl.trim() &&
+			draft.baseUrl.trim() &&
 				draft.apiKey.trim() &&
 				parseModelList(draft.models).length > 0,
 		);
@@ -422,8 +403,7 @@ function canSave(kind: ProviderKind, draft: Draft): boolean {
 
 function isCustomConfigured(value: ClaudeCustomProviderSettings): boolean {
 	return Boolean(
-		value.customProviderName.trim() &&
-			value.customBaseUrl.trim() &&
+		value.customBaseUrl.trim() &&
 			value.customApiKey.trim() &&
 			parseModelList(value.customModels).length > 0,
 	);
@@ -431,7 +411,7 @@ function isCustomConfigured(value: ClaudeCustomProviderSettings): boolean {
 
 function parseModelList(raw: string): string[] {
 	return raw
-		.split(/[,;\n]/)
+		.split("\n")
 		.map((item) => item.trim())
 		.filter(Boolean);
 }

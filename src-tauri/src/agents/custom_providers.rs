@@ -9,13 +9,7 @@ const MODEL_ID_PREFIX: &str = "claude-custom|";
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeCustomProviderSettings {
     #[serde(default)]
-    pub minimax_api_key: String,
-    #[serde(default)]
-    pub minimax_cn_api_key: String,
-    #[serde(default)]
     pub builtin_provider_api_keys: HashMap<String, String>,
-    #[serde(default)]
-    pub custom_provider_name: String,
     #[serde(default)]
     pub custom_base_url: String,
     #[serde(default)]
@@ -28,7 +22,6 @@ pub struct ClaudeCustomProviderSettings {
 pub struct ClaudeProviderModel {
     pub id: String,
     pub provider_key: String,
-    pub provider_name: String,
     pub label: String,
     pub cli_model: String,
     pub base_url: String,
@@ -46,23 +39,21 @@ pub fn configured_models() -> Vec<ClaudeProviderModel> {
     let settings = load_settings();
     let mut models = Vec::new();
 
-    for provider in super::builtin_claude_providers::BUILTIN_CLAUDE_PROVIDERS {
+    for provider in super::builtin_claude_providers::builtin_claude_providers() {
         append_builtin_models(
             &mut models,
-            provider.key,
-            builtin_api_key(&settings, provider.key).trim(),
+            provider.key.as_str(),
+            builtin_api_key(&settings, provider.key.as_str()).trim(),
         );
     }
 
-    let provider_name = settings.custom_provider_name.trim();
     let base_url = settings.custom_base_url.trim();
     let api_key = settings.custom_api_key.trim();
-    if !provider_name.is_empty() && !base_url.is_empty() && !api_key.is_empty() {
+    if !base_url.is_empty() && !api_key.is_empty() {
         for model in parse_models(&settings.custom_models) {
             models.push(ClaudeProviderModel {
                 id: model_id("custom", &model),
                 provider_key: "custom".to_string(),
-                provider_name: provider_name.to_string(),
                 label: model.clone(),
                 cli_model: model,
                 base_url: base_url.to_string(),
@@ -80,11 +71,7 @@ fn builtin_api_key(settings: &ClaudeCustomProviderSettings, provider_key: &str) 
         .get(provider_key)
         .cloned()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| match provider_key {
-            "minimax" => settings.minimax_api_key.clone(),
-            "minimax-cn" => settings.minimax_cn_api_key.clone(),
-            _ => String::new(),
-        })
+        .unwrap_or_default()
 }
 
 fn append_builtin_models(models: &mut Vec<ClaudeProviderModel>, provider_key: &str, api_key: &str) {
@@ -92,21 +79,20 @@ fn append_builtin_models(models: &mut Vec<ClaudeProviderModel>, provider_key: &s
         return;
     }
 
-    let Some(provider) = super::builtin_claude_providers::BUILTIN_CLAUDE_PROVIDERS
+    let Some(provider) = super::builtin_claude_providers::builtin_claude_providers()
         .iter()
         .find(|provider| provider.key == provider_key)
     else {
         return;
     };
 
-    for model in provider.models {
+    for model in &provider.models {
         models.push(ClaudeProviderModel {
-            id: model_id(provider.key, model.id),
-            provider_key: provider.key.to_string(),
-            provider_name: provider.name.to_string(),
-            label: model.label.to_string(),
-            cli_model: model.id.to_string(),
-            base_url: provider.base_url.to_string(),
+            id: model_id(provider.key.as_str(), model.id.as_str()),
+            provider_key: provider.key.clone(),
+            label: model.label.clone(),
+            cli_model: model.id.clone(),
+            base_url: provider.base_url.clone(),
             api_key: api_key.to_string(),
         });
     }
@@ -124,7 +110,7 @@ fn model_id(provider_key: &str, model: &str) -> String {
 
 fn parse_models(raw: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for item in raw.split([',', '\n', ';']) {
+    for item in raw.lines() {
         let model = item.trim();
         if model.is_empty() || model.contains('|') || out.iter().any(|m| m == model) {
             continue;
@@ -141,28 +127,24 @@ mod tests {
     #[test]
     fn parses_model_list() {
         assert_eq!(
-            parse_models("a, b\nc; a | bad"),
+            parse_models("a\nb\nc\na | bad"),
             vec!["a".to_string(), "b".to_string(), "c".to_string()]
         );
     }
 
     #[test]
-    fn deserializes_minimax_region_keys() {
+    fn builtin_api_key_reads_canonical_map() {
         let settings: ClaudeCustomProviderSettings =
-            serde_json::from_str(r#"{"minimaxApiKey":"global-key","minimaxCnApiKey":"cn-key"}"#)
-                .unwrap();
+            serde_json::from_str(r#"{"builtinProviderApiKeys":{"minimax":"mapped"}}"#).unwrap();
 
-        assert_eq!(settings.minimax_api_key, "global-key");
-        assert_eq!(settings.minimax_cn_api_key, "cn-key");
+        assert_eq!(builtin_api_key(&settings, "minimax"), "mapped");
     }
 
     #[test]
-    fn builtin_api_key_prefers_generic_map() {
-        let settings: ClaudeCustomProviderSettings = serde_json::from_str(
-            r#"{"minimaxApiKey":"legacy","builtinProviderApiKeys":{"minimax":"mapped"}}"#,
-        )
-        .unwrap();
+    fn builtin_api_key_ignores_blank_values() {
+        let settings: ClaudeCustomProviderSettings =
+            serde_json::from_str(r#"{"builtinProviderApiKeys":{"minimax":"   "}}"#).unwrap();
 
-        assert_eq!(builtin_api_key(&settings, "minimax"), "mapped");
+        assert_eq!(builtin_api_key(&settings, "minimax"), "");
     }
 }

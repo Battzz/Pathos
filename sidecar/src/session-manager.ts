@@ -47,6 +47,11 @@ export interface GetContextUsageParams {
 	readonly cwd: string | undefined;
 }
 
+export interface GenerateTitleOptions {
+	readonly model?: string;
+	readonly claudeEnvironment?: Readonly<Record<string, string>>;
+}
+
 /**
  * One slash-command entry exposed to the composer popup. Mirrors the Claude
  * Agent SDK's `SlashCommand` shape so the Claude path is a 1:1 forward, and
@@ -91,6 +96,7 @@ export interface SessionManager {
 		branchRenamePrompt: string | null,
 		emitter: SidecarEmitter,
 		timeoutMs?: number,
+		options?: GenerateTitleOptions,
 	): Promise<void>;
 
 	/**

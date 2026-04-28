@@ -11,19 +11,12 @@ import {
 	ChevronDown,
 	ClipboardList,
 	MessageSquareMore,
+	Plus,
 	Square,
 	Zap,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-	ClaudeIcon,
-	KimiIcon,
-	MinimaxIcon,
-	OpenAIIcon,
-	QwenIcon,
-	XiaomiMiMoIcon,
-	ZhipuIcon,
-} from "@/components/icons";
+import { ModelIcon } from "@/components/model-icon";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -46,7 +39,6 @@ import { humanizeBranch } from "@/features/navigation/shared";
 import { normalizeShortcutEvent } from "@/features/shortcuts/format";
 import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type {
-	AgentModelOption,
 	AgentModelSection,
 	CandidateDirectory,
 	SlashCommandEntry,
@@ -93,6 +85,8 @@ import type { ElicitationResponseHandler } from "./elicitation";
 import { ElicitationPanel } from "./elicitation-panel";
 import { FastModeLottieIcon } from "./fast-mode-lottie-icon";
 import { UsageStatsIndicator } from "./usage-stats-indicator";
+
+const OPEN_SETTINGS_EVENT = "helmor:open-settings";
 
 type WorkspaceComposerProps = {
 	contextKey: string;
@@ -159,27 +153,6 @@ type WorkspaceComposerProps = {
 	focusShortcut?: string | null;
 	togglePlanShortcut?: string | null;
 };
-
-function ModelIcon({
-	model,
-	className,
-}: {
-	model?: AgentModelOption | null;
-	className?: string;
-}) {
-	if (model?.provider === "codex") return <OpenAIIcon className={className} />;
-	if (model?.providerKey === "minimax" || model?.providerKey === "minimax-cn")
-		return <MinimaxIcon className={className} />;
-	if (model?.providerKey === "moonshot" || model?.providerKey === "moonshot-cn")
-		return <KimiIcon className={className} />;
-	if (model?.providerKey === "zai" || model?.providerKey === "zai-cn")
-		return <ZhipuIcon className={className} />;
-	if (model?.providerKey === "qwen" || model?.providerKey === "qwen-intl")
-		return <QwenIcon className={className} />;
-	if (model?.providerKey === "xiaomi")
-		return <XiaomiMiMoIcon className={className} />;
-	return <ClaudeIcon className={className} />;
-}
 
 const EMPTY_SLASH_COMMANDS: readonly SlashCommandEntry[] = [];
 const EMPTY_LINKED_DIRECTORIES: readonly string[] = [];
@@ -292,6 +265,15 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 		}
 		return null;
 	}, [modelSections, selectedModelId]);
+	const hasConfiguredClaudeProviderModels = useMemo(
+		() =>
+			modelSections.some(
+				(section) =>
+					section.id === "claude" &&
+					section.options.some((option) => Boolean(option.providerKey)),
+			),
+		[modelSections],
+	);
 	const availableEffortLevels = useMemo(
 		() => selectedModel?.effortLevels ?? [],
 		[selectedModel],
@@ -336,6 +318,14 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 				handleOpenModelPicker,
 			);
 	}, [toolbarDisabled]);
+	const handleOpenModelSettings = useCallback(() => {
+		setModelPickerOpen(false);
+		window.dispatchEvent(
+			new CustomEvent(OPEN_SETTINGS_EVENT, {
+				detail: { section: "model" },
+			}),
+		);
+	}, []);
 	const composerToolbarTriggerClassName =
 		"cursor-pointer rounded-[9px] px-1 py-0.5 text-[13px] font-medium transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50";
 	// Shared gate for Send and Steer — the only difference is whether a
@@ -691,16 +681,33 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 															}}
 															className="flex items-center justify-between gap-3"
 														>
-															<div className="flex items-center gap-3">
-																<span className="text-muted-foreground">
-																	<ModelIcon model={option} />
+															<div className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-3">
+																<span className="flex size-4 items-center justify-center text-muted-foreground">
+																	<ModelIcon
+																		model={option}
+																		className="size-4"
+																	/>
 																</span>
-																<span className="font-mono tabular-nums">
+																<span className="truncate font-mono tabular-nums">
 																	{option.label}
 																</span>
 															</div>
 														</DropdownMenuItem>
 													))}
+													{section.id === "claude" &&
+													!hasConfiguredClaudeProviderModels ? (
+														<DropdownMenuItem
+															onClick={handleOpenModelSettings}
+															className="flex items-center gap-3"
+														>
+															<span className="flex size-4 items-center justify-center text-muted-foreground">
+																<Plus className="size-4" strokeWidth={1.8} />
+															</span>
+															<span className="font-mono tabular-nums">
+																Add custom model...
+															</span>
+														</DropdownMenuItem>
+													) : null}
 												</DropdownMenuGroup>
 											))}
 										</DropdownMenuContent>

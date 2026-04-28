@@ -40,7 +40,11 @@ import { WorkspacesSidebarContainer } from "@/features/navigation/container";
 import { AppOnboarding } from "@/features/onboarding";
 import { seedNewSessionInCache } from "@/features/panel/session-cache";
 import { useConfirmSessionClose } from "@/features/panel/use-confirm-session-close";
-import { SettingsButton, SettingsDialog } from "@/features/settings";
+import {
+	SettingsButton,
+	SettingsDialog,
+	type SettingsSection,
+} from "@/features/settings";
 import { getShortcut } from "@/features/shortcuts/registry";
 import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import {
@@ -132,6 +136,7 @@ import {
 import { StreamingFooterOverlapScenario } from "./test/e2e-scenarios/streaming-footer-overlap";
 
 const SETTINGS_RELOAD_EVENT = "helmor:reload-settings";
+const OPEN_SETTINGS_EVENT = "helmor:open-settings";
 
 function App() {
 	const e2eScenario =
@@ -155,6 +160,8 @@ function MainApp() {
 	const [settingsWorkspaceRepoId, setSettingsWorkspaceRepoId] = useState<
 		string | null
 	>(null);
+	const [settingsInitialSection, setSettingsInitialSection] =
+		useState<SettingsSection>();
 	const [queryClient] = useState(() => createHelmorQueryClient());
 	const preloadSettings = useMemo<AppSettings>(() => {
 		const t = localStorage.getItem(THEME_STORAGE_KEY) as ThemeMode | null;
@@ -175,6 +182,27 @@ function MainApp() {
 		}),
 		[appSettings, preloadSettings],
 	);
+	useEffect(() => {
+		const handleOpenSettings = (event: Event) => {
+			const detail =
+				event instanceof CustomEvent &&
+				event.detail &&
+				typeof event.detail === "object"
+					? (event.detail as { section?: unknown })
+					: {};
+			const section =
+				typeof detail.section === "string"
+					? (detail.section as SettingsSection)
+					: undefined;
+			setSettingsInitialSection(section);
+			setSettingsWorkspaceId(null);
+			setSettingsWorkspaceRepoId(null);
+			setSettingsOpen(true);
+		};
+		window.addEventListener(OPEN_SETTINGS_EVENT, handleOpenSettings);
+		return () =>
+			window.removeEventListener(OPEN_SETTINGS_EVENT, handleOpenSettings);
+	}, []);
 	const [splashVisible, setSplashVisible] = useState(true);
 	const [splashMounted, setSplashMounted] = useState(true);
 
@@ -282,6 +310,7 @@ function MainApp() {
 				) : (
 					<AppShell
 						onOpenSettings={(workspaceId, workspaceRepoId) => {
+							setSettingsInitialSection(undefined);
 							setSettingsWorkspaceId(workspaceId);
 							setSettingsWorkspaceRepoId(workspaceRepoId);
 							setSettingsOpen(true);
@@ -293,6 +322,7 @@ function MainApp() {
 					open={settingsOpen}
 					workspaceId={settingsWorkspaceId}
 					workspaceRepoId={settingsWorkspaceRepoId}
+					initialSection={settingsInitialSection}
 					onClose={() => {
 						setSettingsOpen(false);
 						void queryClient.invalidateQueries({

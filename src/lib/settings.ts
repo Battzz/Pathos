@@ -12,10 +12,7 @@ export type FollowUpBehavior = "steer" | "queue";
 export type ShortcutOverrides = Record<string, string | null>;
 
 export type ClaudeCustomProviderSettings = {
-	minimaxApiKey: string;
-	minimaxCnApiKey: string;
 	builtinProviderApiKeys: Record<string, string>;
-	customProviderName: string;
 	customBaseUrl: string;
 	customApiKey: string;
 	customModels: string;
@@ -70,10 +67,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	onboardingCompleted: false,
 	shortcuts: {},
 	claudeCustomProviders: {
-		minimaxApiKey: "",
-		minimaxCnApiKey: "",
 		builtinProviderApiKeys: {},
-		customProviderName: "",
 		customBaseUrl: "",
 		customApiKey: "",
 		customModels: "",
@@ -124,7 +118,7 @@ function parseClaudeCustomProviderSettings(
 ): ClaudeCustomProviderSettings {
 	if (!raw) return DEFAULT_SETTINGS.claudeCustomProviders;
 	try {
-		const parsed = JSON.parse(raw) as Partial<ClaudeCustomProviderSettings>;
+		const parsed = JSON.parse(raw) as Record<string, unknown>;
 		const builtinProviderApiKeys =
 			parsed.builtinProviderApiKeys &&
 			typeof parsed.builtinProviderApiKeys === "object" &&
@@ -135,30 +129,8 @@ function parseClaudeCustomProviderSettings(
 						),
 					)
 				: {};
-		if (
-			typeof parsed.minimaxApiKey === "string" &&
-			!builtinProviderApiKeys.minimax
-		) {
-			builtinProviderApiKeys.minimax = parsed.minimaxApiKey;
-		}
-		if (
-			typeof parsed.minimaxCnApiKey === "string" &&
-			!builtinProviderApiKeys["minimax-cn"]
-		) {
-			builtinProviderApiKeys["minimax-cn"] = parsed.minimaxCnApiKey;
-		}
 		return {
-			minimaxApiKey:
-				typeof parsed.minimaxApiKey === "string" ? parsed.minimaxApiKey : "",
-			minimaxCnApiKey:
-				typeof parsed.minimaxCnApiKey === "string"
-					? parsed.minimaxCnApiKey
-					: "",
 			builtinProviderApiKeys,
-			customProviderName:
-				typeof parsed.customProviderName === "string"
-					? parsed.customProviderName
-					: "",
 			customBaseUrl:
 				typeof parsed.customBaseUrl === "string" ? parsed.customBaseUrl : "",
 			customApiKey:

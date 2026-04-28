@@ -134,7 +134,7 @@ export function parseSendMessageParams(
 	};
 }
 
-function parseOptionalStringRecord(
+export function parseOptionalStringRecord(
 	params: Record<string, unknown>,
 	key: string,
 ): Readonly<Record<string, string>> | undefined {

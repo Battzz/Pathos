@@ -23,9 +23,9 @@ pub struct GenerateSessionTitleResponse {
     pub skipped: bool,
 }
 
-/// Sidecar response timeout. The sidecar gives Claude 30 s and Codex fallback
-/// another 30 s, so keep a small buffer here for request handoff and delivery.
-const TITLE_GEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(65);
+/// Sidecar response timeout. The sidecar may try a configured Claude-compatible
+/// model, official Claude, then Codex, so keep a small buffer for handoff.
+const TITLE_GEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(95);
 
 type WorkspaceInfo = (String, String, Option<String>, String, Option<String>);
 
@@ -133,13 +133,32 @@ pub async fn generate_session_title(
     }
 
     let request_id = Uuid::new_v4().to_string();
+    let mut params = serde_json::json!({
+        "userMessage": request.user_message,
+        "branchRenamePrompt": branch_rename_prompt,
+    });
+    if let Some(model) = super::custom_providers::configured_models()
+        .into_iter()
+        .next()
+    {
+        if let Some(obj) = params.as_object_mut() {
+            obj.insert(
+                "claudeModel".to_string(),
+                Value::String(model.cli_model.clone()),
+            );
+            obj.insert(
+                "claudeEnvironment".to_string(),
+                serde_json::json!({
+                    "ANTHROPIC_BASE_URL": model.base_url,
+                    "ANTHROPIC_AUTH_TOKEN": model.api_key,
+                }),
+            );
+        }
+    }
     let sidecar_req = crate::sidecar::SidecarRequest {
         id: request_id.clone(),
         method: "generateTitle".to_string(),
-        params: serde_json::json!({
-            "userMessage": request.user_message,
-            "branchRenamePrompt": branch_rename_prompt,
-        }),
+        params,
     };
 
     let rx = sidecar.subscribe(&request_id);

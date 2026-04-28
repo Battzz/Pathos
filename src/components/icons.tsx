@@ -1,5 +1,7 @@
+import Claude from "@lobehub/icons/es/Claude";
 import Kimi from "@lobehub/icons/es/Kimi";
 import Minimax from "@lobehub/icons/es/Minimax";
+import OpenAI from "@lobehub/icons/es/OpenAI";
 import Qwen from "@lobehub/icons/es/Qwen";
 import XiaomiMiMo from "@lobehub/icons/es/XiaomiMiMo";
 import Zhipu from "@lobehub/icons/es/Zhipu";
@@ -33,12 +35,20 @@ export function OpenAIIcon(props: SVGProps<SVGSVGElement>) {
 	);
 }
 
+export function ClaudeColorIcon(props: SVGProps<SVGSVGElement>) {
+	return <Claude.Color {...props} />;
+}
+
+export function OpenAIColorIcon(props: SVGProps<SVGSVGElement>) {
+	return <OpenAI {...props} />;
+}
+
 export function MinimaxIcon(props: SVGProps<SVGSVGElement>) {
 	return <Minimax.Color {...props} />;
 }
 
 export function KimiIcon(props: SVGProps<SVGSVGElement>) {
-	return <Kimi.Color {...props} />;
+	return <Kimi {...props} />;
 }
 
 export function QwenIcon(props: SVGProps<SVGSVGElement>) {

@@ -21,6 +21,7 @@ import { prependLinkedDirectoriesContext } from "./linked-directories-context.js
 import { errorDetails, logger } from "./logger.js";
 import { listProviderModels, modelSupportsFastMode } from "./model-catalog.js";
 import type {
+	GenerateTitleOptions,
 	ListSlashCommandsParams,
 	ProviderModelInfo,
 	SendMessageParams,
@@ -482,6 +483,7 @@ export class CodexAppServerManager implements SessionManager {
 		branchRenamePrompt: string | null,
 		emitter: SidecarEmitter,
 		timeoutMs = TITLE_GENERATION_TIMEOUT_MS,
+		_options?: GenerateTitleOptions,
 	): Promise<void> {
 		const cwd = process.cwd();
 		const server = new CodexAppServer({

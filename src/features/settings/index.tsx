@@ -9,6 +9,7 @@ import {
 	Sun,
 } from "lucide-react";
 import { memo, useEffect, useState } from "react";
+import { ModelIcon } from "@/components/model-icon";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -51,6 +52,7 @@ import {
 } from "@/lib/query-client";
 import type { ThemeMode } from "@/lib/settings";
 import { useSettings } from "@/lib/settings";
+import { cn } from "@/lib/utils";
 import { clampEffort, findModelOption } from "@/lib/workspace-helpers";
 import { SettingsGroup, SettingsRow } from "./components/settings-row";
 import { AccountPanel } from "./panels/account";
@@ -65,7 +67,7 @@ const MIN_FONT_SIZE = 12;
 const MAX_FONT_SIZE = 20;
 const FALLBACK_EFFORT_LEVELS = ["low", "medium", "high"];
 
-type SettingsSection =
+export type SettingsSection =
 	| "general"
 	| "shortcuts"
 	| "appearance"
@@ -99,11 +101,13 @@ export const SettingsDialog = memo(function SettingsDialog({
 	open,
 	workspaceId,
 	workspaceRepoId,
+	initialSection,
 	onClose,
 }: {
 	open: boolean;
 	workspaceId: string | null;
 	workspaceRepoId: string | null;
+	initialSection?: SettingsSection;
 	onClose: () => void;
 }) {
 	const { settings, updateSettings } = useSettings();
@@ -112,6 +116,12 @@ export const SettingsDialog = memo(function SettingsDialog({
 		useState<SettingsSection>("general");
 	const [githubLogin, setGithubLogin] = useState<string | null>(null);
 	const [conductorEnabled, setConductorEnabled] = useState(false);
+
+	useEffect(() => {
+		if (open && initialSection) {
+			setActiveSection(initialSection);
+		}
+	}, [open, initialSection]);
 
 	const reposQuery = useQuery({
 		...repositoriesQueryOptions(),
@@ -419,11 +429,24 @@ export const SettingsDialog = memo(function SettingsDialog({
 										title="Default model"
 										description="Model for new chats"
 									>
-										<div className="flex items-center gap-2">
+										<div className="flex w-[360px] items-center gap-2">
 											<DropdownMenu>
-												<DropdownMenuTrigger className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border/50 bg-muted/30 px-3 py-1.5 text-[13px] text-foreground hover:bg-muted/50">
-													<span>{defaultModelLabel}</span>
-													<ChevronDown className="size-3 opacity-40" />
+												<DropdownMenuTrigger
+													className={cn(
+														"flex h-8 cursor-pointer items-center justify-between rounded-lg border border-border/50 bg-muted/30 px-3 text-[13px] text-foreground hover:bg-muted/50",
+														"min-w-0 flex-1 gap-1.5",
+													)}
+												>
+													<span className="flex min-w-0 items-center gap-1.5">
+														<ModelIcon
+															model={selectedDefaultModel}
+															className="size-[13px] shrink-0"
+														/>
+														<span className="min-w-0 truncate whitespace-nowrap">
+															{defaultModelLabel}
+														</span>
+													</span>
+													<ChevronDown className="size-3 shrink-0 opacity-40" />
 												</DropdownMenuTrigger>
 												<DropdownMenuContent
 													align="end"
@@ -436,14 +459,21 @@ export const SettingsDialog = memo(function SettingsDialog({
 															onClick={() =>
 																updateSettings({ defaultModelId: m.id })
 															}
+															className="gap-2"
 														>
+															<ModelIcon model={m} className="size-4" />
 															{m.label}
 														</DropdownMenuItem>
 													))}
 												</DropdownMenuContent>
 											</DropdownMenu>
 											<DropdownMenu>
-												<DropdownMenuTrigger className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border/50 bg-muted/30 px-3 py-1.5 text-[13px] text-foreground hover:bg-muted/50">
+												<DropdownMenuTrigger
+													className={cn(
+														"flex h-8 cursor-pointer items-center rounded-lg border border-border/50 bg-muted/30 px-3 text-[13px] text-foreground hover:bg-muted/50",
+														"shrink-0 gap-1.5",
+													)}
+												>
 													<span>
 														{effortLabel(settings.defaultEffort ?? "high")}
 													</span>
@@ -466,7 +496,12 @@ export const SettingsDialog = memo(function SettingsDialog({
 													))}
 												</DropdownMenuContent>
 											</DropdownMenu>
-											<div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-1.5">
+											<div
+												className={cn(
+													"flex h-8 cursor-pointer items-center rounded-lg border border-border/50 bg-muted/30 px-3 text-[13px] text-foreground hover:bg-muted/50",
+													"shrink-0 gap-2",
+												)}
+											>
 												<span
 													className={
 														defaultModelSupportsFastMode
