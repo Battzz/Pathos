@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, CircleAlert, Loader2, LogOut } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { GithubBrandIcon, GitlabBrandIcon } from "@/components/brand-icon";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -13,18 +13,16 @@ import {
 } from "@/components/ui/tooltip";
 import {
 	disconnectGithubIdentity,
+	type ForgeCliStatus,
 	type ForgeProvider,
 	type GithubIdentitySession,
-	loadGithubIdentitySession,
-	openForgeCliAuthTerminal,
 	type RepositoryCreateOption,
 } from "@/lib/api";
 import { forgeCliStatusQueryOptions } from "@/lib/query-client";
+import { useForgeCliConnect } from "@/lib/use-forge-cli-connect";
+import { useGithubIdentity } from "@/shell/hooks/use-github-identity";
 import { SettingsGroup, SettingsRow } from "../components/settings-row";
 import { gitlabHostsForRepositories } from "./cli-install-gitlab-hosts";
-
-const POLL_INTERVAL_MS = 2000;
-const POLL_TIMEOUT_MS = 120_000;
 
 export function AccountPanel({
 	repositories,
@@ -34,24 +32,24 @@ export function AccountPanel({
 	onSignedOut?: () => void;
 }) {
 	const queryClient = useQueryClient();
-	const [identity, setIdentity] = useState<GithubIdentitySession | null>(null);
+	// Reflects external sign-in / sign-out via backend events.
+	const { githubIdentityState } = useGithubIdentity();
 	const [signingOut, setSigningOut] = useState(false);
 	const gitlabHosts = useMemo(
 		() => gitlabHostsForRepositories(repositories),
 		[repositories],
 	);
 
-	useEffect(() => {
-		void loadGithubIdentitySession().then((snap) => {
-			if (snap.status === "connected") setIdentity(snap.session);
-		});
-	}, []);
+	const identity: GithubIdentitySession | null =
+		githubIdentityState.status === "connected"
+			? githubIdentityState.session
+			: null;
 
 	const handleSignOut = useCallback(async () => {
 		setSigningOut(true);
 		try {
 			await disconnectGithubIdentity();
-			setIdentity(null);
+			// Drop every auth-bound cache; backend pushes the identity update.
 			await queryClient.invalidateQueries();
 			onSignedOut?.();
 		} catch (error) {
@@ -161,70 +159,10 @@ function CliIntegrationRow({
 	title: string;
 	icon: React.ReactNode;
 }) {
-	const queryClient = useQueryClient();
 	const statusQuery = useQuery(forgeCliStatusQueryOptions(provider, host));
 	const status = statusQuery.data ?? null;
-	const [connecting, setConnecting] = useState(false);
-	const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const inFlightRef = useRef(false);
+	const { connect, connecting } = useForgeCliConnect(provider, host);
 
-	useEffect(() => {
-		return () => {
-			if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-		};
-	}, []);
-
-	const pollUntilReady = useCallback(
-		(startedAt = Date.now()) => {
-			if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-			pollTimerRef.current = setTimeout(async () => {
-				try {
-					const next = await queryClient.fetchQuery(
-						forgeCliStatusQueryOptions(provider, host),
-					);
-					if (next.status === "ready") {
-						toast.success(`${next.cliName} connected`);
-						setConnecting(false);
-						inFlightRef.current = false;
-						return;
-					}
-				} catch (error) {
-					toast.error(
-						error instanceof Error
-							? error.message
-							: "Failed to read CLI status.",
-					);
-				}
-				if (Date.now() - startedAt >= POLL_TIMEOUT_MS) {
-					toast("Finish CLI auth in Terminal, then click Connect again.");
-					setConnecting(false);
-					inFlightRef.current = false;
-					return;
-				}
-				pollUntilReady(startedAt);
-			}, POLL_INTERVAL_MS);
-		},
-		[host, provider, queryClient],
-	);
-
-	const handleConnect = useCallback(async () => {
-		if (connecting || inFlightRef.current) return;
-		inFlightRef.current = true;
-		setConnecting(true);
-		try {
-			await openForgeCliAuthTerminal(provider, host);
-			toast("Complete the login in Terminal.");
-			pollUntilReady();
-		} catch (error) {
-			toast.error(
-				error instanceof Error ? error.message : "Failed to open Terminal.",
-			);
-			setConnecting(false);
-			inFlightRef.current = false;
-		}
-	}, [connecting, host, pollUntilReady, provider]);
-
-	const isReady = status?.status === "ready";
 	const errorMessage =
 		status?.status === "error"
 			? status.message
@@ -232,6 +170,40 @@ function CliIntegrationRow({
 				? statusQuery.error.message
 				: null;
 
+	return (
+		<CliIntegrationRowView
+			title={title}
+			icon={icon}
+			status={status}
+			connecting={connecting}
+			isPending={statusQuery.isPending}
+			errorMessage={errorMessage}
+			onConnect={() => void connect()}
+		/>
+	);
+}
+
+// Pure presentation split out from `CliIntegrationRow`. All right-side variants
+// pin to `h-7` so the row height stays constant across Connect / Ready / Error
+// states (otherwise the row visibly jumps when the query resolves).
+function CliIntegrationRowView({
+	title,
+	icon,
+	status,
+	connecting,
+	isPending,
+	errorMessage,
+	onConnect,
+}: {
+	title: ReactNode;
+	icon: ReactNode;
+	status: ForgeCliStatus | null;
+	connecting: boolean;
+	isPending: boolean;
+	errorMessage: string | null;
+	onConnect: () => void;
+}) {
+	const isReady = status?.status === "ready";
 	return (
 		<SettingsRow
 			title={
@@ -242,7 +214,7 @@ function CliIntegrationRow({
 			}
 		>
 			{isReady && status ? (
-				<div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+				<div className="inline-flex h-7 items-center gap-1.5 text-[12px] text-muted-foreground">
 					<CheckCircle2 className="size-3.5 text-green-500" strokeWidth={2} />
 					<span className="truncate">{status.login}</span>
 				</div>
@@ -252,7 +224,7 @@ function CliIntegrationRow({
 						<button
 							type="button"
 							aria-label="CLI status error"
-							className="cursor-default text-destructive"
+							className="inline-flex h-7 cursor-default items-center justify-center text-destructive"
 						>
 							<CircleAlert className="size-4" strokeWidth={2.2} />
 						</button>
@@ -268,8 +240,8 @@ function CliIntegrationRow({
 				<Button
 					variant="outline"
 					size="sm"
-					onClick={() => void handleConnect()}
-					disabled={connecting || statusQuery.isPending}
+					onClick={onConnect}
+					disabled={connecting || isPending}
 				>
 					{connecting ? <Loader2 className="size-3.5 animate-spin" /> : null}
 					Connect

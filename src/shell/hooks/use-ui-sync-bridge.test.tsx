@@ -131,6 +131,12 @@ describe("useUiSyncBridge", () => {
 				queryKey: helmorQueryKeys.workspaceForge("workspace-1"),
 			});
 		});
+		// Settings → Account stores CLI auth under a separate cache key; the
+		// bridge fans the same backend signal out to it so a stale "ready"
+		// in Account can't survive an auth flip detected elsewhere.
+		expect(invalidateQueries).toHaveBeenCalledWith({
+			queryKey: helmorQueryKeys.forgeCliStatusAll,
+		});
 	});
 
 	it("invalidates baseline + rich on contextUsageChanged", async () => {

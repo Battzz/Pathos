@@ -4,9 +4,21 @@ use crate::forge::{
 };
 use crate::ui_sync::{self, UiMutationEvent};
 use crate::workspace::scripts::{ScriptContext, ScriptEvent, ScriptProcessManager};
+use std::collections::HashSet;
+use std::sync::Mutex;
 use tauri::{ipc::Channel, State};
 
 use super::common::{run_blocking, CmdResult};
+
+/// Per-workspace marker for "we already published Unauthenticated for this
+/// workspace". The action-status poll fires every ~60s while not OK; without
+/// edge-detection it would republish the same event on every tick and fan
+/// out a cache-wide invalidation storm. Registered as Tauri AppState so its
+/// lifecycle tracks the app and tests can construct their own.
+#[derive(Default)]
+pub struct ForgeAuthEdgeStore {
+    published_unauth: Mutex<HashSet<String>>,
+}
 
 #[tauri::command]
 pub async fn get_workspace_forge(workspace_id: String) -> CmdResult<ForgeDetection> {
@@ -180,12 +192,13 @@ pub async fn refresh_workspace_change_request(
 pub async fn get_workspace_forge_action_status(
     workspace_id: String,
     app: tauri::AppHandle,
+    edge_store: State<'_, ForgeAuthEdgeStore>,
 ) -> CmdResult<ForgeActionStatus> {
     let lookup_workspace_id = workspace_id.clone();
     let status =
         run_blocking(move || forge::lookup_workspace_forge_action_status(&lookup_workspace_id))
             .await?;
-    if should_publish_workspace_forge_changed(status.remote_state) {
+    if should_publish_workspace_forge_changed(&edge_store, &workspace_id, status.remote_state) {
         ui_sync::publish(
             &app,
             UiMutationEvent::WorkspaceForgeChanged { workspace_id },
@@ -241,8 +254,25 @@ async fn run_change_request_action(
     Ok(result)
 }
 
-fn should_publish_workspace_forge_changed(remote_state: RemoteState) -> bool {
-    remote_state == RemoteState::Unauthenticated
+fn should_publish_workspace_forge_changed(
+    store: &ForgeAuthEdgeStore,
+    workspace_id: &str,
+    remote_state: RemoteState,
+) -> bool {
+    let mut published = store
+        .published_unauth
+        .lock()
+        .expect("forge auth edge store mutex poisoned");
+    if remote_state == RemoteState::Unauthenticated {
+        // `insert` returns true only on first insertion → that's the edge
+        // we want to publish on. Subsequent ticks with the same state no-op.
+        published.insert(workspace_id.to_string())
+    } else {
+        // Any other state clears the marker so a future flip back into
+        // Unauthenticated republishes once.
+        published.remove(workspace_id);
+        false
+    }
 }
 
 #[cfg(test)]
@@ -250,15 +280,85 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unauthenticated_action_status_refreshes_workspace_forge() {
+    fn first_unauthenticated_tick_publishes_then_subsequent_ticks_do_not() {
+        let store = ForgeAuthEdgeStore::default();
+        let ws = "ws";
         assert!(should_publish_workspace_forge_changed(
+            &store,
+            ws,
             RemoteState::Unauthenticated
         ));
-        assert!(!should_publish_workspace_forge_changed(RemoteState::Ok));
-        assert!(!should_publish_workspace_forge_changed(RemoteState::NoPr));
         assert!(!should_publish_workspace_forge_changed(
-            RemoteState::Unavailable
+            &store,
+            ws,
+            RemoteState::Unauthenticated
         ));
-        assert!(!should_publish_workspace_forge_changed(RemoteState::Error));
+        assert!(!should_publish_workspace_forge_changed(
+            &store,
+            ws,
+            RemoteState::Unauthenticated
+        ));
+    }
+
+    #[test]
+    fn non_unauth_states_never_publish_and_clear_the_marker() {
+        let store = ForgeAuthEdgeStore::default();
+        let ws = "ws";
+        for state in [
+            RemoteState::Ok,
+            RemoteState::NoPr,
+            RemoteState::Unavailable,
+            RemoteState::Error,
+        ] {
+            assert!(!should_publish_workspace_forge_changed(&store, ws, state));
+        }
+    }
+
+    #[test]
+    fn flipping_back_to_unauthenticated_republishes_once() {
+        let store = ForgeAuthEdgeStore::default();
+        let ws = "ws";
+        assert!(should_publish_workspace_forge_changed(
+            &store,
+            ws,
+            RemoteState::Unauthenticated
+        ));
+        // Recovered.
+        assert!(!should_publish_workspace_forge_changed(
+            &store,
+            ws,
+            RemoteState::Ok
+        ));
+        // Lost auth again — must publish.
+        assert!(should_publish_workspace_forge_changed(
+            &store,
+            ws,
+            RemoteState::Unauthenticated
+        ));
+        assert!(!should_publish_workspace_forge_changed(
+            &store,
+            ws,
+            RemoteState::Unauthenticated
+        ));
+    }
+
+    #[test]
+    fn workspaces_track_independent_edges() {
+        let store = ForgeAuthEdgeStore::default();
+        assert!(should_publish_workspace_forge_changed(
+            &store,
+            "ws-a",
+            RemoteState::Unauthenticated
+        ));
+        assert!(should_publish_workspace_forge_changed(
+            &store,
+            "ws-b",
+            RemoteState::Unauthenticated
+        ));
+        assert!(!should_publish_workspace_forge_changed(
+            &store,
+            "ws-a",
+            RemoteState::Unauthenticated
+        ));
     }
 }

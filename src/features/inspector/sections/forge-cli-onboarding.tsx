@@ -1,7 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { useCallback } from "react";
 import { GithubBrandIcon, GitlabBrandIcon } from "@/components/brand-icon";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,16 +8,10 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-	type ForgeDetection,
-	getWorkspaceForge,
-	openForgeCliAuthTerminal,
-} from "@/lib/api";
+import type { ForgeDetection } from "@/lib/api";
 import { FORGE_AUTH_TOOLTIP_LINES } from "@/lib/forge-auth-copy";
 import { helmorQueryKeys } from "@/lib/query-client";
-
-const CLI_AUTH_POLL_INTERVAL_MS = 2000;
-const CLI_AUTH_POLL_TIMEOUT_MS = 120_000;
+import { useForgeCliConnect } from "@/lib/use-forge-cli-connect";
 
 export function ForgeCliTrigger({
 	detection,
@@ -30,132 +23,35 @@ export function ForgeCliTrigger({
 	authRequired?: boolean;
 }) {
 	const queryClient = useQueryClient();
-	const [connecting, setConnecting] = useState(false);
-	const authPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const connectInFlightRef = useRef(false);
 
-	const clearAuthPoll = useCallback(() => {
-		if (authPollTimerRef.current !== null) {
-			clearTimeout(authPollTimerRef.current);
-			authPollTimerRef.current = null;
-		}
-	}, []);
-
-	useEffect(() => clearAuthPoll, [clearAuthPoll]);
-
-	const refreshForge = useCallback(async () => {
-		if (!workspaceId) {
-			return null;
-		}
-		const nextDetection = await getWorkspaceForge(workspaceId);
-		queryClient.setQueryData(
-			helmorQueryKeys.workspaceForge(workspaceId),
-			nextDetection,
-		);
-		return nextDetection;
+	// Inspector-specific tail of the connect flow: once CLI auth flips to
+	// ready, the PR + CI surfaces (which were gated on auth) need to refresh
+	// for the *current* workspace. The hook already invalidates the broader
+	// workspaceForge / forgeCliStatus caches.
+	const refreshWorkspaceSurfaces = useCallback(async () => {
+		if (!workspaceId) return;
+		await Promise.all([
+			queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId),
+			}),
+			queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.workspaceForgeActionStatus(workspaceId),
+			}),
+		]);
 	}, [queryClient, workspaceId]);
 
-	const refreshForgeSurfaces = useCallback(
-		async (nextDetection: ForgeDetection) => {
-			if (!workspaceId) {
-				return;
-			}
-			queryClient.setQueryData(
-				helmorQueryKeys.workspaceForge(workspaceId),
-				nextDetection,
-			);
-			await Promise.all([
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceForge(workspaceId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceForgeActionStatus(workspaceId),
-				}),
-			]);
+	const { connect, connecting } = useForgeCliConnect(
+		detection.provider,
+		detection.host ?? "",
+		{
+			onReady: refreshWorkspaceSurfaces,
+			// Only trust the prop's `ready` when remote agrees. If the remote
+			// probe is what put us here (`authRequired`), the local CLI snapshot
+			// is stale — short-circuiting would just toast "connected" while
+			// nothing actually worked. Force the terminal hand-off instead.
+			hintedStatus: authRequired ? null : (detection.cli ?? null),
 		},
-		[queryClient, workspaceId],
 	);
-
-	const pollUntilCliReady = useCallback(
-		(startedAt = Date.now()) => {
-			if (!workspaceId) {
-				setConnecting(false);
-				connectInFlightRef.current = false;
-				return;
-			}
-			clearAuthPoll();
-			authPollTimerRef.current = setTimeout(async () => {
-				try {
-					const nextDetection = await refreshForge();
-					if (nextDetection?.cli?.status === "ready") {
-						clearAuthPoll();
-						await refreshForgeSurfaces(nextDetection);
-						toast.success(`${nextDetection.labels.cliName} connected`);
-						setConnecting(false);
-						connectInFlightRef.current = false;
-						return;
-					}
-				} catch {
-					// Keep polling; auth may still be in progress in Terminal.
-				}
-				if (Date.now() - startedAt >= CLI_AUTH_POLL_TIMEOUT_MS) {
-					clearAuthPoll();
-					toast(
-						`Finish ${detection.labels.cliName} auth, then click Connect again`,
-					);
-					setConnecting(false);
-					connectInFlightRef.current = false;
-					return;
-				}
-				pollUntilCliReady(startedAt);
-			}, CLI_AUTH_POLL_INTERVAL_MS);
-		},
-		[
-			clearAuthPoll,
-			detection.labels.cliName,
-			refreshForge,
-			refreshForgeSurfaces,
-			workspaceId,
-		],
-	);
-
-	const handleConnect = useCallback(async () => {
-		if (connecting || connectInFlightRef.current) {
-			return;
-		}
-		connectInFlightRef.current = true;
-		clearAuthPoll();
-		setConnecting(true);
-		try {
-			if (detection.cli?.status === "ready") {
-				await refreshForgeSurfaces(detection);
-				toast.success(`${detection.labels.cliName} connected`);
-				setConnecting(false);
-				connectInFlightRef.current = false;
-				return;
-			}
-			await openForgeCliAuthTerminal(detection.provider, detection.host);
-			toast(`Complete ${detection.labels.cliName} auth in Terminal`);
-			pollUntilCliReady();
-		} catch (error) {
-			const message =
-				error instanceof Error
-					? error.message
-					: `Unable to open ${detection.labels.cliName} auth.`;
-			toast.error(message);
-			setConnecting(false);
-			connectInFlightRef.current = false;
-		}
-	}, [
-		clearAuthPoll,
-		connecting,
-		detection,
-		pollUntilCliReady,
-		refreshForgeSurfaces,
-	]);
 
 	return (
 		<div className="ml-auto flex items-center self-center translate-y-px">
@@ -165,7 +61,7 @@ export function ForgeCliTrigger({
 						type="button"
 						size="xs"
 						variant="default"
-						onClick={() => void handleConnect()}
+						onClick={() => void connect()}
 						disabled={connecting}
 						className="gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
 					>

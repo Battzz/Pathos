@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
 	cancelGithubIdentityConnect,
 	disconnectGithubIdentity,
@@ -16,7 +17,15 @@ type WorkspaceToastFn = (
 	variant?: "default" | "destructive",
 ) => void;
 
-export function useGithubIdentity(pushWorkspaceToast: WorkspaceToastFn) {
+// Sonner fallback for callers without a workspace-specific toast surface
+// (e.g. Settings → Account, which doesn't sit inside the WorkspaceToastProvider).
+const sonnerFallbackToast: WorkspaceToastFn = (description, title, variant) => {
+	const fn = variant === "destructive" ? toast.error : toast;
+	fn(title ?? description, title ? { description } : undefined);
+};
+
+export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
+	const pushToast = pushWorkspaceToast ?? sonnerFallbackToast;
 	const [githubIdentityState, setGithubIdentityState] =
 		useState<GithubIdentityState>(getInitialGithubIdentityState);
 
@@ -69,7 +78,7 @@ export function useGithubIdentity(pushWorkspaceToast: WorkspaceToastFn) {
 	const handleCopyGithubDeviceCode = useCallback(
 		async (userCode: string) => {
 			if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-				pushWorkspaceToast(
+				pushToast(
 					"Unable to copy the one-time code on this device.",
 					"Copy failed",
 				);
@@ -80,11 +89,11 @@ export function useGithubIdentity(pushWorkspaceToast: WorkspaceToastFn) {
 				await navigator.clipboard.writeText(userCode);
 				return true;
 			} catch {
-				pushWorkspaceToast("Unable to copy the one-time code.", "Copy failed");
+				pushToast("Unable to copy the one-time code.", "Copy failed");
 				return false;
 			}
 		},
-		[pushWorkspaceToast],
+		[pushToast],
 	);
 
 	const handleCancelGithubIdentityConnect = useCallback(() => {

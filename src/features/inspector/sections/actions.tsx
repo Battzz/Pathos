@@ -6,7 +6,7 @@ import {
 	LoaderCircleIcon,
 	TriangleIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import {
 	AppendContextButton,
@@ -178,20 +178,7 @@ export function ActionsSection({
 	const forgeStatus = forgeStatusQuery.data ?? EMPTY_FORGE_ACTION_STATUS;
 	const changeRequestName = forgeQuery.data?.labels.changeRequestName ?? "PR";
 	const providerName = forgeQuery.data?.labels.providerName ?? "Forge";
-	const previousForgeRemoteStateRef = useRef(forgeStatus.remoteState);
-	useEffect(() => {
-		const previous = previousForgeRemoteStateRef.current;
-		previousForgeRemoteStateRef.current = forgeStatus.remoteState;
-		if (
-			workspaceId &&
-			forgeStatus.remoteState === "unauthenticated" &&
-			previous !== "unauthenticated"
-		) {
-			void queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceForge(workspaceId),
-			});
-		}
-	}, [forgeStatus.remoteState, queryClient, workspaceId]);
+	// Auth-flip invalidation lives in the sync bridge — no frontend edge-detect.
 	const gitRows = sortStatusRows(buildGitRows(gitStatus, workspaceRemote));
 	const reviewRows = sortStatusRows(
 		buildReviewRows(

@@ -87,6 +87,8 @@ const REPO_ICON_CANDIDATES: &[&str] = &[
     "apple-touch-icon.png",
     "public/favicon.svg",
     "favicon.svg",
+    "public/logo.svg",
+    "logo.svg",
     "public/favicon.png",
     "public/icon.png",
     "public/logo.png",

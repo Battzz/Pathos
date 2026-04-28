@@ -1,12 +1,17 @@
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChangeRequestInfo, ForgeDetection } from "@/lib/api";
+import type {
+	ChangeRequestInfo,
+	ForgeCliStatus,
+	ForgeDetection,
+} from "@/lib/api";
 import { helmorQueryKeys } from "@/lib/query-client";
 import { renderWithProviders } from "@/test/render-with-providers";
 import { GitSectionHeader } from "./git-section-header";
 
 const apiMocks = vi.hoisted(() => ({
 	getWorkspaceForge: vi.fn(),
+	getForgeCliStatus: vi.fn(),
 	openForgeCliAuthTerminal: vi.fn(),
 }));
 
@@ -16,6 +21,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 	return {
 		...actual,
 		getWorkspaceForge: apiMocks.getWorkspaceForge,
+		getForgeCliStatus: apiMocks.getForgeCliStatus,
 		openForgeCliAuthTerminal: apiMocks.openForgeCliAuthTerminal,
 	};
 });
@@ -93,6 +99,7 @@ function expectElementBefore(first: Element, second: Element) {
 describe("GitSectionHeader forge onboarding", () => {
 	beforeEach(() => {
 		apiMocks.getWorkspaceForge.mockReset();
+		apiMocks.getForgeCliStatus.mockReset();
 		apiMocks.openForgeCliAuthTerminal.mockReset();
 		apiMocks.openForgeCliAuthTerminal.mockResolvedValue(undefined);
 	});
@@ -180,18 +187,16 @@ describe("GitSectionHeader forge onboarding", () => {
 				loginCommand: "glab auth login --hostname gitlab.com",
 			},
 		});
-		const readyDetection = gitlabDetection({
-			cli: {
-				status: "ready",
-				provider: "gitlab",
-				host: "gitlab.com",
-				cliName: "glab",
-				login: "liangeqiang",
-				version: "1.55.0",
-				message: "Connected.",
-			},
-		});
-		apiMocks.getWorkspaceForge.mockResolvedValueOnce(readyDetection);
+		const readyStatus: ForgeCliStatus = {
+			status: "ready",
+			provider: "gitlab",
+			host: "gitlab.com",
+			cliName: "glab",
+			login: "liangeqiang",
+			version: "1.55.0",
+			message: "Connected.",
+		};
+		apiMocks.getForgeCliStatus.mockResolvedValueOnce(readyStatus);
 
 		const { queryClient } = renderWithProviders(
 			<GitSectionHeader
@@ -216,18 +221,62 @@ describe("GitSectionHeader forge onboarding", () => {
 		);
 		await vi.advanceTimersByTimeAsync(2000);
 
-		expect(apiMocks.getWorkspaceForge).toHaveBeenCalledTimes(1);
-		expect(
-			queryClient.getQueryData(helmorQueryKeys.workspaceForge("workspace-1")),
-		).toEqual(readyDetection);
+		expect(apiMocks.getForgeCliStatus).toHaveBeenCalledWith(
+			"gitlab",
+			"gitlab.com",
+		);
+		// Hook fans out: forgeCliStatusAll + every workspaceForge entry,
+		// onReady adds the workspace-scoped change request + action status.
 		expect(invalidateQueries).toHaveBeenCalledWith({
-			queryKey: helmorQueryKeys.workspaceForge("workspace-1"),
+			queryKey: helmorQueryKeys.forgeCliStatusAll,
 		});
+		expect(invalidateQueries).toHaveBeenCalledWith(
+			expect.objectContaining({ predicate: expect.any(Function) }),
+		);
 		expect(invalidateQueries).toHaveBeenCalledWith({
 			queryKey: helmorQueryKeys.workspaceChangeRequest("workspace-1"),
 		});
 		expect(invalidateQueries).toHaveBeenCalledWith({
 			queryKey: helmorQueryKeys.workspaceForgeActionStatus("workspace-1"),
+		});
+	});
+
+	// Edge case: local CLI snapshot says ready but the remote action probe
+	// returned unauthenticated. The trigger is mounted because remote disagrees;
+	// short-circuiting on the stale prop would toast "connected" while the user
+	// is still locked out. The hook must open the terminal anyway.
+	it("forces the terminal even when prop says ready, if remote disagrees", async () => {
+		const localReadyButRemoteUnauth = gitlabDetection({
+			cli: {
+				status: "ready",
+				provider: "gitlab",
+				host: "gitlab.com",
+				cliName: "glab",
+				login: "liangeqiang",
+				version: "1.55.0",
+				message: "Connected.",
+			},
+		});
+
+		renderWithProviders(
+			<GitSectionHeader
+				commitButtonMode="merge"
+				commitButtonState="idle"
+				changeRequest={changeRequest}
+				changeRequestName="MR"
+				forgeDetection={localReadyButRemoteUnauth}
+				forgeRemoteState="unauthenticated"
+				workspaceId="workspace-1"
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Connect GitLab" }));
+
+		await waitFor(() => {
+			expect(apiMocks.openForgeCliAuthTerminal).toHaveBeenCalledWith(
+				"gitlab",
+				"gitlab.com",
+			);
 		});
 	});
 

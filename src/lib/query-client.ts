@@ -82,6 +82,9 @@ export const helmorQueryKeys = {
 		["workspaceForge", workspaceId] as const,
 	forgeCliStatus: (provider: ForgeProvider, host: string) =>
 		["forgeCliStatus", provider, host] as const,
+	// Prefix for matching every `forgeCliStatus` cache entry — pass to
+	// `invalidateQueries` when an auth signal arrives from elsewhere.
+	forgeCliStatusAll: ["forgeCliStatus"] as const,
 	workspaceGitActionStatus: (workspaceId: string) =>
 		["workspaceGitActionStatus", workspaceId] as const,
 	workspaceForgeActionStatus: (workspaceId: string) =>

@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GithubIdentitySnapshot, RepositoryCreateOption } from "@/lib/api";
 import { renderWithProviders } from "@/test/render-with-providers";
@@ -8,7 +14,12 @@ const apiMocks = vi.hoisted(() => ({
 	disconnectGithubIdentity: vi.fn(),
 	getForgeCliStatus: vi.fn(),
 	openForgeCliAuthTerminal: vi.fn(),
+	listenGithubIdentityChanged: vi.fn(),
 }));
+
+let capturedIdentityListener:
+	| ((snapshot: GithubIdentitySnapshot) => void)
+	| null = null;
 
 vi.mock("@/lib/api", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -18,6 +29,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 		disconnectGithubIdentity: apiMocks.disconnectGithubIdentity,
 		getForgeCliStatus: apiMocks.getForgeCliStatus,
 		openForgeCliAuthTerminal: apiMocks.openForgeCliAuthTerminal,
+		listenGithubIdentityChanged: apiMocks.listenGithubIdentityChanged,
 	};
 });
 
@@ -71,6 +83,16 @@ describe("AccountPanel", () => {
 		apiMocks.getForgeCliStatus.mockReset();
 		apiMocks.openForgeCliAuthTerminal.mockReset();
 		apiMocks.openForgeCliAuthTerminal.mockResolvedValue(undefined);
+		apiMocks.listenGithubIdentityChanged.mockReset();
+		capturedIdentityListener = null;
+		apiMocks.listenGithubIdentityChanged.mockImplementation(
+			async (callback: (snapshot: GithubIdentitySnapshot) => void) => {
+				capturedIdentityListener = callback;
+				return () => {
+					capturedIdentityListener = null;
+				};
+			},
+		);
 	});
 
 	afterEach(() => {
@@ -235,5 +257,34 @@ describe("AccountPanel", () => {
 			expect(apiMocks.disconnectGithubIdentity).toHaveBeenCalledTimes(1);
 		});
 		expect(onSignedOut).toHaveBeenCalledTimes(1);
+	});
+
+	// Regression coverage for the `useGithubIdentity` integration: when the
+	// backend pushes an identity change (e.g. user signed out from another
+	// surface), Account must reflect it without a manual reload — that's the
+	// whole point of replacing the local `useState` with the shared hook.
+	it("hides the identity row when the backend pushes a disconnect event", async () => {
+		apiMocks.loadGithubIdentitySession.mockResolvedValue(connectedSnapshot);
+		apiMocks.getForgeCliStatus.mockResolvedValue(githubReady);
+
+		renderWithProviders(<AccountPanel repositories={[]} />);
+
+		// First the identity row mounts with the connected snapshot.
+		expect(await screen.findByText("Nathan Lian")).toBeInTheDocument();
+		await waitFor(() => expect(capturedIdentityListener).not.toBeNull());
+
+		// Backend fan-out: another surface signs the user out.
+		act(() => {
+			capturedIdentityListener?.({
+				status: "disconnected",
+			} as GithubIdentitySnapshot);
+		});
+
+		await waitFor(() =>
+			expect(screen.queryByText("Nathan Lian")).not.toBeInTheDocument(),
+		);
+		expect(
+			screen.queryByRole("button", { name: "Sign out" }),
+		).not.toBeInTheDocument();
 	});
 });

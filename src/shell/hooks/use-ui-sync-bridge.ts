@@ -94,6 +94,13 @@ function handleUiMutation(
 			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.workspaceForge(event.workspaceId),
 			});
+			// CLI auth status lives in a separate cache (Settings → Account).
+			// Backend already debounces/edge-detects this event, so the bridge
+			// is the right place to fan out instead of redoing the check in
+			// individual feature components.
+			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.forgeCliStatusAll,
+			});
 			return;
 		case "workspaceChangeRequestChanged":
 			void queryClient.invalidateQueries({

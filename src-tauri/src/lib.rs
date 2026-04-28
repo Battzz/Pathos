@@ -69,6 +69,7 @@ pub fn run() {
         .manage(git_watcher::GitWatcherManager::new())
         .manage(workspace::scripts::ScriptProcessManager::new())
         .manage(ui_sync::UiSyncManager::new())
+        .manage(commands::forge_commands::ForgeAuthEdgeStore::default())
         .setup(|app| {
             // Ensure data directory structure exists
             data_dir::ensure_directory_structure()?;

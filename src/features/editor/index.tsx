@@ -8,12 +8,7 @@ import {
 } from "react";
 import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";
 import { Button } from "@/components/ui/button";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
+import { ShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type { EditorSessionState } from "@/lib/editor-session";
 import { describeUnknownError } from "@/lib/workspace-helpers";
 
@@ -398,30 +393,17 @@ export function WorkspaceEditorSurface({
 				<div className="min-w-0 flex-1" data-tauri-drag-region />
 
 				<div className="flex shrink-0 items-center pr-2">
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon-xs"
-								onClick={onExit}
-								aria-label={closeLabel}
-								className="aspect-square h-full text-muted-foreground hover:bg-transparent hover:text-foreground"
-							>
-								<X className="size-3.5" strokeWidth={1.8} />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent
-							side="bottom"
-							className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
-						>
-							<span>{closeLabel}</span>
-							<InlineShortcutDisplay
-								hotkey="Escape"
-								className="text-background/60"
-							/>
-						</TooltipContent>
-					</Tooltip>
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						onClick={onExit}
+						aria-label={closeLabel}
+						className="gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+					>
+						<ShortcutDisplay hotkey="Escape" />
+						<X className="size-3.5" strokeWidth={1.8} />
+					</Button>
 				</div>
 			</div>
 
