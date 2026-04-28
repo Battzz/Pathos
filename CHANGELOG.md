@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.3
+
+### Patch Changes
+
+- [#282](https://github.com/dohooo/helmor/pull/282) [`9f2a514`](https://github.com/dohooo/helmor/commit/9f2a5149936bdf304db178537a9f3ff44d8f0970) Thanks [@natllian](https://github.com/natllian)! - Improve shortcut behavior:
+  - Add an optional global hotkey that can show Helmor from anywhere and hide it when focused.
+  - Let the Run / Stop script shortcut work app-wide.
+
 ## 0.11.2
 
 ### Patch Changes
