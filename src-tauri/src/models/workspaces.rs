@@ -54,6 +54,10 @@ pub struct WorkspaceRecord {
     /// Most recent `last_user_message_at` across all sessions in the
     /// workspace. `None` for workspaces with no user messages yet.
     pub last_user_message_at: Option<String>,
+    /// Mirrors `repos.is_git`: false when the imported folder is not a
+    /// git working tree. Project workspaces over non-git folders use this
+    /// to gate worktree-creating UI and surface an "Initialize git" path.
+    pub is_git: bool,
 }
 
 pub const WORKSPACE_RECORD_SQL: &str = r#"
@@ -156,7 +160,8 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
       r.forge_provider,
       w.created_at,
       w.updated_at,
-      wss.last_user_message_at
+      wss.last_user_message_at,
+      COALESCE(r.is_git, 1) AS is_git
     FROM workspaces w
     JOIN repos r ON r.id = w.repository_id
     LEFT JOIN sessions s ON s.id = w.active_session_id
@@ -400,5 +405,6 @@ fn workspace_record_from_row(row: &Row<'_>) -> rusqlite::Result<WorkspaceRecord>
         created_at: row.get(32)?,
         updated_at: row.get(33)?,
         last_user_message_at: row.get(34)?,
+        is_git: row.get::<_, i64>(35)? != 0,
     })
 }

@@ -2669,7 +2669,7 @@ function AppShell({
 						)}
 						<Toaster
 							theme={resolveTheme(appSettings.theme)}
-							position="bottom-right"
+							position="top-right"
 							visibleToasts={6}
 						/>
 						{closeConfirmDialog}

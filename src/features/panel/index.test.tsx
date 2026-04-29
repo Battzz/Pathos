@@ -60,6 +60,7 @@ const WORKSPACE: WorkspaceDetail = {
 	sessionCount: 1,
 	messageCount: 0,
 	rootPath: "/tmp/helmor",
+	isGit: true,
 };
 
 const SESSIONS: WorkspaceSessionSummary[] = [

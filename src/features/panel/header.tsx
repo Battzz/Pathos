@@ -1,25 +1,24 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-	ArrowRight,
-	Check,
-	ChevronDown,
-	Copy,
-	GitBranch,
-	Pencil,
-} from "lucide-react";
-import { memo, useCallback, useState } from "react";
+import { ArrowRight, ChevronDown, GitBranch, Loader2 } from "lucide-react";
+import { memo, useState } from "react";
 import { BranchPickerPopover } from "@/components/branch-picker";
+import { BranchSwitcherPopover } from "@/components/branch-switcher";
 import { Button } from "@/components/ui/button";
 import { HyperText } from "@/components/ui/hyper-text";
-import { Input } from "@/components/ui/input";
 import {
 	type ChangeRequestInfo,
+	createWorkspaceBranch,
+	deleteWorkspaceLocalBranch,
+	deleteWorkspaceRemoteBranch,
+	initWorkspaceGit,
 	listRemoteBranches,
+	listWorkspaceBranches,
 	prefetchRemoteRefs,
-	renameWorkspaceBranch,
+	switchWorkspaceBranch,
 	updateIntendedTargetBranch,
 	type WorkspaceDetail,
 } from "@/lib/api";
+import { extractError } from "@/lib/errors";
 import { helmorQueryKeys } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 import {
@@ -50,6 +49,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 	});
 	const pushToast = useWorkspaceToast();
 	const queryClient = useQueryClient();
+	const [initializingGit, setInitializingGit] = useState(false);
 	const branchesQuery = useQuery({
 		queryKey: ["remoteBranches", workspace?.id],
 		queryFn: () => listRemoteBranches({ workspaceId: workspace!.id }),
@@ -59,52 +59,14 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 	});
 	const remoteBranches = branchesQuery.data ?? [];
 	const loadingBranches = branchesQuery.isFetching;
-	const [editingBranch, setEditingBranch] = useState<string | null>(null);
-	const [branchCopied, setBranchCopied] = useState(false);
 
-	const handleStartBranchRename = useCallback(() => {
-		if (!workspace?.branch) {
-			return;
-		}
-		setEditingBranch(workspace.branch);
-	}, [workspace?.branch]);
-
-	const handleCommitBranchRename = useCallback(async () => {
-		if (editingBranch === null || !workspace) {
-			return;
-		}
-		const trimmed = editingBranch.trim();
-		if (trimmed && trimmed !== workspace.branch) {
-			const detailKey = helmorQueryKeys.workspaceDetail(workspace.id);
-			const previous = queryClient.getQueryData<WorkspaceDetail | null>(
-				detailKey,
-			);
-			if (previous) {
-				queryClient.setQueryData<WorkspaceDetail | null>(detailKey, {
-					...previous,
-					branch: trimmed,
-				});
-			}
-			try {
-				await renameWorkspaceBranch(workspace.id, trimmed);
-				onWorkspaceChanged?.();
-			} catch (error: unknown) {
-				if (previous) {
-					queryClient.setQueryData<WorkspaceDetail | null>(detailKey, previous);
-				}
-				pushToast(
-					error instanceof Error ? error.message : String(error),
-					"Branch rename failed",
-					"destructive",
-				);
-			}
-		}
-		setEditingBranch(null);
-	}, [editingBranch, onWorkspaceChanged, pushToast, queryClient, workspace]);
-
-	const handleCancelBranchRename = useCallback(() => {
-		setEditingBranch(null);
-	}, []);
+	const workspaceBranchesQuery = useQuery({
+		queryKey: ["workspaceBranches", workspace?.id],
+		queryFn: () => listWorkspaceBranches(workspace!.id),
+		enabled: false,
+		staleTime: 30 * 1000,
+		gcTime: 5 * 60 * 1000,
+	});
 
 	return (
 		<header className="relative z-20">
@@ -115,75 +77,189 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 			>
 				<div className="relative z-0 flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-[12.5px]">
 					{headerLeading}
-					<span className="group/branch relative inline-flex items-center gap-1 overflow-hidden px-1 py-0.5 font-medium text-foreground">
-						<GitBranch
-							className={cn(
-								"size-3.5 shrink-0",
-								getBranchToneClassName(branchTone),
+					{workspace && !workspace.isGit && workspace.state !== "archived" ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="xs"
+							disabled={initializingGit}
+							className="h-6 gap-1 rounded-md px-1.5 font-medium text-foreground hover:bg-accent/60"
+							onClick={() => {
+								setInitializingGit(true);
+								void initWorkspaceGit(workspace.id)
+									.then(() => {
+										onWorkspaceChanged?.();
+										void queryClient.invalidateQueries({
+											queryKey: helmorQueryKeys.workspaceDetail(workspace.id),
+										});
+										void queryClient.invalidateQueries({
+											queryKey: helmorQueryKeys.repositoryFolders,
+										});
+									})
+									.catch((error: unknown) => {
+										pushToast(
+											extractError(error, "Failed to initialize git").message,
+											"Initialize git failed",
+											"destructive",
+										);
+									})
+									.finally(() => {
+										setInitializingGit(false);
+									});
+							}}
+						>
+							{initializingGit ? (
+								<Loader2
+									className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+									strokeWidth={1.9}
+								/>
+							) : (
+								<GitBranch
+									className="size-3.5 shrink-0 text-muted-foreground"
+									strokeWidth={1.9}
+								/>
 							)}
-							strokeWidth={1.9}
-						/>
-						{editingBranch !== null ? (
-							<Input
-								autoFocus
-								value={editingBranch}
-								onChange={(event) => setEditingBranch(event.target.value)}
-								onKeyDown={(event) => {
-									if (event.key === "Enter") {
-										event.preventDefault();
-										void handleCommitBranchRename();
-									} else if (event.key === "Escape") {
-										handleCancelBranchRename();
+							<span>
+								{initializingGit ? "Initializing…" : "Initialize git"}
+							</span>
+						</Button>
+					) : workspace?.branch && workspace.state !== "archived" ? (
+						<BranchSwitcherPopover
+							branches={workspaceBranchesQuery.data ?? null}
+							loading={workspaceBranchesQuery.isFetching}
+							onOpen={() => {
+								void workspaceBranchesQuery.refetch();
+							}}
+							onSelect={(branch) => {
+								if (branch === workspace.branch) {
+									return;
+								}
+								const detailKey = helmorQueryKeys.workspaceDetail(workspace.id);
+								const previous =
+									queryClient.getQueryData<WorkspaceDetail | null>(detailKey);
+								if (previous) {
+									queryClient.setQueryData<WorkspaceDetail | null>(detailKey, {
+										...previous,
+										branch,
+									});
+								}
+								void switchWorkspaceBranch(workspace.id, branch)
+									.then(() => {
+										onWorkspaceChanged?.();
+										void queryClient.invalidateQueries({
+											queryKey: ["workspaceBranches", workspace.id],
+										});
+									})
+									.catch((error: unknown) => {
+										if (previous) {
+											queryClient.setQueryData<WorkspaceDetail | null>(
+												detailKey,
+												previous,
+											);
+										}
+										pushToast(
+											extractError(error, "Failed to switch branch").message,
+											"Branch switch failed",
+											"destructive",
+										);
+									});
+							}}
+							onCreate={async (branch) => {
+								try {
+									await createWorkspaceBranch(workspace.id, branch);
+									const detailKey = helmorQueryKeys.workspaceDetail(
+										workspace.id,
+									);
+									const previous =
+										queryClient.getQueryData<WorkspaceDetail | null>(detailKey);
+									if (previous) {
+										queryClient.setQueryData<WorkspaceDetail | null>(
+											detailKey,
+											{
+												...previous,
+												branch,
+											},
+										);
 									}
-								}}
-								onBlur={() => void handleCommitBranchRename()}
-								onClick={(event) => event.stopPropagation()}
-								className="h-5 w-32 truncate rounded-md border-border bg-background px-1.5 py-0 text-[12.5px] font-medium text-foreground"
-							/>
-						) : (
-							<>
+									onWorkspaceChanged?.();
+									void queryClient.invalidateQueries({
+										queryKey: ["workspaceBranches", workspace.id],
+									});
+								} catch (error: unknown) {
+									pushToast(
+										extractError(error, "Failed to create branch").message,
+										"Branch creation failed",
+										"destructive",
+									);
+									throw error;
+								}
+							}}
+							onDeleteLocal={async (branch) => {
+								try {
+									await deleteWorkspaceLocalBranch(workspace.id, branch);
+									await workspaceBranchesQuery.refetch();
+								} catch (error: unknown) {
+									pushToast(
+										humanizeBranchError(
+											extractError(error, "Failed to delete branch").message,
+											branch,
+										),
+										"Delete branch failed",
+										"destructive",
+									);
+								}
+							}}
+							onDeleteRemote={async (branch) => {
+								try {
+									await deleteWorkspaceRemoteBranch(workspace.id, branch);
+									await workspaceBranchesQuery.refetch();
+								} catch (error: unknown) {
+									pushToast(
+										humanizeBranchError(
+											extractError(error, "Failed to delete remote branch")
+												.message,
+											branch,
+										),
+										"Delete remote branch failed",
+										"destructive",
+									);
+								}
+							}}
+						>
+							<button
+								type="button"
+								className="inline-flex cursor-pointer select-none items-center gap-1 overflow-hidden rounded-md px-1 py-0.5 font-medium text-foreground hover:bg-accent/60"
+							>
+								<GitBranch
+									className={cn(
+										"size-3.5 shrink-0",
+										getBranchToneClassName(branchTone),
+									)}
+									strokeWidth={1.9}
+								/>
 								<HyperText
-									key={workspace?.id}
-									text={workspace?.branch ?? "No branch"}
+									key={workspace.id}
+									text={workspace.branch}
 									className="truncate"
 								/>
-								{workspace?.branch && workspace.state !== "archived" ? (
-									<span className="pointer-events-none invisible absolute inset-y-0 right-0 flex items-center gap-0.5 bg-[linear-gradient(to_right,transparent_0%,var(--background)_35%,var(--background)_100%)] pl-5 pr-1 group-hover/branch:pointer-events-auto group-hover/branch:visible">
-										<span
-											role="button"
-											aria-label="Rename branch"
-											onClick={handleStartBranchRename}
-											className="flex cursor-pointer items-center justify-center rounded-sm p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-										>
-											<Pencil className="size-3" strokeWidth={2} />
-										</span>
-										<span
-											role="button"
-											aria-label="Copy branch name"
-											onClick={() => {
-												if (!workspace.branch) {
-													return;
-												}
-												void navigator.clipboard.writeText(workspace.branch);
-												setBranchCopied(true);
-												setTimeout(() => setBranchCopied(false), 1500);
-											}}
-											className="flex cursor-pointer items-center justify-center rounded-sm p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-										>
-											{branchCopied ? (
-												<Check
-													className="size-3 text-green-400"
-													strokeWidth={2}
-												/>
-											) : (
-												<Copy className="size-3" strokeWidth={2} />
-											)}
-										</span>
-									</span>
-								) : null}
-							</>
-						)}
-					</span>
+							</button>
+						</BranchSwitcherPopover>
+					) : (
+						<span className="inline-flex items-center gap-1 overflow-hidden px-1 py-0.5 font-medium text-foreground">
+							<GitBranch
+								className={cn(
+									"size-3.5 shrink-0",
+									getBranchToneClassName(branchTone),
+								)}
+								strokeWidth={1.9}
+							/>
+							<HyperText
+								key={workspace?.id}
+								text={workspace?.branch ?? "No branch"}
+								className="truncate"
+							/>
+						</span>
+					)}
 					{workspace?.intendedTargetBranch ? (
 						<>
 							<ArrowRight
@@ -279,9 +355,8 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 													);
 												}
 												pushToast(
-													error instanceof Error
-														? error.message
-														: String(error),
+													extractError(error, "Failed to switch branch")
+														.message,
 													"Branch switch failed",
 													"destructive",
 												);
@@ -315,6 +390,26 @@ function getBranchToneClassName(tone: WorkspaceBranchTone) {
 		default:
 			return "text-[var(--workspace-branch-status-working)]";
 	}
+}
+
+/** Translate the noisier git error strings into human-readable copy. */
+function humanizeBranchError(message: string, branch: string): string {
+	const worktree = message.match(
+		/used by worktree at ['"]?([^'"]+?)['"]?($|\s)/,
+	);
+	if (worktree) {
+		return `'${branch}' is checked out in another worktree (${worktree[1]}). Switch that worktree to a different branch first, or remove it.`;
+	}
+	if (/not fully merged/i.test(message)) {
+		return `'${branch}' has unmerged commits. Merge or rebase before deleting.`;
+	}
+	if (/remote rejected|protected branch|GH006/i.test(message)) {
+		return `Remote rejected the delete (likely a protected branch).`;
+	}
+	if (/could not read from remote|Could not resolve host/i.test(message)) {
+		return `Couldn't reach the remote. Check your connection and try again.`;
+	}
+	return message;
 }
 
 // BranchPicker: thin wrapper around shared BranchPickerPopover with header trigger styling.

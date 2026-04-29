@@ -456,6 +456,25 @@ pub fn update_repository_default_branch(repo_id: &str, default_branch: &str) -> 
     Ok(())
 }
 
+/// Flip a previously-imported folder from `is_git=0` to `is_git=1` once a
+/// `git init` has run inside it. Also seeds `default_branch` so later
+/// queries don't have to special-case the freshly-initialised state.
+pub fn mark_repository_initialised(repo_id: &str, default_branch: &str) -> Result<()> {
+    let connection = db::write_conn()?;
+    let updated = connection
+        .execute(
+            "UPDATE repos SET is_git = 1, default_branch = ?1, updated_at = datetime('now') WHERE id = ?2",
+            [default_branch, repo_id],
+        )
+        .with_context(|| format!("Failed to mark repository {repo_id} as git-initialised"))?;
+
+    if updated != 1 {
+        bail!("Repository not found: {repo_id}");
+    }
+
+    Ok(())
+}
+
 pub fn load_repo_branch_prefix_settings(
     repo_id: &str,
 ) -> Result<crate::settings::EffectiveBranchPrefixSettings> {

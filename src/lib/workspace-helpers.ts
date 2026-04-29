@@ -48,6 +48,7 @@ export function createOptimisticCreatingWorkspaceDetail(
 		archiveCommit: null,
 		sessionCount: initialSessionId ? 1 : 0,
 		messageCount: 0,
+		isGit: true,
 	};
 }
 

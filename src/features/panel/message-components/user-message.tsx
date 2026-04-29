@@ -1,10 +1,11 @@
 import { FileText, ImageIcon } from "lucide-react";
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
 	createFilePreviewLoader,
 	InlineBadge,
 } from "@/components/inline-badge";
 import type { MessagePart } from "@/lib/api";
+import { formatCompactElapsedTime } from "@/lib/compact-relative-time";
 import { basename } from "@/lib/path-util";
 import { useSettings } from "@/lib/settings";
 import { CopyMessageButton } from "./copy-message";
@@ -115,9 +116,27 @@ function BubbleImageBadge({ path }: { path: string }) {
 	);
 }
 
+function useMessageAge(createdAt?: string): string | null {
+	const [nowTick, setNowTick] = useState(0);
+
+	useEffect(() => {
+		if (!createdAt) return;
+		const interval = window.setInterval(() => {
+			setNowTick((tick) => tick + 1);
+		}, 60_000);
+		return () => window.clearInterval(interval);
+	}, [createdAt]);
+
+	return useMemo(
+		() => formatCompactElapsedTime(createdAt),
+		[createdAt, nowTick],
+	);
+}
+
 export function ChatUserMessage({ message }: { message: RenderedMessage }) {
 	const parts = message.content as MessagePart[];
 	const { settings } = useSettings();
+	const messageAge = useMessageAge(message.createdAt);
 
 	return (
 		<div
@@ -142,6 +161,11 @@ export function ChatUserMessage({ message }: { message: RenderedMessage }) {
 						})}
 					</p>
 				</div>
+				{messageAge ? (
+					<span className="pointer-events-none absolute right-1 bottom-0 flex h-5 items-center text-[11px] leading-none tabular-nums text-muted-foreground/55 transition-opacity group-hover/user:opacity-0 group-focus-within/user:opacity-0">
+						{messageAge}
+					</span>
+				) : null}
 				<div className="pointer-events-none absolute right-1 bottom-0 flex items-center justify-end opacity-0 group-hover/user:pointer-events-auto group-hover/user:opacity-100 group-focus-within/user:pointer-events-auto group-focus-within/user:opacity-100">
 					<CopyMessageButton
 						message={message}

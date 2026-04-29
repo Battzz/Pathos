@@ -1,4 +1,3 @@
-import { HelmorThinkingIndicator } from "@/components/helmor-thinking-indicator";
 import type { DisplayResolution } from "./parse";
 import {
 	AutoCompactNote,
@@ -10,15 +9,9 @@ import {
 
 type Props = {
 	display: DisplayResolution;
-	/** True while the rich fetch is in-flight and we don't yet have
-	 *  fresh categories. */
-	richLoading?: boolean;
 };
 
-export function ContextUsagePopoverContent({
-	display,
-	richLoading = false,
-}: Props) {
+export function ContextUsagePopoverContent({ display }: Props) {
 	const showCategories =
 		display.kind === "full" &&
 		display.rich !== null &&
@@ -52,13 +45,6 @@ export function ContextUsagePopoverContent({
 					<UsageBar percentage={0} tier="default" />
 				</>
 			)}
-
-			{richLoading && !showCategories ? (
-				<div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-					<HelmorThinkingIndicator size={12} />
-					<span>Loading context details…</span>
-				</div>
-			) : null}
 		</div>
 	);
 }

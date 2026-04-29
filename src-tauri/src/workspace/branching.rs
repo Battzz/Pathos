@@ -59,6 +59,146 @@ pub fn list_remote_branches(
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkspaceBranches {
+    pub local: Vec<String>,
+    pub remote: Vec<String>,
+    pub current: Option<String>,
+}
+
+/// Combined local + remote branch listing for the workspace's repo.
+/// Local branches come from `refs/heads/*`; remote branches come from
+/// `refs/remotes/<remote>/*` minus `HEAD`.
+pub fn list_workspace_branches(workspace_id: &str) -> Result<WorkspaceBranches> {
+    let ctx = resolve_repo_context(Some(workspace_id), None)?;
+    git_ops::ensure_git_repository(&ctx.root)?;
+    let local = git_ops::list_local_branches(&ctx.root)?;
+    let remote = git_ops::list_remote_branches(&ctx.root, &ctx.remote)?;
+    let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .with_context(|| format!("Workspace not found: {workspace_id}"))?;
+    Ok(WorkspaceBranches {
+        local,
+        remote,
+        current: record.branch,
+    })
+}
+
+/// Switch the workspace's worktree to an existing branch and update the DB
+/// `workspaces.branch` column to match. The branch must already exist
+/// locally — passing a name that only exists as `<remote>/<branch>` will
+/// fall through to git's natural "create-and-track" behavior, which is what
+/// we want for remote branches.
+pub fn switch_workspace_branch(workspace_id: &str, branch: &str) -> Result<()> {
+    let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
+        .with_context(|| format!("Workspace not found: {workspace_id}"))?;
+
+    if !record.state.is_operational() {
+        bail!(
+            "Cannot switch branch: workspace is {} (archived or mid-creation)",
+            record.state
+        );
+    }
+
+    let trimmed = branch.trim();
+    if trimmed.is_empty() {
+        bail!("Branch name cannot be empty");
+    }
+
+    if record.branch.as_deref() == Some(trimmed) {
+        return Ok(());
+    }
+
+    let workspace_dir = crate::workspace_project::resolve_workspace_root_path(&record)
+        .with_context(|| format!("Workspace {workspace_id} working directory is missing"))?;
+
+    git_ops::switch_branch(&workspace_dir, trimmed)?;
+
+    let connection = db::write_conn()?;
+    connection
+        .execute(
+            "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
+            (trimmed, workspace_id),
+        )
+        .context("Failed to update branch name in database")?;
+
+    Ok(())
+}
+
+/// Force-delete a local branch in the workspace's repo. Refuses to delete
+/// the branch the workspace is currently on.
+pub fn delete_workspace_local_branch(workspace_id: &str, branch: &str) -> Result<()> {
+    let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
+        .with_context(|| format!("Workspace not found: {workspace_id}"))?;
+
+    let trimmed = branch.trim();
+    if trimmed.is_empty() {
+        bail!("Branch name cannot be empty");
+    }
+
+    if record.branch.as_deref() == Some(trimmed) {
+        bail!("Cannot delete the branch the workspace is currently on");
+    }
+
+    let ctx = resolve_repo_context(Some(workspace_id), None)?;
+    git_ops::ensure_git_repository(&ctx.root)?;
+    git_ops::delete_local_branch(&ctx.root, trimmed)
+}
+
+/// Delete a branch on the workspace's remote.
+pub fn delete_workspace_remote_branch(workspace_id: &str, branch: &str) -> Result<()> {
+    let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
+        .with_context(|| format!("Workspace not found: {workspace_id}"))?;
+
+    let trimmed = branch.trim();
+    if trimmed.is_empty() {
+        bail!("Branch name cannot be empty");
+    }
+
+    let workspace_dir = crate::workspace_project::resolve_workspace_root_path(&record)
+        .with_context(|| format!("Workspace {workspace_id} working directory is missing"))?;
+    let remote = record.remote.as_deref().unwrap_or("origin");
+    git_ops::delete_remote_branch(&workspace_dir, remote, trimmed)
+}
+
+/// Create a new branch from the workspace's current state (carrying any
+/// uncommitted changes along) and update the DB `workspaces.branch` column.
+pub fn create_workspace_branch(workspace_id: &str, branch: &str) -> Result<()> {
+    let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
+        .with_context(|| format!("Workspace not found: {workspace_id}"))?;
+
+    if !record.state.is_operational() {
+        bail!(
+            "Cannot create branch: workspace is {} (archived or mid-creation)",
+            record.state
+        );
+    }
+
+    let trimmed = branch.trim();
+    if trimmed.is_empty() {
+        bail!("Branch name cannot be empty");
+    }
+
+    let workspace_dir = crate::workspace_project::resolve_workspace_root_path(&record)
+        .with_context(|| format!("Workspace {workspace_id} working directory is missing"))?;
+
+    git_ops::switch_create_branch(&workspace_dir, trimmed)?;
+
+    let connection = db::write_conn()?;
+    connection
+        .execute(
+            "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
+            (trimmed, workspace_id),
+        )
+        .context("Failed to update branch name in database")?;
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateIntendedTargetBranchResponse {
     /// `true` if the workspace's local branch was hard-reset to `origin/<target>`.
     /// `false` if only the stored intent was updated (worktree dirty, branch

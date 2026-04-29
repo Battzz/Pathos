@@ -20,12 +20,14 @@ pub use super::archive::{
     ArchiveJobManager, PrepareArchiveWorkspaceResponse,
 };
 pub use super::branching::{
-    _reset_prefetch_rate_limit, continue_workspace_from_target_branch, list_remote_branches,
-    prefetch_remote_refs, push_workspace_to_remote, refresh_remote_and_realign,
-    rename_workspace_branch, sync_workspace_with_target_branch, update_intended_target_branch,
+    _reset_prefetch_rate_limit, continue_workspace_from_target_branch, create_workspace_branch,
+    delete_workspace_local_branch, delete_workspace_remote_branch, list_remote_branches,
+    list_workspace_branches, prefetch_remote_refs, push_workspace_to_remote,
+    refresh_remote_and_realign, rename_workspace_branch, switch_workspace_branch,
+    sync_workspace_with_target_branch, update_intended_target_branch,
     update_intended_target_branch_local, ContinueWorkspaceResponse, PrefetchRemoteRefsResponse,
     PushWorkspaceToRemoteResponse, SyncWorkspaceTargetOutcome, SyncWorkspaceTargetResponse,
-    UpdateIntendedTargetBranchInternal, UpdateIntendedTargetBranchResponse,
+    UpdateIntendedTargetBranchInternal, UpdateIntendedTargetBranchResponse, WorkspaceBranches,
 };
 pub use super::lifecycle::{
     archive_workspace_impl, cleanup_orphaned_initializing_workspaces, prepare_archive_plan,
@@ -146,6 +148,9 @@ pub struct WorkspaceDetail {
     pub archive_commit: Option<String>,
     pub session_count: i64,
     pub message_count: i64,
+    /// False when the imported folder is not a git working tree. Drives
+    /// the header "Initialize git" affordance for project workspaces.
+    pub is_git: bool,
 }
 
 // Workspace persistence lives in `crate::models::workspaces`.
@@ -983,6 +988,7 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
         archive_commit: record.archive_commit,
         session_count: record.session_count,
         message_count: record.message_count,
+        is_git: record.is_git,
     }
 }
 

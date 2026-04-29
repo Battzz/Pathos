@@ -259,6 +259,7 @@ function createWorkspaceDetail(
 		archiveCommit: null,
 		sessionCount: sessions.length,
 		messageCount: 0,
+		isGit: true,
 	};
 }
 

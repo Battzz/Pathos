@@ -102,6 +102,7 @@ function makeWorkspace(id: string): WorkspaceDetail {
 		status: "in-progress",
 		sessionCount: 1,
 		messageCount: 0,
+		isGit: true,
 	};
 }
 

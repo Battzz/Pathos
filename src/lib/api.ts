@@ -420,6 +420,8 @@ export type WorkspaceDetail = {
 	archiveCommit?: string | null;
 	sessionCount: number;
 	messageCount: number;
+	/** False when the imported folder is not a git working tree. */
+	isGit: boolean;
 };
 
 export type WorkspaceSessionSummary = {
@@ -2353,6 +2355,61 @@ export async function renameWorkspaceBranch(
 	newBranch: string,
 ): Promise<void> {
 	await invoke("rename_workspace_branch", { workspaceId, newBranch });
+}
+
+export type WorkspaceBranches = {
+	local: string[];
+	remote: string[];
+	current: string | null;
+};
+
+export async function listWorkspaceBranches(
+	workspaceId: string,
+): Promise<WorkspaceBranches> {
+	return await invoke<WorkspaceBranches>("list_workspace_branches", {
+		workspaceId,
+	});
+}
+
+export async function switchWorkspaceBranch(
+	workspaceId: string,
+	branch: string,
+): Promise<void> {
+	await invoke("switch_workspace_branch", { workspaceId, branch });
+}
+
+export async function createWorkspaceBranch(
+	workspaceId: string,
+	branch: string,
+): Promise<void> {
+	await invoke("create_workspace_branch", { workspaceId, branch });
+}
+
+export async function deleteWorkspaceLocalBranch(
+	workspaceId: string,
+	branch: string,
+): Promise<void> {
+	await invoke("delete_workspace_local_branch", { workspaceId, branch });
+}
+
+export async function deleteWorkspaceRemoteBranch(
+	workspaceId: string,
+	branch: string,
+): Promise<void> {
+	await invoke("delete_workspace_remote_branch", { workspaceId, branch });
+}
+
+export type InitWorkspaceGitResponse = {
+	repoId: string;
+	branch: string;
+};
+
+export async function initWorkspaceGit(
+	workspaceId: string,
+): Promise<InitWorkspaceGitResponse> {
+	return await invoke<InitWorkspaceGitResponse>("init_workspace_git", {
+		workspaceId,
+	});
 }
 
 export type GenerateSessionTitleResponse = {

@@ -1,7 +1,8 @@
 use tauri::{AppHandle, Manager};
 
 use crate::{
-    db, git_watcher, workspace_state::WorkspaceState, workspace_status::WorkspaceStatus, workspaces,
+    db, git_watcher, ui_sync, ui_sync::UiMutationEvent, workspace_project,
+    workspace_state::WorkspaceState, workspace_status::WorkspaceStatus, workspaces,
 };
 
 use super::common::{run_blocking, CmdResult};
@@ -131,6 +132,84 @@ pub async fn rename_workspace_branch(
     let ws_lock = db::workspace_fs_mutation_lock(&workspace_id);
     let _lock = ws_lock.lock().await;
     run_blocking(move || workspaces::rename_workspace_branch(&workspace_id, &new_branch)).await?;
+    git_watcher::notify_workspace_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_workspace_branches(
+    workspace_id: String,
+) -> CmdResult<workspaces::WorkspaceBranches> {
+    run_blocking(move || workspaces::list_workspace_branches(&workspace_id)).await
+}
+
+#[tauri::command]
+pub async fn switch_workspace_branch(
+    app: AppHandle,
+    workspace_id: String,
+    branch: String,
+) -> CmdResult<()> {
+    let ws_lock = db::workspace_fs_mutation_lock(&workspace_id);
+    let _lock = ws_lock.lock().await;
+    run_blocking(move || workspaces::switch_workspace_branch(&workspace_id, &branch)).await?;
+    git_watcher::notify_workspace_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn create_workspace_branch(
+    app: AppHandle,
+    workspace_id: String,
+    branch: String,
+) -> CmdResult<()> {
+    let ws_lock = db::workspace_fs_mutation_lock(&workspace_id);
+    let _lock = ws_lock.lock().await;
+    run_blocking(move || workspaces::create_workspace_branch(&workspace_id, &branch)).await?;
+    git_watcher::notify_workspace_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_workspace_local_branch(
+    app: AppHandle,
+    workspace_id: String,
+    branch: String,
+) -> CmdResult<()> {
+    let ws_lock = db::workspace_fs_mutation_lock(&workspace_id);
+    let _lock = ws_lock.lock().await;
+    run_blocking(move || workspaces::delete_workspace_local_branch(&workspace_id, &branch)).await?;
+    git_watcher::notify_workspace_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn init_workspace_git(
+    app: AppHandle,
+    workspace_id: String,
+) -> CmdResult<workspace_project::InitWorkspaceGitResponse> {
+    let ws_lock = db::workspace_fs_mutation_lock(&workspace_id);
+    let _lock = ws_lock.lock().await;
+    let result = run_blocking(move || workspace_project::init_workspace_git(&workspace_id)).await?;
+    ui_sync::publish(
+        &app,
+        UiMutationEvent::RepositoryChanged {
+            repo_id: result.repo_id.clone(),
+        },
+    );
+    git_watcher::notify_workspace_changed(&app);
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn delete_workspace_remote_branch(
+    app: AppHandle,
+    workspace_id: String,
+    branch: String,
+) -> CmdResult<()> {
+    let ws_lock = db::workspace_fs_mutation_lock(&workspace_id);
+    let _lock = ws_lock.lock().await;
+    run_blocking(move || workspaces::delete_workspace_remote_branch(&workspace_id, &branch))
+        .await?;
     git_watcher::notify_workspace_changed(&app);
     Ok(())
 }

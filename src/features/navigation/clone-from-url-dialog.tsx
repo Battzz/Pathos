@@ -1,15 +1,14 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { LoaderCircle } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import {
-	Dialog,
-	DialogContent,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+	CornerDownRight,
+	Download,
+	Folder,
+	Link2,
+	LoaderCircle,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { describeUnknownError } from "@/lib/workspace-helpers";
 
 type SubmitArgs = {
@@ -24,6 +23,22 @@ type CloneFromUrlDialogProps = {
 	onSubmit: (args: SubmitArgs) => Promise<void>;
 };
 
+// Pulls the repository name out of a URL so we can preview the resulting path.
+// Handles trailing slashes, `.git`, and SSH-style `git@host:owner/repo.git`.
+function deriveRepoName(url: string): string | null {
+	const trimmed = url.trim().replace(/\/+$/, "");
+	if (!trimmed) return null;
+	const tail = trimmed.split(/[/:]/).pop();
+	if (!tail) return null;
+	const name = tail.replace(/\.git$/i, "");
+	return name.length > 0 ? name : null;
+}
+
+function joinPath(directory: string, name: string): string {
+	const trimmed = directory.replace(/\/+$/, "");
+	return `${trimmed}/${name}`;
+}
+
 export function CloneFromUrlDialog({
 	open: isOpen,
 	onOpenChange,
@@ -34,6 +49,7 @@ export function CloneFromUrlDialog({
 	const [cloneDirectory, setCloneDirectory] = useState("");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+	const urlInputRef = useRef<HTMLInputElement>(null);
 	// Track whether the user has explicitly edited the location so the default
 	// only seeds the field once per open session — reopening after a manual
 	// change shouldn't wipe their choice.
@@ -48,6 +64,8 @@ export function CloneFromUrlDialog({
 		if (!cloneDirectoryTouchedRef.current) {
 			setCloneDirectory(defaultCloneDirectory ?? "");
 		}
+		// Match CreateBranchForm: focus the primary input after open.
+		requestAnimationFrame(() => urlInputRef.current?.focus());
 	}, [isOpen, defaultCloneDirectory]);
 
 	const handleBrowse = useCallback(async () => {
@@ -73,6 +91,12 @@ export function CloneFromUrlDialog({
 	const trimmedDirectory = cloneDirectory.trim();
 	const canSubmit =
 		trimmedUrl.length > 0 && trimmedDirectory.length > 0 && !isSubmitting;
+
+	const repoName = useMemo(() => deriveRepoName(trimmedUrl), [trimmedUrl]);
+	const previewPath = useMemo(() => {
+		if (!repoName || trimmedDirectory.length === 0) return null;
+		return joinPath(trimmedDirectory, repoName);
+	}, [repoName, trimmedDirectory]);
 
 	const handleSubmit = useCallback(async () => {
 		if (!canSubmit) {
@@ -108,95 +132,120 @@ export function CloneFromUrlDialog({
 				onOpenChange(nextOpen);
 			}}
 		>
-			<DialogContent className="gap-3 p-4 sm:max-w-sm">
-				<DialogHeader>
-					<DialogTitle className="text-[13px] font-medium tracking-[-0.01em]">
-						Clone from URL
-					</DialogTitle>
-				</DialogHeader>
+			<DialogContent className="gap-0 p-2 sm:max-w-[22rem]">
 				<form
 					onSubmit={(event) => {
 						event.preventDefault();
 						void handleSubmit();
 					}}
-					className="flex flex-col gap-3"
+					className="flex flex-col gap-2 p-1"
 				>
-					<div className="flex flex-col gap-1">
-						<Label
-							htmlFor="clone-git-url"
-							className="text-[12px] font-medium tracking-[-0.01em]"
-						>
-							Git URL
-						</Label>
-						<Input
-							id="clone-git-url"
-							type="text"
+					<div className="flex min-w-0 items-baseline gap-1.5 pr-6 text-[12.5px] font-medium text-foreground">
+						<DialogTitle className="text-[12.5px] font-medium tracking-[-0.01em]">
+							Clone repository
+						</DialogTitle>
+						{repoName ? (
+							<span className="flex min-w-0 items-baseline gap-1 text-[11px] font-normal text-muted-foreground">
+								<span>into</span>
+								<span className="truncate text-foreground/80">{repoName}</span>
+							</span>
+						) : (
+							<span className="text-[11px] font-normal text-muted-foreground">
+								from URL
+							</span>
+						)}
+					</div>
+					<div className="flex h-8 items-center gap-1.5 rounded-md border border-input/30 bg-input/30 px-2 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
+						<Link2
+							className="size-3.5 shrink-0 text-muted-foreground"
+							strokeWidth={2}
+						/>
+						<input
+							ref={urlInputRef}
 							value={gitUrl}
 							onChange={(event) => setGitUrl(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Escape") {
+									event.preventDefault();
+									event.stopPropagation();
+									onOpenChange(false);
+								}
+							}}
 							placeholder="https://github.com/user/repo.git"
-							autoFocus
-							autoComplete="off"
-							autoCorrect="off"
-							spellCheck={false}
 							disabled={isSubmitting}
-							className="h-7 text-[13px] md:text-[13px]"
+							spellCheck={false}
+							autoCapitalize="off"
+							autoCorrect="off"
+							autoComplete="off"
+							className="min-w-0 flex-1 select-text bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
 						/>
 					</div>
-					<div className="flex flex-col gap-1">
-						<Label
-							htmlFor="clone-location"
-							className="text-[12px] font-medium tracking-[-0.01em]"
+					<div className="flex h-8 items-center gap-1.5 rounded-md border border-input/30 bg-input/30 pl-2 pr-1 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
+						<Folder
+							className="size-3.5 shrink-0 text-muted-foreground"
+							strokeWidth={2}
+						/>
+						<input
+							value={cloneDirectory}
+							onChange={(event) => {
+								cloneDirectoryTouchedRef.current = true;
+								setCloneDirectory(event.target.value);
+							}}
+							placeholder="/path/to/parent"
+							disabled={isSubmitting}
+							spellCheck={false}
+							autoCapitalize="off"
+							autoCorrect="off"
+							autoComplete="off"
+							className="min-w-0 flex-1 select-text bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
+						/>
+						<button
+							type="button"
+							onClick={() => {
+								void handleBrowse();
+							}}
+							disabled={isSubmitting}
+							className="flex h-6 shrink-0 cursor-pointer items-center rounded-sm px-1.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
 						>
-							Clone location
-						</Label>
-						<div className="flex items-center gap-1.5">
-							<Input
-								id="clone-location"
-								type="text"
-								value={cloneDirectory}
-								onChange={(event) => {
-									cloneDirectoryTouchedRef.current = true;
-									setCloneDirectory(event.target.value);
-								}}
-								autoComplete="off"
-								autoCorrect="off"
-								spellCheck={false}
-								disabled={isSubmitting}
-								className="h-7 text-[13px] md:text-[13px]"
-							/>
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								onClick={() => {
-									void handleBrowse();
-								}}
-								disabled={isSubmitting}
-							>
-								Browse…
-							</Button>
-						</div>
+							Browse…
+						</button>
 					</div>
+					{previewPath ? (
+						<div className="flex items-center gap-1 px-1 text-[11px] text-muted-foreground">
+							<CornerDownRight
+								className="size-3 shrink-0 text-muted-foreground/60"
+								strokeWidth={1.9}
+							/>
+							<span className="truncate font-mono tracking-[-0.01em]">
+								{previewPath}
+							</span>
+						</div>
+					) : null}
 					{errorMessage ? (
 						<p
 							role="alert"
-							className="text-destructive text-[12px] leading-snug"
+							className="px-1 text-[11px] leading-snug text-destructive"
 						>
 							{errorMessage}
 						</p>
 					) : null}
-					<div className="flex justify-end pt-0.5">
-						<Button type="submit" size="sm" disabled={!canSubmit}>
-							{isSubmitting ? (
-								<>
-									<LoaderCircle className="animate-spin" strokeWidth={2.1} />
-									Cloning…
-								</>
-							) : (
-								"Clone repository"
-							)}
-						</Button>
-					</div>
+					<Button
+						type="submit"
+						size="xs"
+						disabled={!canSubmit}
+						className="w-full justify-center"
+					>
+						{isSubmitting ? (
+							<LoaderCircle
+								className="size-3 animate-spin"
+								strokeWidth={2}
+								data-icon="inline-start"
+							/>
+						) : (
+							<Download strokeWidth={2} data-icon="inline-start" />
+						)}
+						Clone repository
+					</Button>
 				</form>
 			</DialogContent>
 		</Dialog>

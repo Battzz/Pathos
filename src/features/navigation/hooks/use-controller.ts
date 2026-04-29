@@ -115,6 +115,7 @@ function seedCreatedChatQueries({
 							status: "in-progress" as const,
 							sessionCount: 0,
 							messageCount: 0,
+							isGit: folder.isGit,
 						}
 					: null);
 

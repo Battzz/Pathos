@@ -8,14 +8,22 @@
 //! `state='ready'` from the moment of insertion (no Phase-2 worktree
 //! provisioning).
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 
 use crate::{
     db,
     error::{coded, ErrorCode},
+    git_ops,
+    models::workspaces as workspace_models,
     workspace_kind::WorkspaceKind,
     workspace_state::WorkspaceState,
 };
+
+/// Default branch name used when running `git init` from the header
+/// "Initialize git" affordance. We don't read the user's
+/// `init.defaultBranch` here so the resulting state is predictable
+/// across machines — the user can rename via the branch switcher.
+const INIT_DEFAULT_BRANCH: &str = "main";
 
 /// Look up the project workspace for a repo. Returns `None` if no chat
 /// has ever been started against this repo.
@@ -125,4 +133,54 @@ pub fn resolve_workspace_root_path_unchecked(
             crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name).ok()
         }
     }
+}
+
+/// Response payload for `init_workspace_git`. Returns the repo id and the
+/// branch name git was initialised on so the frontend can update its
+/// optimistic state without a follow-up roundtrip.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InitWorkspaceGitResponse {
+    pub repo_id: String,
+    pub branch: String,
+}
+
+/// Run `git init -b main` inside a project workspace's folder, flip the
+/// repo's `is_git` flag, and seed the workspace's `branch` column so the
+/// header switches from the "Initialize git" affordance to the normal
+/// branch picker. Idempotent: if the folder is already a git working tree
+/// (e.g. the user ran `git init` themselves), this just refreshes the DB
+/// to match.
+pub fn init_workspace_git(workspace_id: &str) -> Result<InitWorkspaceGitResponse> {
+    let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
+        .with_context(|| format!("Workspace not found: {workspace_id}"))?;
+
+    if record.kind != WorkspaceKind::Project {
+        bail!("Initialize git is only supported on project workspaces");
+    }
+
+    let root = resolve_workspace_root_path(&record)
+        .with_context(|| format!("Workspace {workspace_id} folder is missing on disk"))?;
+
+    if !git_ops::is_inside_work_tree(&root) {
+        git_ops::init_repository(&root, INIT_DEFAULT_BRANCH)?;
+    }
+
+    let branch = git_ops::current_branch_name(&root).unwrap_or_else(|_| INIT_DEFAULT_BRANCH.into());
+
+    crate::repos::mark_repository_initialised(&record.repo_id, &branch)?;
+
+    let connection = db::write_conn()?;
+    connection
+        .execute(
+            "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
+            (branch.as_str(), workspace_id),
+        )
+        .context("Failed to record initialised branch on workspace")?;
+
+    Ok(InitWorkspaceGitResponse {
+        repo_id: record.repo_id,
+        branch,
+    })
 }

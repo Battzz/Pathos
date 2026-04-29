@@ -12,7 +12,7 @@ import {
 	useState,
 } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
-import { HelmorLogoAnimated } from "@/components/helmor-logo-animated";
+import { AsciiLoader } from "@/components/ascii-loader";
 import { Button } from "@/components/ui/button";
 import type { ThreadMessageLike } from "@/lib/api";
 import { HelmorProfiler } from "@/lib/dev-react-profiler";
@@ -1107,7 +1107,7 @@ function StreamingFooter({ startTime }: { startTime: number }) {
 			data-testid="streaming-footer"
 			className="flex items-center gap-1.5 px-5 py-3 text-[12px] tabular-nums text-muted-foreground"
 		>
-			<HelmorLogoAnimated size={14} className="opacity-80" />
+			<AsciiLoader className="size-3.5 text-[14px]" />
 			{display}
 		</div>
 	);

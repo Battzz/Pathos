@@ -61,18 +61,16 @@ export function ContextUsageRing({
 	const [open, setOpen] = useState(false);
 
 	const isClaude = agentType === "claude";
-	// No provider session means there is nothing useful to resume.
-	const { data: richJson = null, isFetching: richFetching } = useQuery(
+	// Eager-fetch so the hover popover renders instantly. `staleTime: Infinity`
+	// + invalidation on `contextUsageChanged` keeps this cheap.
+	const { data: richJson = null } = useQuery(
 		claudeRichContextUsageQueryOptions({
 			sessionId,
 			providerSessionId,
 			model: composerModelId,
 			cwd,
 			enabled:
-				open &&
-				isClaude &&
-				composerModelId !== null &&
-				providerSessionId !== null,
+				isClaude && composerModelId !== null && providerSessionId !== null,
 		}),
 	);
 	const rich = useMemo(() => parseClaudeRichMeta(richJson), [richJson]);
@@ -150,10 +148,7 @@ export function ContextUsageRing({
 				</button>
 			</HoverCardTrigger>
 			<HoverCardContent side="top" align="end" className="w-[280px]">
-				<ContextUsagePopoverContent
-					display={display}
-					richLoading={isClaude && richFetching && rich === null}
-				/>
+				<ContextUsagePopoverContent display={display} />
 			</HoverCardContent>
 		</HoverCard>
 	);

@@ -260,6 +260,28 @@ pub fn ensure_git_repository(repo_root: &Path) -> Result<()> {
     .context("Repository source is invalid")
 }
 
+/// Returns true if `path` is the working tree of a git repository.
+pub fn is_inside_work_tree(path: &Path) -> bool {
+    let path_arg = path.display().to_string();
+    matches!(
+        run_git(
+            ["-C", path_arg.as_str(), "rev-parse", "--is-inside-work-tree"],
+            None,
+        ),
+        Ok(out) if out.trim() == "true"
+    )
+}
+
+/// Run `git init -b <initial_branch> <path>`. The directory must exist;
+/// the initial branch is set explicitly so behavior doesn't depend on the
+/// host's `init.defaultBranch` config.
+pub fn init_repository(path: &Path, initial_branch: &str) -> Result<()> {
+    let path_arg = path.display().to_string();
+    run_git(["init", "-b", initial_branch, path_arg.as_str()], None)
+        .map(|_| ())
+        .with_context(|| format!("Failed to initialize git repository at {path_arg}"))
+}
+
 /// List all remote names in the repo.
 pub fn list_remotes(repo_root: &Path) -> Result<Vec<String>> {
     let repo_root = repo_root.display().to_string();
@@ -569,6 +591,78 @@ pub fn verify_commitish_exists(
     )
     .map(|_| ())
     .context(error_message.to_string())
+}
+
+/// List all local branches in the repo.
+pub fn list_local_branches(repo_root: &Path) -> Result<Vec<String>> {
+    let repo_root = repo_root.display().to_string();
+    let output = run_git(
+        [
+            "-C",
+            repo_root.as_str(),
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/heads/",
+        ],
+        None,
+    )
+    .context("Failed to list local branches")?;
+
+    let mut branches: Vec<String> = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+    branches.sort();
+    Ok(branches)
+}
+
+/// Force-delete a local branch: `git branch -D <branch>`. The branch must
+/// not be the one currently checked out in any worktree.
+pub fn delete_local_branch(repo_root: &Path, branch: &str) -> Result<()> {
+    let repo_root = repo_root.display().to_string();
+    run_git(["-C", repo_root.as_str(), "branch", "-D", branch], None)
+        .map(|_| ())
+        .with_context(|| format!("Failed to delete local branch {branch}"))
+}
+
+/// Delete a branch on the remote: `git push <remote> --delete <branch>`.
+/// Bounded by `GIT_NETWORK_TIMEOUT` and runs in a no-prompt environment.
+pub fn delete_remote_branch(workspace_dir: &Path, remote: &str, branch: &str) -> Result<()> {
+    let workspace_dir = workspace_dir.display().to_string();
+    run_git_with_timeout(
+        [
+            "-C",
+            workspace_dir.as_str(),
+            "push",
+            remote,
+            "--delete",
+            branch,
+        ],
+        None,
+        GIT_NETWORK_TIMEOUT,
+    )
+    .map(|_| ())
+    .with_context(|| format!("Failed to delete remote branch {remote}/{branch}"))
+}
+
+/// Switch the workspace's working tree to an existing branch:
+/// `git switch <branch>`.
+pub fn switch_branch(workspace_dir: &Path, branch: &str) -> Result<()> {
+    let workspace_dir = workspace_dir.display().to_string();
+    run_git(["-C", workspace_dir.as_str(), "switch", branch], None)
+        .map(|_| ())
+        .with_context(|| format!("Failed to switch to branch {branch}"))
+}
+
+/// Create a new branch from the current state and switch to it:
+/// `git switch -c <branch>`. Carries uncommitted changes along.
+pub fn switch_create_branch(workspace_dir: &Path, branch: &str) -> Result<()> {
+    let workspace_dir = workspace_dir.display().to_string();
+    run_git(["-C", workspace_dir.as_str(), "switch", "-c", branch], None)
+        .map(|_| ())
+        .with_context(|| format!("Failed to create and switch to branch {branch}"))
 }
 
 /// Rename a local branch: `git branch -m <old> <new>`.
