@@ -2,7 +2,7 @@
 "helmor": patch
 ---
 
-Polish the composer follow-up flow:
-- Add a customizable "send with opposite follow-up behavior" shortcut (⌘Enter by default) so you can flip queue ↔ steer for one message without changing your persistent setting.
-- Drop the leading `$` from Codex credits in the composer context-usage ring.
-- Rename the Settings → Shortcuts "Pinned" section to "Global".
+Polish the composer in two places:
+- Add a customizable ⌘Enter shortcut that sends one message with the opposite follow-up behavior (queue ↔ steer).
+- Drop the leading `$` from Codex credits in the context-usage ring.
+- Thanks to [@robinebers](https://x.com/robinebers) for the feedback that prompted both.
