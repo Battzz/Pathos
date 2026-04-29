@@ -1,4 +1,8 @@
-import { memo, type ReactNode } from "react";
+import { memo, type ReactNode, useEffect } from "react";
+import {
+	HELMOR_CLONE_PROJECT_EVENT,
+	HELMOR_OPEN_PROJECT_EVENT,
+} from "@/lib/project-action-events";
 import { useFolderSidebarController } from "./hooks/use-controller";
 import { WorkspacesSidebar } from "./index";
 
@@ -53,6 +57,23 @@ export const WorkspacesSidebarContainer = memo(
 			onSelectChat,
 			pushWorkspaceToast,
 		});
+
+		useEffect(() => {
+			const openProject = () => {
+				void handleAddRepository();
+			};
+			const cloneProject = () => {
+				handleOpenCloneDialog();
+			};
+
+			window.addEventListener(HELMOR_OPEN_PROJECT_EVENT, openProject);
+			window.addEventListener(HELMOR_CLONE_PROJECT_EVENT, cloneProject);
+
+			return () => {
+				window.removeEventListener(HELMOR_OPEN_PROJECT_EVENT, openProject);
+				window.removeEventListener(HELMOR_CLONE_PROJECT_EVENT, cloneProject);
+			};
+		}, [handleAddRepository, handleOpenCloneDialog]);
 
 		return (
 			<WorkspacesSidebar

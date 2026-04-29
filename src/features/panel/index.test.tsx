@@ -215,14 +215,17 @@ describe("WorkspacePanel", () => {
 		]);
 	});
 
-	it("leaves the panel's empty area blank when a session has no messages", () => {
-		const { container } = render(
+	it("shows the selected provider in the empty session heading", () => {
+		render(
 			<TooltipProvider delayDuration={0}>
 				<QueryClientProvider client={createHelmorQueryClient()}>
 					<WorkspacePanel
 						workspace={WORKSPACE}
 						sessions={SESSIONS}
 						selectedSessionId="session-1"
+						sessionDisplayProviders={{
+							"session-1": "codex",
+						}}
 						sessionPanes={[
 							{
 								sessionId: "session-1",
@@ -238,14 +241,10 @@ describe("WorkspacePanel", () => {
 			</TooltipProvider>,
 		);
 
-		// The welcome phrase + composer live in the conversation container,
-		// not the panel — the panel keeps an empty placeholder so the two
-		// don't render the same content twice.
-		const placeholder = container.querySelector(
-			".conversation-scroll-viewport .justify-center",
-		) as HTMLElement | null;
-		expect(placeholder).not.toBeNull();
-		expect(placeholder!.textContent).toBe("");
+		expect(
+			screen.getByRole("heading", { name: "Chat with OpenAI" }),
+		).toBeInTheDocument();
+		expect(screen.getByTestId("codex-icon")).toBeInTheDocument();
 	});
 
 	it("shows a yellow dot for sessions waiting on user interaction", () => {

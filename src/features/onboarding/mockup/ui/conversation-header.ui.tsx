@@ -38,13 +38,15 @@ export function ConversationHeaderUI({
 		>
 			<div className="relative z-0 flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-[12.5px]">
 				{leadingSlot}
-				<span className="group/branch relative inline-flex items-center gap-1 overflow-hidden px-1 py-0.5 font-medium text-foreground">
-					<GitBranch
-						className={cn("size-3.5 shrink-0", branchToneClasses[branchTone])}
-						strokeWidth={1.9}
-					/>
-					<HyperText text={branch ?? "No branch"} className="truncate" />
-				</span>
+				{branch ? (
+					<span className="group/branch relative inline-flex items-center gap-1 overflow-hidden px-1 py-0.5 font-medium text-foreground">
+						<GitBranch
+							className={cn("size-3.5 shrink-0", branchToneClasses[branchTone])}
+							strokeWidth={1.9}
+						/>
+						<HyperText text={branch} className="truncate" />
+					</span>
+				) : null}
 				{targetBranch ? (
 					<>
 						<ArrowRight

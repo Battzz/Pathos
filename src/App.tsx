@@ -2425,7 +2425,7 @@ function AppShell({
 														) : undefined
 													}
 													headerActions={
-														selectedWorkspaceId ? (
+														selectedWorkspaceId && displayedSessionId ? (
 															<div className="flex items-center gap-1">
 																{installedEditors.length > 0 &&
 																preferredEditor ? (
@@ -2591,7 +2591,7 @@ function AppShell({
 										</div>
 									</section>
 
-									{!inspectorCollapsed && (
+									{!inspectorCollapsed && displayedSessionId && (
 										<>
 											<div
 												role="separator"

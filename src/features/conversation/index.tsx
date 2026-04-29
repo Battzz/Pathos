@@ -18,6 +18,10 @@ import type { ChangeRequestInfo } from "@/lib/api";
 import type { ResolvedComposerInsertRequest } from "@/lib/composer-insert";
 import { insertRequestMatchesComposer } from "@/lib/composer-insert";
 import { hasUnresolvedPlanReview } from "@/lib/plan-review";
+import {
+	requestCloneProject,
+	requestOpenProject,
+} from "@/lib/project-action-events";
 import { sessionThreadMessagesQueryOptions } from "@/lib/query-client";
 import { useSettings } from "@/lib/settings";
 import { EMPTY_QUEUE, useSubmitQueue } from "@/lib/use-submit-queue";
@@ -131,6 +135,8 @@ export const WorkspaceConversationContainer = memo(
 		const selectionPending =
 			selectedWorkspaceId !== displayedWorkspaceId ||
 			selectedSessionId !== displayedSessionId;
+		const canCompose =
+			displayedWorkspaceId !== null && displayedSessionId !== null;
 
 		// App-level follow-up queue. Survives session / workspace
 		// switches because this container is mounted once in the App
@@ -324,51 +330,59 @@ export const WorkspaceConversationContainer = memo(
 					onRequestCloseSession={onRequestCloseSession}
 					headerActions={headerActions}
 					headerLeading={headerLeading}
+					onCloneProject={requestCloneProject}
+					onOpenProject={requestOpenProject}
 				/>
 
-				<div className="mt-auto px-4 pb-4 pt-0">
-					<div>
-						<WorkspaceComposerContainer
-							displayedWorkspaceId={displayedWorkspaceId}
-							displayedSessionId={displayedSessionId}
-							disabled={selectionPending}
-							sending={isSending}
-							sendError={activeSendError}
-							restoreDraft={restoreDraft}
-							restoreImages={restoreImages}
-							restoreFiles={restoreFiles}
-							restoreCustomTags={restoreCustomTags}
-							restoreNonce={restoreNonce}
-							pendingElicitation={pendingElicitation}
-							onElicitationResponse={handleElicitationResponse}
-							elicitationResponsePending={elicitationResponsePending}
-							pendingDeferredTool={effectivePendingDeferredTool}
-							onDeferredToolResponse={effectiveDeferredToolResponse}
-							hasPlanReview={hasPlanReview}
-							modelSelections={composerModelSelections}
-							effortLevels={composerEffortLevels}
-							permissionModes={composerPermissionModes}
-							fastModes={composerFastModes}
-							claudeContextWindows={composerClaudeContextWindows}
-							activeFastPreludes={activeFastPreludes}
-							onSelectModel={handleSelectModel}
-							onSelectEffort={handleSelectEffort}
-							onChangePermissionMode={handleChangePermissionMode}
-							onChangeFastMode={handleChangeFastMode}
-							onChangeClaudeContextWindow={handleChangeClaudeContextWindow}
-							onSwitchSession={onSelectSession}
-							onSubmit={handleComposerSubmitWrapper}
-							onStop={handleStopStream}
-							pendingPromptForSession={pendingPromptForSession}
-							onPendingPromptConsumed={onPendingPromptConsumed}
-							pendingInsertRequests={relevantPendingInsertRequests}
-							onPendingInsertRequestsConsumed={onPendingInsertRequestsConsumed}
-							queueItems={queueItems}
-							onSteerQueued={handleSteerQueued}
-							onRemoveQueued={handleRemoveQueued}
-						/>
+				{canCompose ? (
+					<div className="mt-auto px-4 pb-4 pt-0">
+						<div>
+							<WorkspaceComposerContainer
+								displayedWorkspaceId={displayedWorkspaceId}
+								displayedSessionId={displayedSessionId}
+								disabled={selectionPending}
+								sending={isSending}
+								sendError={activeSendError}
+								restoreDraft={restoreDraft}
+								restoreImages={restoreImages}
+								restoreFiles={restoreFiles}
+								restoreCustomTags={restoreCustomTags}
+								restoreNonce={restoreNonce}
+								pendingElicitation={pendingElicitation}
+								onElicitationResponse={handleElicitationResponse}
+								elicitationResponsePending={elicitationResponsePending}
+								pendingDeferredTool={effectivePendingDeferredTool}
+								onDeferredToolResponse={effectiveDeferredToolResponse}
+								hasPlanReview={hasPlanReview}
+								modelSelections={composerModelSelections}
+								effortLevels={composerEffortLevels}
+								permissionModes={composerPermissionModes}
+								fastModes={composerFastModes}
+								claudeContextWindows={composerClaudeContextWindows}
+								activeFastPreludes={activeFastPreludes}
+								onSelectModel={handleSelectModel}
+								onSelectEffort={handleSelectEffort}
+								onChangePermissionMode={handleChangePermissionMode}
+								onChangeFastMode={handleChangeFastMode}
+								onChangeClaudeContextWindow={handleChangeClaudeContextWindow}
+								onSwitchSession={onSelectSession}
+								onSubmit={handleComposerSubmitWrapper}
+								onStop={handleStopStream}
+								pendingPromptForSession={pendingPromptForSession}
+								onPendingPromptConsumed={onPendingPromptConsumed}
+								pendingInsertRequests={relevantPendingInsertRequests}
+								onPendingInsertRequestsConsumed={
+									onPendingInsertRequestsConsumed
+								}
+								queueItems={queueItems}
+								onSteerQueued={handleSteerQueued}
+								onRemoveQueued={handleRemoveQueued}
+							/>
+						</div>
 					</div>
-				</div>
+				) : (
+					<div aria-hidden className="mt-auto h-[156px] shrink-0" />
+				)}
 			</FileLinkProvider>
 		);
 	},

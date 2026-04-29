@@ -63,13 +63,19 @@ export function resolveConversationRowHeight({
 
 export function ActiveThreadViewport({
 	hasSession,
+	onCloneProject,
+	onOpenProject,
 	pane,
+	providerName = null,
 	workspaceLabel = null,
 	missingScriptTypes = [],
 	onInitializeScript,
 }: {
 	hasSession: boolean;
+	onCloneProject?: () => void;
+	onOpenProject?: () => void;
 	pane: PresentedSessionPane;
+	providerName?: string | null;
 	workspaceLabel?: string | null;
 	missingScriptTypes?: WorkspaceScriptType[];
 	onInitializeScript?: (scriptType: WorkspaceScriptType) => void;
@@ -119,8 +125,11 @@ export function ActiveThreadViewport({
 					layoutCacheKey={getSessionLayoutCacheKey(pane.sessionId, widthBucket)}
 					messages={pane.messages}
 					missingScriptTypes={missingScriptTypes}
+					onCloneProject={onCloneProject}
 					onInitializeScript={onInitializeScript}
+					onOpenProject={onOpenProject}
 					paneWidth={paneWidth}
+					providerName={providerName}
 					sessionId={pane.sessionId}
 					sending={pane.sending}
 					workspaceLabel={workspaceLabel}
@@ -135,8 +144,11 @@ function ChatThread({
 	messages,
 	hasSession,
 	missingScriptTypes,
+	onCloneProject,
 	onInitializeScript,
+	onOpenProject,
 	paneWidth,
+	providerName,
 	sessionId,
 	sending,
 	workspaceLabel,
@@ -145,8 +157,11 @@ function ChatThread({
 	messages: ThreadMessageLike[];
 	hasSession: boolean;
 	missingScriptTypes: WorkspaceScriptType[];
+	onCloneProject?: () => void;
 	onInitializeScript?: (scriptType: WorkspaceScriptType) => void;
+	onOpenProject?: () => void;
 	paneWidth: number;
+	providerName?: string | null;
 	sessionId: string;
 	sending: boolean;
 	workspaceLabel?: string | null;
@@ -244,8 +259,11 @@ function ChatThread({
 				itemContent={itemContent}
 				layoutCacheKey={layoutCacheKey}
 				missingScriptTypes={missingScriptTypes}
+				onCloneProject={onCloneProject}
 				onInitializeScript={onInitializeScript}
+				onOpenProject={onOpenProject}
 				paneWidth={paneWidth}
+				providerName={providerName}
 				workspaceLabel={workspaceLabel}
 				pinTailRows={pinTailRows}
 				scrollRef={handleScrollRef}
@@ -281,9 +299,12 @@ function ConversationViewport({
 	itemContent,
 	layoutCacheKey,
 	missingScriptTypes: _missingScriptTypes,
+	onCloneProject,
 	onInitializeScript: _onInitializeScript,
+	onOpenProject,
 	paneWidth,
 	pinTailRows,
+	providerName = null,
 	scrollRef,
 	sessionId,
 	sending,
@@ -300,9 +321,12 @@ function ConversationViewport({
 	itemContent: (index: number, message: RenderedMessage) => ReactNode;
 	layoutCacheKey: string;
 	missingScriptTypes: WorkspaceScriptType[];
+	onCloneProject?: () => void;
 	onInitializeScript?: (scriptType: WorkspaceScriptType) => void;
+	onOpenProject?: () => void;
 	paneWidth: number;
 	pinTailRows: boolean;
+	providerName?: string | null;
 	scrollRef: React.RefCallback<HTMLElement>;
 	sessionId: string;
 	sending: boolean;
@@ -329,7 +353,13 @@ function ConversationViewport({
 		: undefined;
 	const EmptyPlaceholder: ThreadViewportSlot = () => (
 		<div className="flex min-h-full flex-1 items-center justify-center px-8">
-			<EmptyState hasSession={hasSession} workspaceLabel={workspaceLabel} />
+			<EmptyState
+				hasSession={hasSession}
+				onCloneProject={onCloneProject}
+				onOpenProject={onOpenProject}
+				providerName={providerName}
+				workspaceLabel={workspaceLabel}
+			/>
 		</div>
 	);
 

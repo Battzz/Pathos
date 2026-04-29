@@ -48,6 +48,8 @@ type WorkspacePanelContainerProps = {
 		permissionMode?: string | null;
 	}) => void;
 	onRequestCloseSession?: (request: SessionCloseRequest) => void;
+	onCloneProject?: () => void;
+	onOpenProject?: () => void;
 	headerActions?: React.ReactNode;
 	headerLeading?: React.ReactNode;
 };
@@ -67,6 +69,8 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 	onResolveDisplayedSession,
 	onQueuePendingPromptForSession,
 	onRequestCloseSession,
+	onCloneProject,
+	onOpenProject,
 	headerActions,
 	headerLeading,
 }: WorkspacePanelContainerProps) {
@@ -534,6 +538,8 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			onSessionRenamed={handleSessionRenamed}
 			onWorkspaceChanged={handleWorkspaceChanged}
 			onRequestCloseSession={onRequestCloseSession}
+			onCloneProject={onCloneProject}
+			onOpenProject={onOpenProject}
 			headerActions={headerActions}
 			headerLeading={headerLeading}
 			newSessionShortcut={getShortcut(settings.shortcuts, "session.new")}

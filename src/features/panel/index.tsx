@@ -42,12 +42,26 @@ type WorkspacePanelProps = {
 	onSessionRenamed?: (sessionId: string, title: string) => void;
 	onWorkspaceChanged?: () => void;
 	onRequestCloseSession?: (request: SessionCloseRequest) => void;
+	onCloneProject?: () => void;
+	onOpenProject?: () => void;
 	headerActions?: ReactNode;
 	headerLeading?: ReactNode;
 	newSessionShortcut?: string | null;
 	missingScriptTypes?: WorkspaceScriptType[];
 	onInitializeScript?: (scriptType: WorkspaceScriptType) => void;
 };
+
+function providerDisplayName(
+	provider: AgentProvider | string | null | undefined,
+) {
+	if (provider === "codex") {
+		return "OpenAI";
+	}
+	if (provider === "claude") {
+		return "Anthropic";
+	}
+	return null;
+}
 
 export const WorkspacePanel = memo(function WorkspacePanel({
 	workspace,
@@ -69,6 +83,8 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 	onSessionRenamed: _onSessionRenamed,
 	onWorkspaceChanged,
 	onRequestCloseSession: _onRequestCloseSession,
+	onCloneProject,
+	onOpenProject,
 	headerActions,
 	headerLeading,
 	newSessionShortcut: _newSessionShortcut,
@@ -77,6 +93,12 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 }: WorkspacePanelProps) {
 	const selectedSession =
 		sessions.find((session) => session.id === selectedSessionId) ?? null;
+	const selectedProviderName = selectedSession
+		? providerDisplayName(
+				_sessionDisplayProviders?.[selectedSession.id] ??
+					selectedSession.agentType,
+			)
+		: null;
 	const activePane =
 		sessionPanes.find((pane) => pane.presentationState === "presented") ??
 		sessionPanes[0] ??
@@ -127,9 +149,12 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 						<ActiveThreadViewport
 							hasSession={!!selectedSession}
 							pane={activePane}
+							providerName={selectedProviderName}
+							onCloneProject={onCloneProject}
 							workspaceLabel={
 								workspace?.directoryName ?? workspace?.title ?? null
 							}
+							onOpenProject={onOpenProject}
 							missingScriptTypes={missingScriptTypes}
 							onInitializeScript={onInitializeScript}
 						/>
@@ -140,6 +165,9 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 							<EmptyState
 								workspaceState={workspace?.state ?? null}
 								hasSession={!!selectedSession}
+								onCloneProject={onCloneProject}
+								onOpenProject={onOpenProject}
+								providerName={selectedProviderName}
 								workspaceLabel={
 									workspace?.directoryName ?? workspace?.title ?? null
 								}

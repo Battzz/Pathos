@@ -244,7 +244,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 								/>
 							</button>
 						</BranchSwitcherPopover>
-					) : (
+					) : workspace?.branch ? (
 						<span className="inline-flex items-center gap-1 overflow-hidden px-1 py-0.5 font-medium text-foreground">
 							<GitBranch
 								className={cn(
@@ -255,11 +255,11 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 							/>
 							<HyperText
 								key={workspace?.id}
-								text={workspace?.branch ?? "No branch"}
+								text={workspace.branch}
 								className="truncate"
 							/>
 						</span>
-					)}
+					) : null}
 					{workspace?.intendedTargetBranch ? (
 						<>
 							<ArrowRight
