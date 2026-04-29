@@ -722,7 +722,7 @@ export function SettingsButton({
 				{shortcut ? (
 					<InlineShortcutDisplay
 						hotkey={shortcut}
-						className="text-background/60"
+						className="text-tooltip-foreground/55"
 					/>
 				) : null}
 			</TooltipContent>

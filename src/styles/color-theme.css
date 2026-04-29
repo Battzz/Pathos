@@ -85,6 +85,10 @@
 		transparent
 	);
 	--plan: #48968c;
+	/* Tooltip — dark surface in both modes, like macOS native tooltips */
+	--tooltip: oklch(0.215 0 0);
+	--tooltip-foreground: oklch(0.97 0 0);
+	--tooltip-border: oklch(1 0 0 / 0.07);
 	/* Terminal (xterm.js) — reuses app tokens where possible */
 	--terminal-background: var(--sidebar);
 	--terminal-foreground: var(--foreground);
@@ -196,6 +200,11 @@
 		transparent
 	);
 	--plan: #48968c;
+	/* Tooltip — slightly elevated above the dark background, with a subtle
+	   inner highlight via --tooltip-border so it reads as a floating chip. */
+	--tooltip: oklch(0.235 0 0);
+	--tooltip-foreground: oklch(0.97 0 0);
+	--tooltip-border: oklch(1 0 0 / 0.08);
 	/* Terminal (xterm.js) — only overrides that differ from :root */
 	--terminal-selection: oklch(0.35 0.03 250);
 	--terminal-black: oklch(0.21 0 0);

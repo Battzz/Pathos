@@ -210,12 +210,15 @@ function BranchItem({
 	return (
 		<CommandItem
 			value={value}
-			data-checked={isCurrent ? "true" : undefined}
+			aria-current={isCurrent ? "true" : undefined}
 			onSelect={() => {
 				if (deleting) return;
 				onSelect();
 			}}
-			className="group/branch-item rounded-md text-[12px]"
+			className={cn(
+				"group/branch-item rounded-md text-[12px] data-selected:bg-muted/25",
+				isCurrent && "bg-foreground/[0.04]",
+			)}
 		>
 			<LocationIcon
 				className={cn(

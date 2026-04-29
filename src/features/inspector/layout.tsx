@@ -647,7 +647,7 @@ export function InspectorTabsSection({
 										{newTerminalShortcut ? (
 											<InlineShortcutDisplay
 												hotkey={newTerminalShortcut}
-												className="text-background/60"
+												className="text-tooltip-foreground/55"
 											/>
 										) : null}
 									</TooltipContent>

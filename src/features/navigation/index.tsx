@@ -190,7 +190,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 								{addRepositoryShortcut ? (
 									<InlineShortcutDisplay
 										hotkey={addRepositoryShortcut}
-										className="text-background/60"
+										className="text-tooltip-foreground/55"
 									/>
 								) : null}
 							</TooltipContent>

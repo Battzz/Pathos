@@ -392,7 +392,7 @@ export function GitSectionHeader({
 										</span>
 										<InlineShortcutDisplay
 											hotkey={commitShortcut}
-											className="text-background/60"
+											className="text-tooltip-foreground/55"
 										/>
 									</TooltipContent>
 								) : null}

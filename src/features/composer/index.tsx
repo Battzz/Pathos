@@ -8,7 +8,6 @@ import { $getRoot } from "lexical";
 import {
 	ArrowUp,
 	Check,
-	ChevronDown,
 	ClipboardList,
 	MessageSquareMore,
 	Plus,
@@ -37,7 +36,7 @@ import type { PendingDeferredTool } from "@/features/conversation/pending-deferr
 import type { PendingElicitation } from "@/features/conversation/pending-elicitation";
 import { humanizeBranch } from "@/features/navigation/shared";
 import { normalizeShortcutEvent } from "@/features/shortcuts/format";
-import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
+import { ShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type {
 	AgentModelSection,
 	CandidateDirectory,
@@ -604,7 +603,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 										aria-multiline
 										className={cn(
 											"composer-editor min-h-[64px] max-h-[240px] resize-none overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-[14px] leading-5 tracking-[-0.01em] text-foreground outline-none",
-											showFocusHint && "pr-28",
+											showFocusHint && "pr-14",
 										)}
 									/>
 								}
@@ -618,9 +617,8 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 								ErrorBoundary={LexicalErrorBoundary}
 							/>
 							{showFocusHint && focusShortcut ? (
-								<div className="pointer-events-none absolute right-0 top-0 hidden h-5 items-center gap-1 text-[13px] leading-5 tracking-[-0.01em] text-muted-foreground/70 sm:flex">
-									<InlineShortcutDisplay hotkey={focusShortcut} />
-									<span>to focus</span>
+								<div className="pointer-events-none absolute right-0 top-0 hidden h-5 items-center sm:flex">
+									<ShortcutDisplay hotkey={focusShortcut} />
 								</div>
 							) : null}
 						</div>
@@ -688,32 +686,109 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 								</ShimmerText>
 							) : (
 								<>
+									{supportsEffort && (
+										<DropdownMenu>
+											<Tooltip>
+												<TooltipTrigger asChild>
+													<DropdownMenuTrigger
+														disabled={toolbarDisabled}
+														aria-label={`Reasoning effort: ${
+															effectiveEffort === "xhigh"
+																? "Extra High"
+																: effectiveEffort
+														}`}
+														className={cn(
+															`flex items-center ${composerToolbarTriggerClassName}`,
+															effectiveEffort === "max" ||
+																effectiveEffort === "xhigh"
+																? "effort-max-text"
+																: "text-muted-foreground",
+															toolbarDisabled
+																? "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground"
+																: null,
+														)}
+													>
+														<EffortBarsIcon
+															index={availableEffortLevels.indexOf(
+																effectiveEffort,
+															)}
+															total={availableEffortLevels.length}
+														/>
+													</DropdownMenuTrigger>
+												</TooltipTrigger>
+												<TooltipContent side="top" sideOffset={4}>
+													<span>
+														Reasoning effort:{" "}
+														<span className="capitalize">
+															{effectiveEffort === "xhigh"
+																? "Extra High"
+																: effectiveEffort}
+														</span>
+													</span>
+												</TooltipContent>
+											</Tooltip>
+											<DropdownMenuContent
+												side="top"
+												align="start"
+												sideOffset={4}
+												className="min-w-[11rem]"
+											>
+												<DropdownMenuGroup>
+													<DropdownMenuLabel>Effort</DropdownMenuLabel>
+													{availableEffortLevels.map((level, index) => (
+														<DropdownMenuItem
+															key={level}
+															disabled={toolbarDisabled}
+															onClick={() => onSelectEffort(level)}
+															className={cn(
+																"flex items-center gap-2.5 focus:bg-accent/25",
+																level === effectiveEffort &&
+																	"bg-foreground/[0.04]",
+															)}
+														>
+															<EffortBarsIcon
+																index={index}
+																total={availableEffortLevels.length}
+															/>
+															<span className="capitalize">
+																{level === "xhigh" ? "Extra High" : level}
+															</span>
+														</DropdownMenuItem>
+													))}
+												</DropdownMenuGroup>
+											</DropdownMenuContent>
+										</DropdownMenu>
+									)}
+
 									<DropdownMenu
 										open={modelPickerOpen}
 										onOpenChange={setModelPickerOpen}
 									>
-										<DropdownMenuTrigger
-											disabled={toolbarDisabled}
-											className={cn(
-												`flex items-center gap-1.5 text-muted-foreground ${composerToolbarTriggerClassName}`,
-												toolbarDisabled &&
-													"cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground",
-											)}
-										>
-											<ModelIcon
-												model={selectedModel}
-												className="size-[13px]"
-											/>
-											<span>
-												{selectedModel?.label ??
-													selectedModelId ??
-													"Select model"}
-											</span>
-											<ChevronDown
-												className="size-3 opacity-40"
-												strokeWidth={2}
-											/>
-										</DropdownMenuTrigger>
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<DropdownMenuTrigger
+													disabled={toolbarDisabled}
+													className={cn(
+														`flex items-center gap-1.5 text-muted-foreground ${composerToolbarTriggerClassName}`,
+														toolbarDisabled &&
+															"cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground",
+													)}
+												>
+													<ModelIcon
+														model={selectedModel}
+														className="size-[16px]"
+													/>
+													<span>
+														{selectedModel?.label ??
+															selectedModelId ??
+															"Select model"}
+													</span>
+												</DropdownMenuTrigger>
+											</TooltipTrigger>
+											<TooltipContent side="top" sideOffset={4}>
+												<span>Change model</span>
+											</TooltipContent>
+										</Tooltip>
 
 										<DropdownMenuContent
 											side="top"
@@ -784,10 +859,10 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 													)}
 													onClick={() => onChangeFastMode(!fastMode)}
 												>
-													<span className="relative block size-[14px]">
+													<span className="relative block size-[16px]">
 														<Zap
 															className={cn(
-																"absolute inset-0 z-0 size-[14px]",
+																"absolute inset-0 z-0 size-[16px]",
 																fastMode ? null : "opacity-55",
 															)}
 															strokeWidth={1.8}
@@ -804,83 +879,38 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 										</Tooltip>
 									)}
 
-									{supportsEffort && (
-										<DropdownMenu>
-											<DropdownMenuTrigger
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<ComposerButton
+												aria-label="Plan mode"
 												disabled={toolbarDisabled}
 												className={cn(
-													`flex items-center gap-0.5 ${composerToolbarTriggerClassName}`,
-													effectiveEffort === "max" ||
-														effectiveEffort === "xhigh"
-														? "effort-max-text"
-														: "text-muted-foreground",
-													toolbarDisabled
-														? "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground"
-														: null,
+													`gap-1 px-1.5 text-[11px] ${composerToolbarTriggerClassName}`,
+													permissionMode === "plan"
+														? "text-foreground hover:text-foreground"
+														: "text-muted-foreground/70 hover:text-muted-foreground/70",
 												)}
+												onClick={() =>
+													onChangePermissionMode(
+														permissionMode === "plan"
+															? "bypassPermissions"
+															: "plan",
+													)
+												}
 											>
-												<span className="capitalize">
-													{effectiveEffort === "xhigh"
-														? "Extra High"
-														: effectiveEffort}
-												</span>
-												<ChevronDown
-													className="size-3 text-muted-foreground/40"
-													strokeWidth={2}
+												<ClipboardList
+													className="size-[16px]"
+													strokeWidth={1.8}
 												/>
-											</DropdownMenuTrigger>
-											<DropdownMenuContent
-												side="top"
-												align="start"
-												sideOffset={4}
-												className="min-w-[11rem]"
-											>
-												<DropdownMenuGroup>
-													<DropdownMenuLabel>Effort</DropdownMenuLabel>
-													{availableEffortLevels.map((level) => (
-														<DropdownMenuItem
-															key={level}
-															disabled={toolbarDisabled}
-															onClick={() => onSelectEffort(level)}
-															className="flex items-center justify-between gap-3"
-														>
-															<div className="flex items-center gap-2.5">
-																<EffortBrainIcon level={level} />
-																<span className="capitalize">
-																	{level === "xhigh" ? "Extra High" : level}
-																</span>
-															</div>
-															{level === effectiveEffort ? (
-																<span className="text-[11px] text-foreground">
-																	✓
-																</span>
-															) : null}
-														</DropdownMenuItem>
-													))}
-												</DropdownMenuGroup>
-											</DropdownMenuContent>
-										</DropdownMenu>
-									)}
-									<ComposerButton
-										aria-label="Plan mode"
-										disabled={toolbarDisabled}
-										className={cn(
-											`gap-1 px-1.5 text-[11px] ${composerToolbarTriggerClassName}`,
-											permissionMode === "plan"
-												? "text-plan hover:text-plan"
-												: "text-muted-foreground/70 hover:text-muted-foreground/70",
-										)}
-										onClick={() =>
-											onChangePermissionMode(
-												permissionMode === "plan"
-													? "bypassPermissions"
-													: "plan",
-											)
-										}
-									>
-										<ClipboardList className="size-[13px]" strokeWidth={1.8} />
-										<span>Plan</span>
-									</ComposerButton>
+												{permissionMode === "plan" ? <span>Plan</span> : null}
+											</ComposerButton>
+										</TooltipTrigger>
+										<TooltipContent side="top" sideOffset={4}>
+											<span>
+												Plan mode{permissionMode === "plan" ? " (on)" : ""}
+											</span>
+										</TooltipContent>
+									</Tooltip>
 								</>
 							)}
 						</div>
@@ -978,104 +1008,40 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	);
 });
 
-function EffortBrainIcon({ level }: { level: string }) {
-	const cls = "shrink-0";
-
-	if (level === "minimal") {
-		return (
-			<svg
-				className={cls}
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				strokeWidth="1.5"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			>
-				<path
-					d="M12 2C8.5 2 5 5 5 9c0 3 1.5 5 3 6.5V20a2 2 0 002 2h4a2 2 0 002-2v-4.5c1.5-1.5 3-3.5 3-6.5 0-4-3.5-7-7-7z"
-					opacity="0.7"
-				/>
-			</svg>
-		);
-	}
-
-	if (level === "low") {
-		return (
-			<svg
-				className={cls}
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				strokeWidth="1.5"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			>
-				<path
-					d="M12 2C8.5 2 5 5 5 9c0 3 1.5 5 3 6.5V20a2 2 0 002 2h4a2 2 0 002-2v-4.5c1.5-1.5 3-3.5 3-6.5 0-4-3.5-7-7-7z"
-					opacity="0.8"
-				/>
-				<path d="M8.5 8c2-1.5 5-1.5 7 0" opacity="0.5" />
-			</svg>
-		);
-	}
-
-	if (level === "medium") {
-		return (
-			<svg
-				className={cls}
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				strokeWidth="1.5"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			>
-				<path
-					d="M12 2C8.5 2 5 5 5 9c0 3 1.5 5 3 6.5V20a2 2 0 002 2h4a2 2 0 002-2v-4.5c1.5-1.5 3-3.5 3-6.5 0-4-3.5-7-7-7z"
-					opacity="0.85"
-				/>
-				<path d="M8 7c2-1.5 4-1 6 0" opacity="0.5" />
-				<path d="M8.5 11c1.5 1 3.5 1 5 0" opacity="0.5" />
-			</svg>
-		);
-	}
-
-	if (level === "high") {
-		return (
-			<svg
-				className={cls}
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				strokeWidth="1.5"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			>
-				<path d="M12 2C8.5 2 5 5 5 9c0 3 1.5 5 3 6.5V20a2 2 0 002 2h4a2 2 0 002-2v-4.5c1.5-1.5 3-3.5 3-6.5 0-4-3.5-7-7-7z" />
-				<path d="M7.5 7c1.5-1.5 4-2 6.5-0.5" opacity="0.6" />
-				<path d="M8 10c1.5 1 3 1.2 5 0" opacity="0.6" />
-				<path d="M9 13c1 0.8 2.5 0.8 4 0" opacity="0.6" />
-			</svg>
-		);
-	}
+function EffortBarsIcon({ index, total }: { index: number; total: number }) {
+	const bars = Math.max(total, 1);
+	const barWidth = 2;
+	const gap = 1.5;
+	const totalWidth = bars * barWidth + (bars - 1) * gap;
+	const startX = (16 - totalWidth) / 2;
+	const baseY = 13;
+	const minHeight = 3;
+	const maxHeight = 10;
+	const heightStep = bars > 1 ? (maxHeight - minHeight) / (bars - 1) : 0;
 
 	return (
 		<svg
-			className={cls}
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="1.5"
-			strokeLinecap="round"
-			strokeLinejoin="round"
+			viewBox="0 0 16 16"
+			className="size-[20px] shrink-0"
+			fill="currentColor"
+			aria-hidden="true"
 		>
-			<path d="M12 2C8.5 2 5 5 5 9c0 3 1.5 5 3 6.5V20a2 2 0 002 2h4a2 2 0 002-2v-4.5c1.5-1.5 3-3.5 3-6.5 0-4-3.5-7-7-7z" />
-			<path d="M7 6.5c2-2 5-2 7.5-0.5" opacity="0.7" />
-			<path d="M7.5 9c1.5 1.5 4 1.5 6 0" opacity="0.7" />
-			<path d="M8 11.5c1.5 1 3.5 1.2 5 0" opacity="0.7" />
-			<path d="M9 14c1 0.7 2.5 0.7 3.5 0" opacity="0.7" />
-			<path d="M12 4v2" opacity="0.4" />
+			{Array.from({ length: bars }, (_, i) => {
+				const height = minHeight + i * heightStep;
+				const x = startX + i * (barWidth + gap);
+				const lit = i <= index;
+				return (
+					<rect
+						key={`bar-${i}`}
+						x={x}
+						y={baseY - height}
+						width={barWidth}
+						height={height}
+						rx="0.5"
+						opacity={lit ? 1 : 0.25}
+					/>
+				);
+			})}
 		</svg>
 	);
 }

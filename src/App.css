@@ -436,6 +436,9 @@ body {
 	--color-foreground: var(--foreground);
 	--color-background: var(--background);
 	--color-plan: var(--plan);
+	--color-tooltip: var(--tooltip);
+	--color-tooltip-foreground: var(--tooltip-foreground);
+	--color-tooltip-border: var(--tooltip-border);
 	--radius-sm: calc(var(--radius) * 0.6);
 	--radius-md: calc(var(--radius) * 0.8);
 	--radius-lg: var(--radius);

@@ -2270,7 +2270,7 @@ function AppShell({
 																{leftSidebarToggleShortcut ? (
 																	<InlineShortcutDisplay
 																		hotkey={leftSidebarToggleShortcut}
-																		className="text-background/60"
+																		className="text-tooltip-foreground/55"
 																	/>
 																) : null}
 															</TooltipContent>
@@ -2415,7 +2415,7 @@ function AppShell({
 																			{leftSidebarToggleShortcut ? (
 																				<InlineShortcutDisplay
 																					hotkey={leftSidebarToggleShortcut}
-																					className="text-background/60"
+																					className="text-tooltip-foreground/55"
 																				/>
 																			) : null}
 																		</TooltipContent>
@@ -2455,7 +2455,7 @@ function AppShell({
 																				{openPreferredEditorShortcut ? (
 																					<InlineShortcutDisplay
 																						hotkey={openPreferredEditorShortcut}
-																						className="text-background/60"
+																						className="text-tooltip-foreground/55"
 																					/>
 																				) : null}
 																			</TooltipContent>
@@ -2578,7 +2578,7 @@ function AppShell({
 																		{rightSidebarToggleShortcut ? (
 																			<InlineShortcutDisplay
 																				hotkey={rightSidebarToggleShortcut}
-																				className="text-background/60"
+																				className="text-tooltip-foreground/55"
 																			/>
 																		) : null}
 																	</TooltipContent>

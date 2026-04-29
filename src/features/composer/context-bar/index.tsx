@@ -272,7 +272,7 @@ export function ContextBar({
 							role="tooltip"
 							data-slot="context-bar-tooltip"
 							style={{ left: tooltip.left, top: tooltip.top }}
-							className="pointer-events-none fixed z-[100] max-w-[420px] overflow-hidden truncate rounded-md bg-foreground/95 px-2 py-1 font-mono text-[11px] text-background shadow-lg"
+							className="pointer-events-none fixed z-[100] max-w-[420px] overflow-hidden truncate rounded-md border border-tooltip-border bg-tooltip px-2 py-1 font-mono text-[11px] text-tooltip-foreground shadow-[0_6px_18px_-8px_rgba(0,0,0,0.35),0_2px_6px_-3px_rgba(0,0,0,0.25)]"
 						>
 							<span className="mr-2 text-[9.5px] uppercase tracking-[0.06em] opacity-60">
 								path
