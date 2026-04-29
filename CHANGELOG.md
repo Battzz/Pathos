@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.1
+
+### Patch Changes
+
+- [#299](https://github.com/dohooo/helmor/pull/299) [`7025e5a`](https://github.com/dohooo/helmor/commit/7025e5a003d49a0d6aeffa61f57e0fe9531beb5f) Thanks [@natllian](https://github.com/natllian)! - Fix the Intel macOS build shipping arm64 vendor binaries — `gh auth login`, `glab`, `codex`, and `bun` now match the bundle architecture instead of failing with "bad CPU type in executable".
+
+- [#295](https://github.com/dohooo/helmor/pull/295) [`4029ca5`](https://github.com/dohooo/helmor/commit/4029ca58ea5d3aba13120068a9c706169ead981d) Thanks [@dohooo](https://github.com/dohooo)! - Adjust the macOS app icon spacing so Helmor appears at a normal size in Finder, Dock, and Launchpad.
+
+- [#300](https://github.com/dohooo/helmor/pull/300) [`36b2fcf`](https://github.com/dohooo/helmor/commit/36b2fcff1b03051eaa071508df28179dd7c92e41) Thanks [@natllian](https://github.com/natllian)! - Polish the composer in two places:
+  - Add a customizable ⌘Enter shortcut that sends one message with the opposite follow-up behavior (queue ↔ steer).
+  - Drop the leading `$` from Codex credits in the context-usage ring.
+  - Thanks to [@robinebers](https://x.com/robinebers) for the feedback that prompted both.
+
 ## 0.12.0
 
 ### Minor Changes
