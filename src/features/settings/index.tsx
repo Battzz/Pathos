@@ -67,6 +67,8 @@ import { RepositorySettingsPanel } from "./panels/repository-settings";
 const MIN_FONT_SIZE = 12;
 const MAX_FONT_SIZE = 20;
 const FALLBACK_EFFORT_LEVELS = ["low", "medium", "high"];
+const MODEL_SETTINGS_PICKER_CLASS =
+	"inline-flex h-7 cursor-pointer items-center rounded-md border border-border/50 bg-muted/30 px-2.5 text-[12px] leading-none text-foreground hover:bg-muted/50";
 
 export type SettingsSection =
 	| "general"
@@ -138,12 +140,20 @@ export const SettingsDialog = memo(function SettingsDialog({
 		modelSectionsQuery.data ?? [],
 		settings.defaultModelId,
 	);
+	const selectedCommitActionModel = findModelOption(
+		modelSectionsQuery.data ?? [],
+		settings.commitActionModelId,
+	);
 	const defaultEffortLevels =
 		selectedDefaultModel?.effortLevels ?? FALLBACK_EFFORT_LEVELS;
 	const defaultModelSupportsFastMode =
 		selectedDefaultModel?.supportsFastMode === true;
 	const defaultModelLabel =
 		selectedDefaultModel?.label ??
+		(modelSectionsQuery.isPending ? "Loading…" : "Select model");
+	const commitActionModelLabel =
+		selectedCommitActionModel?.label ??
+		settings.commitActionModelId ??
 		(modelSectionsQuery.isPending ? "Loading…" : "Select model");
 	// Auto-clamp effort when model changes — but only after model metadata
 	// has actually loaded, otherwise the fallback levels silently kill max/xhigh.
@@ -453,20 +463,20 @@ export const SettingsDialog = memo(function SettingsDialog({
 										title="Default model"
 										description="Model for new chats"
 									>
-										<div className="flex w-[360px] items-center gap-2">
+										<div className="flex items-center justify-end gap-1.5">
 											<DropdownMenu>
 												<DropdownMenuTrigger
 													className={cn(
-														"flex h-8 cursor-pointer items-center justify-between rounded-lg border border-border/50 bg-muted/30 px-3 text-[13px] text-foreground hover:bg-muted/50",
-														"min-w-0 flex-1 gap-1.5",
+														MODEL_SETTINGS_PICKER_CLASS,
+														"w-[10.5rem] min-w-0 justify-between gap-1.5",
 													)}
 												>
-													<span className="flex min-w-0 items-center gap-1.5">
+													<span className="flex min-w-0 items-center gap-1.5 leading-none">
 														<ModelIcon
 															model={selectedDefaultModel}
-															className="size-[13px] shrink-0"
+															className="size-3.5 shrink-0"
 														/>
-														<span className="min-w-0 truncate whitespace-nowrap">
+														<span className="min-w-0 truncate whitespace-nowrap leading-none">
 															{defaultModelLabel}
 														</span>
 													</span>
@@ -494,11 +504,11 @@ export const SettingsDialog = memo(function SettingsDialog({
 											<DropdownMenu>
 												<DropdownMenuTrigger
 													className={cn(
-														"flex h-8 cursor-pointer items-center rounded-lg border border-border/50 bg-muted/30 px-3 text-[13px] text-foreground hover:bg-muted/50",
-														"shrink-0 gap-1.5",
+														MODEL_SETTINGS_PICKER_CLASS,
+														"w-[6.75rem] shrink-0 justify-between gap-1.5",
 													)}
 												>
-													<span>
+													<span className="truncate leading-none">
 														{effortLabel(settings.defaultEffort ?? "high")}
 													</span>
 													<ChevronDown className="size-3 opacity-40" />
@@ -520,33 +530,72 @@ export const SettingsDialog = memo(function SettingsDialog({
 													))}
 												</DropdownMenuContent>
 											</DropdownMenu>
-											<div
-												className={cn(
-													"flex h-8 cursor-pointer items-center rounded-lg border border-border/50 bg-muted/30 px-3 text-[13px] text-foreground hover:bg-muted/50",
-													"shrink-0 gap-2",
-												)}
-											>
-												<span
-													className={
-														defaultModelSupportsFastMode
-															? "text-[13px] text-foreground"
-															: "text-[13px] text-muted-foreground"
-													}
+											{defaultModelSupportsFastMode ? (
+												<div
+													className={cn(
+														MODEL_SETTINGS_PICKER_CLASS,
+														"w-[8.25rem] shrink-0 justify-between gap-2",
+													)}
 												>
-													Fast mode
-												</span>
-												<Switch
-													checked={
-														defaultModelSupportsFastMode &&
-														settings.defaultFastMode
-													}
-													disabled={!defaultModelSupportsFastMode}
-													onCheckedChange={(checked) =>
-														updateSettings({ defaultFastMode: checked })
-													}
-													aria-label="Default fast mode"
-												/>
-											</div>
+													<span className="truncate leading-none">
+														Fast mode
+													</span>
+													<Switch
+														checked={settings.defaultFastMode}
+														onCheckedChange={(checked) =>
+															updateSettings({ defaultFastMode: checked })
+														}
+														size="sm"
+														aria-label="Default fast mode"
+													/>
+												</div>
+											) : null}
+										</div>
+									</SettingsRow>
+									<SettingsRow
+										title="Commit action model"
+										description="Model for commit messages and PR actions"
+									>
+										<div className="flex items-center justify-end">
+											<DropdownMenu>
+												<DropdownMenuTrigger
+													className={cn(
+														MODEL_SETTINGS_PICKER_CLASS,
+														"w-[10.5rem] min-w-0 justify-between gap-1.5",
+													)}
+												>
+													<span className="flex min-w-0 items-center gap-1.5 leading-none">
+														<ModelIcon
+															model={selectedCommitActionModel}
+															className="size-3.5 shrink-0"
+														/>
+														<span className="min-w-0 truncate whitespace-nowrap leading-none">
+															{commitActionModelLabel}
+														</span>
+													</span>
+													<ChevronDown className="size-3 shrink-0 opacity-40" />
+												</DropdownMenuTrigger>
+												<DropdownMenuContent
+													align="end"
+													sideOffset={4}
+													className="min-w-[10rem]"
+												>
+													{allModels.map((m) => (
+														<DropdownMenuItem
+															key={m.id}
+															onClick={() =>
+																updateSettings({
+																	commitActionModelId: m.id,
+																})
+															}
+															className="gap-2"
+														>
+															<ModelIcon model={m} className="size-4" />
+															{m.label}
+														</DropdownMenuItem>
+													))}
+												</DropdownMenuContent>
+											</DropdownMenu>
 										</div>
 									</SettingsRow>
 									<ClaudeCustomProvidersPanel />

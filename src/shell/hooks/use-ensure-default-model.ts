@@ -6,6 +6,7 @@ import { useSettings } from "@/lib/settings";
 import { findModelOption } from "@/lib/workspace-helpers";
 
 const KNOWN_MODEL_PROVIDERS = ["claude", "codex"] as const;
+const DEFAULT_COMMIT_ACTION_MODEL_ID = "gpt-5.4-mini";
 
 function isModelCatalogSettled(sections: AgentModelSection[]) {
 	if (sections.length === 0) return false;
@@ -35,26 +36,58 @@ export function useEnsureDefaultModel() {
 		if (!isLoaded) return;
 		if (!sections || sections.length === 0) return;
 		const allOptions = sections.flatMap((s) => s.options);
+		const nextSettings: {
+			defaultModelId?: string;
+			commitActionModelId?: string;
+		} = {};
 
 		// Already valid — nothing to do.
-		if (
+		const defaultModelValid =
 			settings.defaultModelId &&
-			findModelOption(sections, settings.defaultModelId)
-		) {
+			findModelOption(sections, settings.defaultModelId);
+		const commitActionModelValid =
+			settings.commitActionModelId &&
+			findModelOption(sections, settings.commitActionModelId);
+		if (defaultModelValid && commitActionModelValid) {
 			return;
 		}
 
-		// User previously saved a model but it's not in the catalog. Only
-		// repair it once every provider has reached a terminal state.
-		if (settings.defaultModelId && !isModelCatalogSettled(sections)) return;
+		const catalogSettled = isModelCatalogSettled(sections);
+		if (!defaultModelValid) {
+			// User previously saved a model but it's not in the catalog. Only
+			// repair it once every provider has reached a terminal state.
+			if (settings.defaultModelId && !catalogSettled) return;
 
-		// Never been set (null), or a previously-saved value is now definitively
-		// unavailable — pick a sensible available default.
-		const pick =
-			sections.find((s) => s.id === "claude")?.options[0]?.id ??
-			allOptions[0]?.id ??
-			null;
-		if (!pick) return;
-		updateSettings({ defaultModelId: pick });
-	}, [isLoaded, sections, settings.defaultModelId, updateSettings]);
+			// Never been set (null), or a previously-saved value is now
+			// definitively unavailable — pick a sensible available default.
+			const pick =
+				sections.find((s) => s.id === "claude")?.options[0]?.id ??
+				allOptions[0]?.id ??
+				null;
+			if (pick) {
+				nextSettings.defaultModelId = pick;
+			}
+		}
+
+		if (!commitActionModelValid) {
+			if (settings.commitActionModelId && !catalogSettled) return;
+			const pick =
+				findModelOption(sections, DEFAULT_COMMIT_ACTION_MODEL_ID)?.id ??
+				sections.find((s) => s.id === "codex")?.options[0]?.id ??
+				allOptions[0]?.id ??
+				null;
+			if (pick) {
+				nextSettings.commitActionModelId = pick;
+			}
+		}
+
+		if (Object.keys(nextSettings).length === 0) return;
+		updateSettings(nextSettings);
+	}, [
+		isLoaded,
+		sections,
+		settings.defaultModelId,
+		settings.commitActionModelId,
+		updateSettings,
+	]);
 }

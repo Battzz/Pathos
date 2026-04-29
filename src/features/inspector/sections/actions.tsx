@@ -26,6 +26,7 @@ import type {
 	CommitButtonState,
 	WorkspaceCommitButtonMode,
 } from "@/features/commit/button";
+import { getCommitButtonLabel } from "@/features/commit/button";
 import {
 	type ActionProvider,
 	type ActionStatusKind,
@@ -288,6 +289,17 @@ function useWorkspaceActionsModel({
 	const sortedDeployments = sortActionItems(forgeStatus.deployments);
 	const sortedChecks = sortActionItems(forgeStatus.checks);
 	const actionDisabled = commitButtonState === "busy";
+	const primaryAction =
+		commitButtonMode === "create-pr"
+			? {
+					label: getCommitButtonLabel(
+						"create-pr",
+						commitButtonState ?? "idle",
+						changeRequestName,
+					),
+					mode: "create-pr" as const,
+				}
+			: null;
 	const queueSyncResolutionPrompt = useCallback(
 		async (result: SyncWorkspaceTargetResponse) => {
 			if (!currentSessionId || !onQueuePendingPromptForSession) {
@@ -386,6 +398,7 @@ function useWorkspaceActionsModel({
 		gitRows,
 		handleInsertCheck,
 		handleSync,
+		primaryAction,
 		providerName,
 		reviewRows,
 		sortedChecks,
@@ -411,6 +424,7 @@ function ActionsRows({
 		gitRows,
 		handleInsertCheck,
 		handleSync,
+		primaryAction,
 		reviewRows,
 		sortedChecks,
 		sortedDeployments,
@@ -427,6 +441,38 @@ function ActionsRows({
 					Git
 				</span>
 			</div>
+			{primaryAction && (
+				<div className="flex items-center gap-1.5 px-2.5 py-[3px] text-muted-foreground transition-colors hover:bg-accent/60">
+					<StatusIcon status="pending" />
+					<span className="truncate">No pull request</span>
+					<button
+						type="button"
+						onClick={() => {
+							if (actionDisabled) {
+								return;
+							}
+							void onCommitAction?.(primaryAction.mode);
+						}}
+						className="ml-auto shrink-0 cursor-pointer text-[10.5px] text-primary transition-colors hover:text-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
+						disabled={actionDisabled}
+						aria-busy={commitButtonState === "busy" ? true : undefined}
+						aria-label={
+							commitButtonState === "busy" ? primaryAction.label : undefined
+						}
+					>
+						<span className="inline-flex items-center gap-1">
+							{commitButtonState === "busy" ? (
+								<LoaderCircleIcon
+									aria-hidden="true"
+									className="size-3 animate-spin text-current opacity-70"
+									strokeWidth={2}
+								/>
+							) : null}
+							{commitButtonState === "busy" ? null : primaryAction.label}
+						</span>
+					</button>
+				</div>
+			)}
 			{gitRows.map((item) => {
 				const action = item.action;
 				const isCommitActionBusy =

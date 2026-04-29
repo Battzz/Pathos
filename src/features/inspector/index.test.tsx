@@ -161,6 +161,67 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("uses one Changes header for unstaged file controls", async () => {
+		apiMocks.listWorkspaceChangesWithContent.mockResolvedValue({
+			items: [
+				{
+					path: "vetro-stub.md",
+					absolutePath: "/tmp/workspace/vetro-stub.md",
+					name: "vetro-stub.md",
+					status: "A",
+					unstagedStatus: "A",
+					stagedStatus: null,
+					committedStatus: null,
+					insertions: 4,
+					deletions: 0,
+				},
+			],
+			prefetched: [],
+		});
+
+		renderInspector();
+
+		await screen.findByText("vetro-stub.md");
+
+		const changes = screen.getByLabelText("Inspector section Changes");
+		expect(within(changes).getAllByText("Changes")).toHaveLength(1);
+		expect(
+			within(changes).getByRole("button", { name: "Stage all changes" }),
+		).toBeInTheDocument();
+	});
+
+	it("uses the same Changes header for staged file controls", async () => {
+		apiMocks.listWorkspaceChangesWithContent.mockResolvedValue({
+			items: [
+				{
+					path: "vetro-stub.md",
+					absolutePath: "/tmp/workspace/vetro-stub.md",
+					name: "vetro-stub.md",
+					status: "A",
+					unstagedStatus: null,
+					stagedStatus: "A",
+					committedStatus: null,
+					insertions: 4,
+					deletions: 0,
+				},
+			],
+			prefetched: [],
+		});
+
+		renderInspector();
+
+		await screen.findByText("vetro-stub.md");
+
+		const changes = screen.getByLabelText("Inspector section Changes");
+		expect(within(changes).getAllByText("Changes")).toHaveLength(1);
+		expect(
+			within(changes).queryByText("Staged Changes"),
+		).not.toBeInTheDocument();
+		expect(
+			within(changes).getByRole("button", { name: "Unstage all changes" }),
+		).toBeInTheDocument();
+	});
+
 	it("shows clean git rows with passed status icons", async () => {
 		renderInspector();
 
@@ -177,6 +238,18 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			within(actions).getByText("Branch fully pushed"),
 		).toBeInTheDocument();
 		expect(within(actions).getAllByLabelText("Passed")).toHaveLength(3);
+	});
+
+	it("offers create PR from the actions surface", async () => {
+		const user = userEvent.setup();
+		const onCommitAction = vi.fn();
+
+		renderInspector({ onCommitAction, commitButtonMode: "create-pr" });
+
+		await screen.findByText("No pull request");
+		await user.click(screen.getByRole("button", { name: "Create PR" }));
+
+		expect(onCommitAction).toHaveBeenCalledWith("create-pr");
 	});
 
 	it("keeps the actions scroll area shrinkable when tabs are collapsed", async () => {

@@ -36,6 +36,7 @@ import { WorkspaceConversationContainer } from "@/features/conversation";
 import { useDockUnreadBadge } from "@/features/dock-badge";
 import { WorkspaceEditorSurface } from "@/features/editor";
 import { WorkspaceInspectorSidebar } from "@/features/inspector";
+import { DiffStatsBadge } from "@/features/inspector/diff-stats-badge";
 import { ActionsMenu } from "@/features/inspector/sections/actions";
 import { WorkspacesSidebarContainer } from "@/features/navigation/container";
 import { AppOnboarding } from "@/features/onboarding";
@@ -103,6 +104,7 @@ import {
 	helmorQueryPersister,
 	sessionThreadMessagesQueryOptions,
 	workspaceChangeRequestQueryOptions,
+	workspaceChangesQueryOptions,
 	workspaceDetailQueryOptions,
 	workspaceForgeActionStatusQueryOptions,
 	workspaceForgeQueryOptions,
@@ -442,7 +444,7 @@ function AppShell({
 		sidebarWidth,
 		setSidebarCollapsed,
 	} = useShellPanels();
-	const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+	const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
 	const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
 		null,
 	);
@@ -765,6 +767,22 @@ function AppShell({
 		selectedWorkspaceDetail?.state === "archived"
 			? null
 			: (selectedWorkspaceDetail?.rootPath ?? null);
+	const workspaceChangesQuery = useQuery({
+		...workspaceChangesQueryOptions(workspaceRootPath ?? ""),
+		enabled: Boolean(workspaceRootPath),
+	});
+	const workspaceDiffStats = useMemo(() => {
+		const items = workspaceChangesQuery.data?.items ?? [];
+		return items.reduce(
+			(stats, item) => ({
+				insertions: stats.insertions + item.insertions,
+				deletions: stats.deletions + item.deletions,
+			}),
+			{ insertions: 0, deletions: 0 },
+		);
+	}, [workspaceChangesQuery.data]);
+	const hasWorkspaceDiffStats =
+		workspaceDiffStats.insertions > 0 || workspaceDiffStats.deletions > 0;
 
 	const handleCopyWorkspacePath = useCallback(() => {
 		if (!workspaceRootPath) return;
@@ -999,7 +1017,9 @@ function AppShell({
 				return;
 			}
 
-			if (editorSession?.path === path) {
+			setInspectorCollapsed(false);
+
+			if (editorSession?.path === path && workspaceViewMode === "editor") {
 				return;
 			}
 
@@ -1030,6 +1050,7 @@ function AppShell({
 			editorSession?.path,
 			pushWorkspaceToast,
 			selectedWorkspaceId,
+			workspaceViewMode,
 			workspaceRootPath,
 		],
 	);
@@ -2574,20 +2595,36 @@ function AppShell({
 																				)
 																			}
 																			variant="ghost"
-																			size="icon-xs"
-																			className="text-muted-foreground hover:text-foreground"
+																			size="sm"
+																			className="h-7 rounded-full border border-border/70 bg-muted/45 px-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
 																		>
-																			{inspectorCollapsed ? (
-																				<PanelRightOpen
-																					className="size-4"
-																					strokeWidth={1.8}
+																			<span className="inline-flex h-5 items-center gap-1.5 rounded-full px-1.5">
+																				<DiffStatsBadge
+																					insertions={
+																						workspaceDiffStats.insertions
+																					}
+																					deletions={
+																						workspaceDiffStats.deletions
+																					}
 																				/>
-																			) : (
-																				<PanelRightClose
-																					className="size-4"
-																					strokeWidth={1.8}
-																				/>
-																			)}
+																				{hasWorkspaceDiffStats ? (
+																					<span
+																						aria-hidden="true"
+																						className="size-1 rounded-full bg-muted-foreground/45"
+																					/>
+																				) : null}
+																				{inspectorCollapsed ? (
+																					<PanelRightOpen
+																						className="size-4 shrink-0"
+																						strokeWidth={1.8}
+																					/>
+																				) : (
+																					<PanelRightClose
+																						className="size-4 shrink-0"
+																						strokeWidth={1.8}
+																					/>
+																				)}
+																			</span>
 																		</Button>
 																	</TooltipTrigger>
 																	<TooltipContent

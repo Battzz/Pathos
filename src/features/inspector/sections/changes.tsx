@@ -1,12 +1,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import {
 	getMaterialFileIcon,
 	getMaterialFolderIcon,
 } from "file-extension-icon-js";
 import {
+	AppWindowIcon,
+	CheckIcon,
 	ChevronRightIcon,
 	CloudIcon,
+	FolderOpenIcon,
 	LaptopIcon,
 	ListIcon,
 	ListTreeIcon,
@@ -19,37 +21,74 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatedShinyText } from "@/components/ui/animated-shiny-text";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type {
 	CommitButtonState,
 	WorkspaceCommitButtonMode,
 } from "@/features/commit/button";
 import {
 	type ChangeRequestInfo,
-	continueWorkspaceFromTargetBranch,
 	discardWorkspaceFile,
-	type ForgeDetection,
+	openPathInEditor,
+	openPathInFinder,
 	stageWorkspaceFile,
 	unstageWorkspaceFile,
 } from "@/lib/api";
 import type { DiffOpenOptions, InspectorFileItem } from "@/lib/editor-session";
 import { extractError, isRecoverableByPurge } from "@/lib/errors";
 import {
+	detectedEditorsQueryOptions,
 	helmorQueryKeys,
-	workspaceForgeActionStatusQueryOptions,
-	workspaceForgeQueryOptions,
 } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 import { showWorkspaceBrokenToast } from "@/lib/workspace-broken-toast";
 import { useWorkspaceToast } from "@/lib/workspace-toast-context";
-import { GitSectionHeader } from "./git-section-header";
+import { EditorIcon } from "@/shell/editor-icon";
+import { PREFERRED_EDITOR_STORAGE_KEY } from "@/shell/layout";
+import {
+	INSPECTOR_SECTION_HEADER_CLASS,
+	INSPECTOR_SECTION_TITLE_CLASS,
+} from "../layout";
 
 const STATUS_COLORS: Record<InspectorFileItem["status"], string> = {
 	M: "text-yellow-500",
 	A: "text-green-500",
 	D: "text-red-500",
 };
+
+function getPreferredEditorId() {
+	try {
+		const storage = globalThis.localStorage;
+		return typeof storage?.getItem === "function"
+			? storage.getItem(PREFERRED_EDITOR_STORAGE_KEY)
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+function setPreferredEditorIdStorage(editorId: string) {
+	try {
+		const storage = globalThis.localStorage;
+		if (typeof storage?.setItem === "function") {
+			storage.setItem(PREFERRED_EDITOR_STORAGE_KEY, editorId);
+		}
+	} catch {
+		// Preference persistence is best-effort; opening the file still matters.
+	}
+}
 
 type ChangesSectionProps = {
 	bodyHeight: number;
@@ -80,36 +119,12 @@ export function ChangesSection({
 	activeEditorPath,
 	onOpenEditorFile,
 	flashingPaths,
-	onCommitAction,
-	commitButtonMode = "create-pr",
-	commitButtonState,
-	changeRequest,
-	forgeIsRefreshing = false,
 	fillAvailable = false,
 }: ChangesSectionProps) {
 	const queryClient = useQueryClient();
 	const [changesTreeView, setChangesTreeView] = useState(true);
 	const [branchDiffTreeView, setBranchDiffTreeView] = useState(true);
-	const [changesOpen, setChangesOpen] = useState(true);
-	const [stagedOpen, setStagedOpen] = useState(true);
 	const [branchDiffOpen, setBranchDiffOpen] = useState(true);
-	const [isContinuingWorkspace, setIsContinuingWorkspace] = useState(false);
-	const forgeQuery = useQuery({
-		...workspaceForgeQueryOptions(workspaceId ?? "__none__"),
-		enabled: workspaceId !== null,
-	});
-	const forgeStatusQuery = useQuery({
-		...workspaceForgeActionStatusQueryOptions(workspaceId ?? "__none__"),
-		enabled: workspaceId !== null,
-	});
-	const cachedForgeDetection = workspaceId
-		? queryClient.getQueryData<ForgeDetection>(
-				helmorQueryKeys.workspaceForge(workspaceId),
-			)
-		: null;
-	const forgeDetection = forgeQuery.data ?? cachedForgeDetection ?? null;
-	const changeRequestName = forgeDetection?.labels.changeRequestName ?? "PR";
-
 	// Only show loading when the user switches target branch within the
 	// same workspace — not on workspace/repo navigation or routine polling.
 	const [branchSwitching, setBranchSwitching] = useState(false);
@@ -171,6 +186,7 @@ export function ChangesSection({
 	const hasUncommittedChanges =
 		stagedChanges.length > 0 || unstagedChanges.length > 0;
 	const hasChanges = hasUncommittedChanges || committedChanges.length > 0;
+	const uncommittedCount = stagedChanges.length + unstagedChanges.length;
 	const invalidateChanges = useCallback(() => {
 		if (!workspaceRootPath) {
 			return;
@@ -289,130 +305,55 @@ export function ChangesSection({
 		[invalidateChanges, surfaceChangeError, workspaceRootPath],
 	);
 
-	const handleCommitButtonClick = useCallback(async () => {
-		if (!onCommitAction) {
-			return;
-		}
-		await onCommitAction(commitButtonMode);
-	}, [commitButtonMode, onCommitAction]);
-
-	const handleContinueWorkspace = useCallback(async () => {
-		if (!workspaceId || isContinuingWorkspace) return;
-		setIsContinuingWorkspace(true);
-		try {
-			const result = await continueWorkspaceFromTargetBranch(workspaceId);
-			pushToast(`Workspace moved to ${result.branch}.`, "Continued", "default");
-			await Promise.all([
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceGroups,
-				}),
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceGitActionStatus(workspaceId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceForgeActionStatus(workspaceId),
-				}),
-			]);
-			invalidateChanges();
-		} catch (error) {
-			surfaceChangeError("continue workspace", error);
-		} finally {
-			setIsContinuingWorkspace(false);
-		}
-	}, [
-		invalidateChanges,
-		isContinuingWorkspace,
-		pushToast,
-		queryClient,
-		surfaceChangeError,
-		workspaceId,
-	]);
-
-	// Header shimmer is owned by App: it knows when the change-request and
-	// forge-action-status queries are on their *first* cold fetch (vs. just a
-	// background refresh or a placeholder render).
-	const isForgeRefreshing = workspaceId !== null && forgeIsRefreshing;
-
 	return (
 		<section
-			aria-label="Inspector section Git"
+			aria-label="Inspector section Changes"
 			className={cn(
 				"flex min-h-0 flex-col overflow-hidden border-b border-border/60 bg-sidebar",
 				fillAvailable && "flex-1",
 			)}
 			style={fillAvailable ? undefined : { height: `${bodyHeight}px` }}
 		>
-			<GitSectionHeader
-				commitButtonMode={commitButtonMode}
-				commitButtonState={commitButtonState}
-				changeRequest={changeRequest}
-				changeRequestName={changeRequestName}
-				forgeRemoteState={forgeStatusQuery.data?.remoteState ?? null}
-				forgeDetection={forgeDetection}
-				workspaceId={workspaceId}
-				hasChanges={hasChanges}
-				isRefreshing={isForgeRefreshing}
-				isContinuingWorkspace={isContinuingWorkspace}
-				onChangeRequestClick={
-					changeRequest ? () => void openUrl(changeRequest.url) : undefined
-				}
-				onCommit={handleCommitButtonClick}
-				onContinueWorkspace={handleContinueWorkspace}
+			<ChangesSectionHeader
+				count={uncommittedCount}
+				hasChanges={hasUncommittedChanges}
+				treeView={changesTreeView}
+				onToggleTreeView={() => setChangesTreeView((v) => !v)}
+				onStageAll={unstagedChanges.length > 0 ? stageAll : undefined}
+				onUnstageAll={stagedChanges.length > 0 ? unstageAll : undefined}
 			/>
 
 			<ScrollArea
 				aria-label="Changes panel body"
-				className="min-h-0 flex-1 bg-muted/20 font-mono text-[11.5px]"
+				className="min-h-0 flex-1 bg-sidebar font-mono text-[11.5px]"
 			>
 				{hasUncommittedChanges && (
 					<>
 						{stagedChanges.length > 0 && (
-							<ChangesGroup
-								label="Staged Changes"
-								count={stagedChanges.length}
-								open={stagedOpen}
-								onToggle={() => setStagedOpen((current) => !current)}
+							<ChangesListContent
 								changes={stagedChanges}
 								treeView={changesTreeView}
-								onToggleTreeView={() => setChangesTreeView((v) => !v)}
 								action="unstage"
 								onStageAction={unstageFile}
-								onBatchAction={unstageAll}
 								editorMode={editorMode}
 								activeEditorPath={activeEditorPath}
 								onOpenEditorFile={onOpenEditorFile}
 								flashingPaths={flashingPaths}
+								className="py-1"
 							/>
 						)}
 						{unstagedChanges.length > 0 && (
-							<ChangesGroup
-								label="Changes"
-								icon={
-									<LaptopIcon
-										className="size-3 shrink-0 text-muted-foreground"
-										strokeWidth={2}
-									/>
-								}
-								count={unstagedChanges.length}
-								open={changesOpen}
-								onToggle={() => setChangesOpen((current) => !current)}
+							<ChangesListContent
 								changes={unstagedChanges}
 								treeView={changesTreeView}
-								onToggleTreeView={() => setChangesTreeView((v) => !v)}
 								action="stage"
 								onStageAction={stageFile}
-								onBatchAction={stageAll}
 								onDiscard={discardFile}
 								editorMode={editorMode}
 								activeEditorPath={activeEditorPath}
 								onOpenEditorFile={onOpenEditorFile}
 								flashingPaths={flashingPaths}
+								className="py-1"
 							/>
 						)}
 					</>
@@ -447,112 +388,121 @@ export function ChangesSection({
 
 type StageActionKind = "stage" | "unstage";
 
-function ChangesGroup({
-	label,
-	icon,
+function ChangesSectionHeader({
 	count,
-	open,
-	onToggle,
-	changes,
+	hasChanges,
 	treeView,
 	onToggleTreeView,
+	onStageAll,
+	onUnstageAll,
+}: {
+	count: number;
+	hasChanges: boolean;
+	treeView: boolean;
+	onToggleTreeView: () => void;
+	onStageAll?: () => void;
+	onUnstageAll?: () => void;
+}) {
+	return (
+		<div
+			className={cn(
+				INSPECTOR_SECTION_HEADER_CLASS,
+				"group/header gap-1.5 bg-sidebar/95 shadow-[inset_0_-1px_0_color-mix(in_oklch,var(--border)_70%,transparent)]",
+			)}
+		>
+			<div className="flex h-full min-w-0 flex-1 items-center justify-start gap-1.5 text-left">
+				<LaptopIcon
+					className="size-3.5 shrink-0 text-muted-foreground"
+					strokeWidth={1.8}
+				/>
+				<span className={cn(INSPECTOR_SECTION_TITLE_CLASS, "truncate")}>
+					Changes
+				</span>
+			</div>
+			{hasChanges && (
+				<div className="flex shrink-0 items-center gap-1">
+					<ViewToggleButton
+						treeView={treeView}
+						onToggle={onToggleTreeView}
+						className="text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+					/>
+					{onUnstageAll && (
+						<TooltipRowIconButton
+							label="Unstage all changes"
+							onClick={onUnstageAll}
+							className="text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+						>
+							<MinusIcon className="size-3.5" strokeWidth={2} />
+						</TooltipRowIconButton>
+					)}
+					{onStageAll && (
+						<TooltipRowIconButton
+							label="Stage all changes"
+							onClick={onStageAll}
+							className="text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+						>
+							<PlusIcon className="size-3.5" strokeWidth={2} />
+						</TooltipRowIconButton>
+					)}
+					<Badge
+						variant="secondary"
+						className="h-5 min-w-5 justify-center rounded-full bg-muted/70 px-1.5 text-[10px] font-semibold leading-none text-muted-foreground"
+					>
+						{count}
+					</Badge>
+				</div>
+			)}
+		</div>
+	);
+}
+
+function ChangesListContent({
+	changes,
+	treeView,
 	action,
 	onStageAction,
-	onBatchAction,
 	onDiscard,
 	editorMode,
 	activeEditorPath,
 	onOpenEditorFile,
 	flashingPaths,
+	className,
 }: {
-	label: string;
-	icon?: React.ReactNode;
-	count: number;
-	open: boolean;
-	onToggle: () => void;
 	changes: InspectorFileItem[];
 	treeView: boolean;
-	onToggleTreeView: () => void;
-	action: StageActionKind;
-	onStageAction: (path: string) => void;
-	onBatchAction?: () => void;
+	action?: StageActionKind;
+	onStageAction?: (path: string) => void;
 	onDiscard?: (path: string) => void;
 	editorMode: boolean;
 	activeEditorPath?: string | null;
 	onOpenEditorFile: (path: string, options?: DiffOpenOptions) => void;
 	flashingPaths: Set<string>;
+	className?: string;
 }) {
 	return (
-		<div>
-			<div className="group/header flex w-full items-center gap-1 py-1 pl-1 pr-2 text-[11.5px] font-semibold tracking-[-0.01em] text-muted-foreground">
-				<Button
-					type="button"
-					variant="ghost"
-					size="xs"
-					onClick={onToggle}
-					aria-expanded={open}
-					className="h-auto min-w-0 flex-1 justify-start gap-1 rounded-none px-0 text-left hover:bg-transparent hover:text-foreground dark:hover:bg-transparent aria-expanded:bg-transparent aria-expanded:text-foreground"
-				>
-					<ChevronRightIcon
-						data-icon="inline-start"
-						className={cn(
-							"size-3 shrink-0 transition-transform",
-							open && "rotate-90",
-						)}
-						strokeWidth={2}
-					/>
-					{icon}
-					<span className="truncate">{label}</span>
-				</Button>
-				<ViewToggleButton treeView={treeView} onToggle={onToggleTreeView} />
-				{onBatchAction && (
-					<RowIconButton
-						aria-label={
-							action === "stage" ? "Stage all changes" : "Unstage all changes"
-						}
-						onClick={onBatchAction}
-						className="text-transparent hover:bg-transparent group-hover/header:text-muted-foreground group-hover/header:hover:text-foreground"
-					>
-						{action === "stage" ? (
-							<PlusIcon className="size-3.5" strokeWidth={2} />
-						) : (
-							<MinusIcon className="size-3.5" strokeWidth={2} />
-						)}
-					</RowIconButton>
-				)}
-				<Badge
-					variant="secondary"
-					className="h-4 min-w-[16px] justify-center rounded-full px-1 text-[9.5px] font-semibold"
-				>
-					{count}
-				</Badge>
-			</div>
-			{open && (
-				<div className="pl-3">
-					{treeView ? (
-						<ChangesTreeView
-							changes={changes}
-							editorMode={editorMode}
-							activeEditorPath={activeEditorPath}
-							onOpenEditorFile={onOpenEditorFile}
-							flashingPaths={flashingPaths}
-							action={action}
-							onStageAction={onStageAction}
-							onDiscard={onDiscard}
-						/>
-					) : (
-						<ChangesFlatView
-							changes={changes}
-							editorMode={editorMode}
-							activeEditorPath={activeEditorPath}
-							onOpenEditorFile={onOpenEditorFile}
-							flashingPaths={flashingPaths}
-							action={action}
-							onStageAction={onStageAction}
-							onDiscard={onDiscard}
-						/>
-					)}
-				</div>
+		<div className={cn("bg-muted/[0.12]", className)}>
+			{treeView ? (
+				<ChangesTreeView
+					changes={changes}
+					editorMode={editorMode}
+					activeEditorPath={activeEditorPath}
+					onOpenEditorFile={onOpenEditorFile}
+					flashingPaths={flashingPaths}
+					action={action}
+					onStageAction={onStageAction}
+					onDiscard={onDiscard}
+				/>
+			) : (
+				<ChangesFlatView
+					changes={changes}
+					editorMode={editorMode}
+					activeEditorPath={activeEditorPath}
+					onOpenEditorFile={onOpenEditorFile}
+					flashingPaths={flashingPaths}
+					action={action}
+					onStageAction={onStageAction}
+					onDiscard={onDiscard}
+				/>
 			)}
 		</div>
 	);
@@ -929,9 +879,7 @@ function ChangesFlatView({
 	onStageAction?: (path: string) => void;
 	onDiscard?: (path: string) => void;
 }) {
-	const hasStage = !!action && !!onStageAction;
-	const hasDiscard = !!onDiscard;
-	const hasAction = hasStage || hasDiscard;
+	const hasAction = true;
 
 	return (
 		<div className="py-0.5">
@@ -1003,6 +951,7 @@ function ChangesFlatView({
 					{hasAction && (
 						<RowHoverActions
 							path={change.path}
+							file={change}
 							action={action}
 							onStageAction={onStageAction}
 							onDiscard={onDiscard}
@@ -1025,9 +974,7 @@ function StageActionSlot({
 	onStageAction?: (path: string) => void;
 	onDiscard?: (path: string) => void;
 }) {
-	const hasStage = !!action && !!onStageAction;
-	const hasDiscard = !!onDiscard;
-	const hasAction = hasStage || hasDiscard;
+	const hasAction = true;
 
 	return (
 		<>
@@ -1050,6 +997,7 @@ function StageActionSlot({
 			{hasAction && (
 				<RowHoverActions
 					path={file.path}
+					file={file}
 					action={action}
 					onStageAction={onStageAction}
 					onDiscard={onDiscard}
@@ -1061,29 +1009,41 @@ function StageActionSlot({
 
 function RowHoverActions({
 	path,
+	file,
 	action,
 	onStageAction,
 	onDiscard,
 }: {
 	path: string;
+	file: InspectorFileItem;
 	action?: StageActionKind;
 	onStageAction?: (path: string) => void;
 	onDiscard?: (path: string) => void;
 }) {
+	const [openInAppMenuOpen, setOpenInAppMenuOpen] = useState(false);
+
 	return (
-		<span className="ml-auto hidden items-center gap-0.5 group-hover/row:inline-flex">
+		<span
+			className={cn(
+				"ml-auto items-center gap-0.5",
+				openInAppMenuOpen
+					? "inline-flex"
+					: "hidden group-hover/row:inline-flex",
+			)}
+		>
+			<OpenInAppMenu file={file} onOpenChange={setOpenInAppMenuOpen} />
 			{onDiscard && (
-				<RowIconButton
-					aria-label="Discard file changes"
+				<TooltipRowIconButton
+					label="Discard file changes"
 					onClick={() => onDiscard(path)}
 					className="text-muted-foreground hover:bg-accent/60 hover:text-foreground"
 				>
 					<Undo2Icon className="size-3.5" strokeWidth={2} />
-				</RowIconButton>
+				</TooltipRowIconButton>
 			)}
 			{action && onStageAction && (
-				<RowIconButton
-					aria-label={action === "stage" ? "Stage file" : "Unstage file"}
+				<TooltipRowIconButton
+					label={action === "stage" ? "Stage file" : "Unstage file"}
 					onClick={() => onStageAction(path)}
 					className="text-muted-foreground hover:bg-accent/60 hover:text-foreground"
 				>
@@ -1092,9 +1052,95 @@ function RowHoverActions({
 					) : (
 						<MinusIcon className="size-3.5" strokeWidth={2} />
 					)}
-				</RowIconButton>
+				</TooltipRowIconButton>
 			)}
 		</span>
+	);
+}
+
+function OpenInAppMenu({
+	file,
+	onOpenChange,
+}: {
+	file: InspectorFileItem;
+	onOpenChange: (open: boolean) => void;
+}) {
+	const pushToast = useWorkspaceToast();
+	const { data: installedEditors = [] } = useQuery(
+		detectedEditorsQueryOptions(),
+	);
+	const [preferredEditorId, setPreferredEditorId] =
+		useState(getPreferredEditorId);
+
+	const openInFinder = useCallback(() => {
+		void openPathInFinder(file.absolutePath).catch((error) => {
+			pushToast(String(error), "Failed to open Finder", "destructive");
+		});
+	}, [file.absolutePath, pushToast]);
+
+	const openInEditor = useCallback(
+		(editorId: string, editorName: string) => {
+			setPreferredEditorId(editorId);
+			setPreferredEditorIdStorage(editorId);
+			void openPathInEditor(file.absolutePath, editorId).catch((error) => {
+				pushToast(String(error), `Failed to open ${editorName}`, "destructive");
+			});
+		},
+		[file.absolutePath, pushToast],
+	);
+
+	return (
+		<DropdownMenu onOpenChange={onOpenChange}>
+			<DropdownMenuTrigger asChild>
+				<RowIconButton
+					aria-label="Open in app"
+					onClick={() => {}}
+					onPointerDown={(event) => event.stopPropagation()}
+					className="text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+				>
+					<AppWindowIcon className="size-3.5" strokeWidth={1.8} />
+				</RowIconButton>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				side="bottom"
+				align="end"
+				sideOffset={4}
+				className="min-w-[11rem]"
+				onClick={(event) => event.stopPropagation()}
+				onPointerDown={(event) => event.stopPropagation()}
+			>
+				<DropdownMenuItem
+					onClick={(event) => event.stopPropagation()}
+					onPointerDown={(event) => event.stopPropagation()}
+					onSelect={(event) => {
+						event.stopPropagation();
+						openInFinder();
+					}}
+					className="flex items-center gap-2"
+				>
+					<FolderOpenIcon className="shrink-0" strokeWidth={1.8} />
+					<span className="flex-1">Finder</span>
+				</DropdownMenuItem>
+				{installedEditors.map((editor) => (
+					<DropdownMenuItem
+						key={editor.id}
+						onClick={(event) => event.stopPropagation()}
+						onPointerDown={(event) => event.stopPropagation()}
+						onSelect={(event) => {
+							event.stopPropagation();
+							openInEditor(editor.id, editor.name);
+						}}
+						className="flex items-center gap-2"
+					>
+						<EditorIcon editorId={editor.id} className="shrink-0" />
+						<span className="flex-1">{editor.name}</span>
+						{editor.id === preferredEditorId && (
+							<CheckIcon className="ml-auto text-muted-foreground" />
+						)}
+					</DropdownMenuItem>
+				))}
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 
@@ -1104,15 +1150,18 @@ function RowIconButton({
 	children,
 	className,
 	"aria-label": ariaLabel,
+	onKeyDown,
+	...props
 }: {
 	onClick: () => void;
 	disabled?: boolean;
 	children: React.ReactNode;
 	className?: string;
 	"aria-label": string;
-}) {
+} & Omit<React.ComponentProps<typeof Button>, "onClick" | "children">) {
 	return (
 		<Button
+			{...props}
 			type="button"
 			variant="ghost"
 			size="icon-xs"
@@ -1122,7 +1171,10 @@ function RowIconButton({
 				event.stopPropagation();
 				onClick();
 			}}
-			onKeyDown={(event) => event.stopPropagation()}
+			onKeyDown={(event) => {
+				event.stopPropagation();
+				onKeyDown?.(event);
+			}}
 			className={cn(
 				"size-4 rounded-sm transition-colors disabled:pointer-events-none disabled:opacity-60",
 				className,
@@ -1133,25 +1185,71 @@ function RowIconButton({
 	);
 }
 
+function TooltipRowIconButton({
+	label,
+	onClick,
+	children,
+	className,
+}: {
+	label: string;
+	onClick: () => void;
+	children: React.ReactNode;
+	className?: string;
+}) {
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<RowIconButton
+					aria-label={label}
+					onClick={onClick}
+					className={className}
+				>
+					{children}
+				</RowIconButton>
+			</TooltipTrigger>
+			<TooltipContent
+				side="bottom"
+				className="flex h-[24px] items-center rounded-md px-2 text-[12px] leading-none"
+			>
+				{label}
+			</TooltipContent>
+		</Tooltip>
+	);
+}
+
 function ViewToggleButton({
 	treeView,
 	onToggle,
+	className = "text-transparent hover:bg-transparent group-hover/header:text-muted-foreground group-hover/header:hover:text-foreground",
 }: {
 	treeView: boolean;
 	onToggle: () => void;
+	className?: string;
 }) {
+	const label = treeView ? "Switch to list view" : "Switch to tree view";
+
 	return (
-		<RowIconButton
-			aria-label={treeView ? "Switch to list view" : "Switch to tree view"}
-			onClick={onToggle}
-			className="text-transparent hover:bg-transparent group-hover/header:text-muted-foreground group-hover/header:hover:text-foreground"
-		>
-			{treeView ? (
-				<ListIcon className="size-3.5" strokeWidth={1.8} />
-			) : (
-				<ListTreeIcon className="size-3.5" strokeWidth={1.8} />
-			)}
-		</RowIconButton>
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<RowIconButton
+					aria-label={label}
+					onClick={onToggle}
+					className={className}
+				>
+					{treeView ? (
+						<ListIcon className="size-3.5" strokeWidth={1.8} />
+					) : (
+						<ListTreeIcon className="size-3.5" strokeWidth={1.8} />
+					)}
+				</RowIconButton>
+			</TooltipTrigger>
+			<TooltipContent
+				side="bottom"
+				className="flex h-[24px] items-center rounded-md px-2 text-[12px] leading-none"
+			>
+				{label}
+			</TooltipContent>
+		</Tooltip>
 	);
 }
 

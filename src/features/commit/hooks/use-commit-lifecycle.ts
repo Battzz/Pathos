@@ -36,6 +36,7 @@ import {
 	helmorQueryKeys,
 	workspaceForgeQueryOptions,
 } from "@/lib/query-client";
+import { DEFAULT_SETTINGS, useSettings } from "@/lib/settings";
 import { moveWorkspaceToGroup } from "@/lib/workspace-helpers";
 import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import type { CommitButtonState, WorkspaceCommitButtonMode } from "../button";
@@ -186,6 +187,9 @@ export function useWorkspaceCommitLifecycle({
 	const currentChangeRequest = changeRequest ?? null;
 	const currentForgeActionStatus = forgeActionStatus ?? null;
 	const changeRequestName = forgeDetection?.labels.changeRequestName ?? "PR";
+	const { settings } = useSettings();
+	const commitActionModelId =
+		settings.commitActionModelId ?? DEFAULT_SETTINGS.commitActionModelId;
 
 	// Keep a stable ref so the merge-validation guard in the callback can
 	// read the latest value without adding it to the dependency array.
@@ -388,7 +392,11 @@ export function useWorkspaceCommitLifecycle({
 						: current,
 				);
 
-				setPendingPromptForSession({ sessionId, prompt });
+				setPendingPromptForSession({
+					sessionId,
+					prompt,
+					modelId: commitActionModelId,
+				});
 				onSelectSession(sessionId);
 			} catch (error) {
 				console.error("[commitButton] Failed to start session:", error);
@@ -410,6 +418,7 @@ export function useWorkspaceCommitLifecycle({
 			selectedRepoId,
 			selectedWorkspaceTargetBranch,
 			selectedWorkspaceRemote,
+			commitActionModelId,
 			selectedWorkspaceIdRef,
 		],
 	);

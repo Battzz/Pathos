@@ -33,6 +33,9 @@ describe("App", () => {
 		const user = userEvent.setup();
 		render(<App />);
 		await screen.findByRole("main", { name: "Application shell" });
+		await user.click(
+			screen.getByRole("button", { name: "Expand right sidebar" }),
+		);
 
 		// Default: tabs section collapsed; changes + actions bodies present.
 		expect(screen.getByLabelText("Changes panel body")).toBeInTheDocument();
@@ -92,6 +95,9 @@ describe("App", () => {
 	it("resizes the inspector sidebar and persists the width", async () => {
 		render(<App />);
 		await screen.findByRole("main", { name: "Application shell" });
+		fireEvent.click(
+			screen.getByRole("button", { name: "Expand right sidebar" }),
+		);
 
 		const inspector = screen.getByLabelText("Inspector sidebar");
 		const resizeHandle = screen.getByRole("separator", {
@@ -132,6 +138,9 @@ describe("App", () => {
 		expect(screen.getByLabelText("Workspace sidebar")).toHaveStyle({
 			width: "404px",
 		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Expand right sidebar" }),
+		);
 		expect(screen.getByLabelText("Inspector sidebar")).toHaveStyle({
 			width: "388px",
 		});

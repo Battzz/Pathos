@@ -1352,10 +1352,21 @@ export async function openWorkspaceInEditor(
 	await invoke("open_workspace_in_editor", { workspaceId, editor });
 }
 
+export async function openPathInEditor(
+	path: string,
+	editor: string,
+): Promise<void> {
+	await invoke("open_path_in_editor", { path, editor });
+}
+
 export async function openWorkspaceInFinder(
 	workspaceId: string,
 ): Promise<void> {
 	await invoke("open_workspace_in_finder", { workspaceId });
+}
+
+export async function openPathInFinder(path: string): Promise<void> {
+	await invoke("open_path_in_finder", { path });
 }
 
 export async function readEditorFile(

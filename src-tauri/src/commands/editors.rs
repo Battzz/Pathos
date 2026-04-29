@@ -437,13 +437,13 @@ fn resolve_single(spec: &EditorSpec) -> Option<String> {
 fn launch_with_open(
     app_path: Option<&str>,
     app_name: &str,
-    dir: &std::path::Path,
+    target: &std::path::Path,
 ) -> anyhow::Result<()> {
-    let dir_str = dir.display().to_string();
+    let target_str = target.display().to_string();
     let mut cmd = std::process::Command::new("open");
     match app_path {
-        Some(p) => cmd.args(["-a", p, &dir_str]),
-        None => cmd.args(["-a", app_name, &dir_str]),
+        Some(p) => cmd.args(["-a", p, &target_str]),
+        None => cmd.args(["-a", app_name, &target_str]),
     };
     cmd.spawn().map(|_| ()).context("open command failed")
 }
@@ -452,13 +452,13 @@ fn launch_with_open(
 fn launch_with_open(
     _app_path: Option<&str>,
     _app_name: &str,
-    _dir: &std::path::Path,
+    _target: &std::path::Path,
 ) -> anyhow::Result<()> {
     anyhow::bail!("Opening third-party editors is only supported on macOS")
 }
 
 #[cfg(target_os = "macos")]
-fn reveal_in_finder(dir: &std::path::Path) -> anyhow::Result<()> {
+fn open_in_finder(dir: &std::path::Path) -> anyhow::Result<()> {
     std::process::Command::new("open")
         .arg(dir)
         .spawn()
@@ -467,8 +467,22 @@ fn reveal_in_finder(dir: &std::path::Path) -> anyhow::Result<()> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn reveal_in_finder(_dir: &std::path::Path) -> anyhow::Result<()> {
+fn open_in_finder(_dir: &std::path::Path) -> anyhow::Result<()> {
     anyhow::bail!("Opening Finder is only supported on macOS")
+}
+
+#[cfg(target_os = "macos")]
+fn reveal_in_finder(path: &std::path::Path) -> anyhow::Result<()> {
+    std::process::Command::new("open")
+        .args(["-R", &path.display().to_string()])
+        .spawn()
+        .map(|_| ())
+        .context("open command failed")
+}
+
+#[cfg(not(target_os = "macos"))]
+fn reveal_in_finder(_path: &std::path::Path) -> anyhow::Result<()> {
+    anyhow::bail!("Showing files in Finder is only supported on macOS")
 }
 
 #[tauri::command]
@@ -498,6 +512,23 @@ pub async fn open_workspace_in_editor(workspace_id: String, editor: String) -> C
 }
 
 #[tauri::command]
+pub async fn open_path_in_editor(path: String, editor: String) -> CmdResult<()> {
+    run_blocking(move || {
+        let spec =
+            spec_by_id(&editor).ok_or_else(|| anyhow::anyhow!("Unsupported editor: {editor}"))?;
+        let target = std::path::PathBuf::from(path);
+        if !target.exists() {
+            anyhow::bail!("Path not found: {}", target.display());
+        }
+
+        let resolved = resolve_single(spec);
+        launch_with_open(resolved.as_deref(), spec.name, &target)
+            .with_context(|| format!("Failed to open {}", spec.name))
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn open_workspace_in_finder(workspace_id: String) -> CmdResult<()> {
     run_blocking(move || {
         let record = workspace_models::load_workspace_record_by_id(&workspace_id)?
@@ -506,7 +537,19 @@ pub async fn open_workspace_in_finder(workspace_id: String) -> CmdResult<()> {
         let workspace_dir = crate::workspace_project::resolve_workspace_root_path(&record)
             .with_context(|| format!("Workspace directory not found for {}", record.id))?;
 
-        reveal_in_finder(&workspace_dir).context("Failed to open Finder")
+        open_in_finder(&workspace_dir).context("Failed to open Finder")
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn open_path_in_finder(path: String) -> CmdResult<()> {
+    run_blocking(move || {
+        let target = std::path::PathBuf::from(path);
+        if !target.exists() {
+            anyhow::bail!("Path not found: {}", target.display());
+        }
+        reveal_in_finder(&target).context("Failed to show file in Finder")
     })
     .await
 }

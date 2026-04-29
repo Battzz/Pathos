@@ -10,6 +10,7 @@ import type {
 	WorkspaceGroup,
 } from "@/lib/api";
 import { helmorQueryKeys } from "@/lib/query-client";
+import { DEFAULT_SETTINGS, SettingsContext } from "@/lib/settings";
 import { useWorkspaceCommitLifecycle } from "./use-commit-lifecycle";
 
 const apiMocks = vi.hoisted(() => ({
@@ -60,10 +61,23 @@ const EMPTY_FORGE_ACTION_STATUS: ForgeActionStatus = {
 	message: null,
 };
 
-function createWrapper(queryClient: QueryClient) {
+function createWrapper(
+	queryClient: QueryClient,
+	settings: Partial<typeof DEFAULT_SETTINGS> = {},
+) {
 	return function Wrapper({ children }: { children: ReactNode }) {
 		return (
-			<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+			<QueryClientProvider client={queryClient}>
+				<SettingsContext.Provider
+					value={{
+						settings: { ...DEFAULT_SETTINGS, ...settings },
+						isLoaded: true,
+						updateSettings: vi.fn(),
+					}}
+				>
+					{children}
+				</SettingsContext.Provider>
+			</QueryClientProvider>
 		);
 	};
 }
@@ -189,6 +203,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 		});
 		expect(result.current.pendingPromptForSession).toMatchObject({
 			sessionId: "session-action",
+			modelId: "gpt-5.4-mini",
 		});
 		expect(onSelectSession).toHaveBeenCalledWith("session-action");
 

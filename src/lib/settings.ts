@@ -27,6 +27,7 @@ export type AppSettings = {
 	lastWorkspaceId: string | null;
 	lastSessionId: string | null;
 	defaultModelId: string | null;
+	commitActionModelId: string | null;
 	defaultEffort: string | null;
 	defaultFastMode: boolean;
 	/** Webview zoom factor. 1.0 = 100%. Range 0.5–2.0. */
@@ -58,6 +59,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	lastWorkspaceId: null,
 	lastSessionId: null,
 	defaultModelId: null,
+	commitActionModelId: "gpt-5.4-mini",
 	defaultEffort: "high",
 	defaultFastMode: false,
 	zoomLevel: 1.0,
@@ -85,6 +87,7 @@ const SETTINGS_KEY_MAP: Record<Exclude<keyof AppSettings, "theme">, string> = {
 	lastWorkspaceId: "app.last_workspace_id",
 	lastSessionId: "app.last_session_id",
 	defaultModelId: "app.default_model_id",
+	commitActionModelId: "app.commit_action_model_id",
 	defaultEffort: "app.default_effort",
 	defaultFastMode: "app.default_fast_mode",
 	zoomLevel: "app.zoom_level",
@@ -147,6 +150,7 @@ export async function loadSettings(): Promise<AppSettings> {
 	try {
 		const raw = await invoke<Record<string, string>>("get_app_settings");
 		const rawDefaultModelId = raw[SETTINGS_KEY_MAP.defaultModelId];
+		const rawCommitActionModelId = raw[SETTINGS_KEY_MAP.commitActionModelId];
 		return {
 			fontSize: raw[SETTINGS_KEY_MAP.fontSize]
 				? Number(raw[SETTINGS_KEY_MAP.fontSize])
@@ -172,6 +176,10 @@ export async function loadSettings(): Promise<AppSettings> {
 				rawDefaultModelId && rawDefaultModelId !== "default"
 					? rawDefaultModelId
 					: DEFAULT_SETTINGS.defaultModelId,
+			commitActionModelId:
+				rawCommitActionModelId && rawCommitActionModelId !== "default"
+					? rawCommitActionModelId
+					: DEFAULT_SETTINGS.commitActionModelId,
 			defaultEffort:
 				raw[SETTINGS_KEY_MAP.defaultEffort] || DEFAULT_SETTINGS.defaultEffort,
 			defaultFastMode:
