@@ -142,7 +142,7 @@ pub enum RepoAction {
         #[arg(name = "ref")]
         repo_ref: String,
     },
-    /// Register a Git repository at `<path>`. Creates the first workspace.
+    /// Register a project at `<path>`.
     Add { path: String },
     /// Delete a repository and all its workspaces, sessions, messages.
     Delete {
@@ -236,12 +236,6 @@ pub enum WorkspaceAction {
     Show {
         #[arg(name = "ref")]
         workspace_ref: String,
-    },
-    /// Create a new workspace for an existing repository.
-    New {
-        /// Repo name or UUID.
-        #[arg(long)]
-        repo: String,
     },
     /// Permanently delete a workspace (DB rows + git worktree + files).
     Delete {

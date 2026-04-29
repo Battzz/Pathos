@@ -1,530 +1,102 @@
-import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-	Archive,
-	ChevronRight,
-	Folder,
 	FolderPlus,
 	Globe,
 	LoaderCircle,
-	Plus,
+	MessageSquarePlus,
 } from "lucide-react";
-import {
-	memo,
-	useCallback,
-	useEffect,
-	useLayoutEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { memo, type ReactNode, useEffect, useState } from "react";
 import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-	CommandEmpty,
-	CommandItem,
-	CommandList,
-} from "@/components/ui/command";
-import { CommandPopoverContent } from "@/components/ui/command-popover";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
-import type {
-	RepositoryCreateOption,
-	WorkspaceGroup,
-	WorkspaceRow,
-	WorkspaceStatus,
-} from "@/lib/api";
+import type { RepositoryFolder, RepositoryFolderChat } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { WorkspaceAvatar } from "./avatar";
+import { ChatRow } from "./chat-row";
 import { CloneFromUrlDialog } from "./clone-from-url-dialog";
-import {
-	createInitialSectionOpenState,
-	readStoredSectionOpenState,
-	writeStoredSectionOpenState,
-} from "./open-state";
-import { WorkspaceRowItem } from "./row-item";
-import {
-	ARCHIVED_SECTION_ID,
-	findSelectedSectionId,
-	GroupIcon,
-} from "./shared";
+import { FolderRow } from "./folder-row";
 
-// ---------------------------------------------------------------------------
-// Virtual list item types
-// ---------------------------------------------------------------------------
-
-type VirtualItem =
-	| {
-			kind: "group-header";
-			groupId: string;
-			group: WorkspaceGroup;
-			canCollapse: boolean;
-	  }
-	| { kind: "row"; groupId: string; row: WorkspaceRow; isArchived: boolean }
-	| { kind: "group-gap"; size: number }
-	| { kind: "bottom-padding" };
-
-const HEADER_HEIGHT = 34; // unified header height for all groups
-const ROW_HEIGHT = 32; // 30px (h-7.5) + 2px gap
-const GROUP_GAP = 8; // tighter gap between populated groups
-const EMPTY_GROUP_GAP = 8; // tighter spacing around empty groups
-const BOTTOM_PADDING = 8;
-
-function getGroupHeaderHeight(_hasRows: boolean) {
-	return HEADER_HEIGHT;
-}
-
-function getGroupGapSize(previousHasRows: boolean, nextHasRows: boolean) {
-	return previousHasRows && nextHasRows ? GROUP_GAP : EMPTY_GROUP_GAP;
-}
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
-export const WorkspacesSidebar = memo(function WorkspacesSidebar({
-	groups,
-	archivedRows,
-	availableRepositories,
-	addingRepository,
-	selectedWorkspaceId,
-	sendingWorkspaceIds,
-	interactionRequiredWorkspaceIds,
-	newWorkspaceShortcut,
-	addRepositoryShortcut,
-	creatingWorkspaceRepoId,
-	onAddRepository,
-	onOpenCloneDialog,
-	isCloneDialogOpen,
-	onCloneDialogOpenChange,
-	cloneDefaultDirectory,
-	onSubmitClone,
-	onSelectWorkspace,
-	onPrefetchWorkspace,
-	onCreateWorkspace,
-	onArchiveWorkspace,
-	onMarkWorkspaceUnread,
-	onRestoreWorkspace,
-	onDeleteWorkspace,
-	onOpenInFinder,
-	onTogglePin,
-	onSetWorkspaceStatus,
-	archivingWorkspaceIds,
-	markingUnreadWorkspaceId,
-	restoringWorkspaceId,
-}: {
-	groups: WorkspaceGroup[];
-	archivedRows: WorkspaceRow[];
-	availableRepositories?: RepositoryCreateOption[];
-	addingRepository?: boolean;
-	selectedWorkspaceId?: string | null;
-	sendingWorkspaceIds?: Set<string>;
-	interactionRequiredWorkspaceIds?: Set<string>;
-	newWorkspaceShortcut?: string | null;
+export type WorkspacesSidebarProps = {
+	folders: RepositoryFolder[];
+	selectedWorkspaceId: string | null;
+	selectedSessionId: string | null;
 	addRepositoryShortcut?: string | null;
-	creatingWorkspaceRepoId?: string | null;
-	onAddRepository?: () => void;
-	onOpenCloneDialog?: () => void;
-	isCloneDialogOpen?: boolean;
-	onCloneDialogOpenChange?: (open: boolean) => void;
-	cloneDefaultDirectory?: string | null;
-	onSubmitClone?: (args: {
+	addingRepository: boolean;
+	creatingChatRepoId: string | null;
+	isCloneDialogOpen: boolean;
+	cloneDefaultDirectory: string | null;
+	onCloneDialogOpenChange: (open: boolean) => void;
+	onAddRepository: () => void;
+	onOpenCloneDialog: () => void;
+	onSubmitClone: (args: {
 		gitUrl: string;
 		cloneDirectory: string;
 	}) => Promise<void>;
-	onSelectWorkspace?: (workspaceId: string) => void;
-	onPrefetchWorkspace?: (workspaceId: string) => void;
-	onCreateWorkspace?: (repoId: string) => void;
-	onArchiveWorkspace?: (workspaceId: string) => void;
-	onMarkWorkspaceUnread?: (workspaceId: string) => void;
-	onRestoreWorkspace?: (workspaceId: string) => void;
-	onDeleteWorkspace?: (workspaceId: string) => void;
-	onOpenInFinder?: (workspaceId: string) => void;
-	onTogglePin?: (workspaceId: string, currentlyPinned: boolean) => void;
-	onSetWorkspaceStatus?: (workspaceId: string, status: WorkspaceStatus) => void;
-	archivingWorkspaceIds?: Set<string>;
-	markingUnreadWorkspaceId?: string | null;
-	restoringWorkspaceId?: string | null;
-}) {
-	const [isRepoPickerOpen, setIsRepoPickerOpen] = useState(false);
-	const [isAddRepositoryMenuOpen, setIsAddRepositoryMenuOpen] = useState(false);
-	const scrollContainerRef = useRef<HTMLDivElement>(null);
-	const repoCommandListRef = useRef<HTMLDivElement | null>(null);
-	const [sectionOpenState, setSectionOpenState] = useState(() => ({
-		...createInitialSectionOpenState(groups),
-		...readStoredSectionOpenState(),
-	}));
+	onSelectChat: (workspaceId: string, sessionId: string) => void;
+	onPrefetchChat: (workspaceId: string, sessionId: string) => void;
+	onCreateChat: (repoId: string) => void;
+	onDeleteChat: (sessionId: string) => void;
+	onToggleChatPin?: (chat: RepositoryFolderChat) => void;
+	onRemoveProject: (repoId: string) => void;
+	isFolderExpanded: (repoId: string) => boolean;
+	onToggleFolder: (repoId: string) => void;
+	footerControls?: ReactNode;
+	accountControl?: ReactNode;
+};
+
+export const WorkspacesSidebar = memo(function WorkspacesSidebar({
+	folders,
+	selectedWorkspaceId,
+	selectedSessionId,
+	addRepositoryShortcut,
+	addingRepository,
+	creatingChatRepoId,
+	isCloneDialogOpen,
+	cloneDefaultDirectory,
+	onCloneDialogOpenChange,
+	onAddRepository,
+	onOpenCloneDialog,
+	onSubmitClone,
+	onSelectChat,
+	onPrefetchChat,
+	onCreateChat,
+	onDeleteChat,
+	onToggleChatPin,
+	onRemoveProject,
+	isFolderExpanded,
+	onToggleFolder,
+	footerControls,
+	accountControl,
+}: WorkspacesSidebarProps) {
+	const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
 
 	useEffect(() => {
-		setSectionOpenState((current) => {
-			const next: Record<string, boolean> = {};
-			let changed = false;
-
-			for (const group of groups) {
-				const nextValue = current[group.id] ?? true;
-				next[group.id] = nextValue;
-				if (current[group.id] !== nextValue) {
-					changed = true;
-				}
-			}
-
-			const archivedValue = current[ARCHIVED_SECTION_ID] ?? false;
-			next[ARCHIVED_SECTION_ID] = archivedValue;
-			if (current[ARCHIVED_SECTION_ID] !== archivedValue) {
-				changed = true;
-			}
-
-			if (Object.keys(current).length !== Object.keys(next).length) {
-				changed = true;
-			}
-
-			return changed ? next : current;
-		});
-	}, [archivedRows, groups]);
-
-	useEffect(() => {
-		writeStoredSectionOpenState(sectionOpenState);
-	}, [sectionOpenState]);
-
-	// Auto-expand the group containing the selected workspace, but ONLY when
-	// the selection actually changes — not on every groups refetch (window
-	// focus, invalidation, status change). Without this guard, collapsed
-	// groups reopen whenever their data refreshes.
-	const lastAutoExpandedIdRef = useRef<string | null>(null);
-	useEffect(() => {
-		if (
-			!selectedWorkspaceId ||
-			selectedWorkspaceId === lastAutoExpandedIdRef.current
-		) {
-			return;
-		}
-
-		const selectedSectionId = findSelectedSectionId(
-			selectedWorkspaceId,
-			groups,
-			archivedRows,
-		);
-
-		if (!selectedSectionId) {
-			return;
-		}
-
-		lastAutoExpandedIdRef.current = selectedWorkspaceId;
-		setSectionOpenState((current) =>
-			current[selectedSectionId]
-				? current
-				: { ...current, [selectedSectionId]: true },
-		);
-	}, [archivedRows, groups, selectedWorkspaceId]);
-
-	// ── Flatten groups into virtual items ──────────────────────────────
-	const flatItems = useMemo(() => {
-		const items: VirtualItem[] = [];
-		const visibleGroups = groups.filter(
-			(g) => g.id !== "pinned" || g.rows.length > 0,
-		);
-
-		for (let gi = 0; gi < visibleGroups.length; gi++) {
-			const group = visibleGroups[gi];
-			if (gi > 0) {
-				const previousGroup = visibleGroups[gi - 1];
-				items.push({
-					kind: "group-gap",
-					size: getGroupGapSize(
-						previousGroup.rows.length > 0,
-						group.rows.length > 0,
-					),
-				});
-			}
-
-			const canCollapse = group.rows.length > 0;
-			items.push({
-				kind: "group-header",
-				groupId: group.id,
-				group,
-				canCollapse,
-			});
-
-			if (sectionOpenState[group.id] !== false && group.rows.length > 0) {
-				for (const row of group.rows) {
-					items.push({
-						kind: "row",
-						groupId: group.id,
-						row,
-						isArchived: false,
-					});
-				}
-			}
-		}
-
-		// Archived section
-		const previousGroup = visibleGroups.at(-1);
-		items.push({
-			kind: "group-gap",
-			size: getGroupGapSize(
-				(previousGroup?.rows.length ?? 0) > 0,
-				archivedRows.length > 0,
-			),
-		});
-		items.push({
-			kind: "group-header",
-			groupId: ARCHIVED_SECTION_ID,
-			group: {
-				id: ARCHIVED_SECTION_ID,
-				label: "Archived",
-				tone: "backlog" as WorkspaceGroup["tone"],
-				rows: archivedRows,
-			},
-			canCollapse: archivedRows.length > 0,
-		});
-
-		if (sectionOpenState[ARCHIVED_SECTION_ID] && archivedRows.length > 0) {
-			for (const row of archivedRows) {
-				items.push({
-					kind: "row",
-					groupId: ARCHIVED_SECTION_ID,
-					row,
-					isArchived: true,
-				});
-			}
-		}
-
-		items.push({ kind: "bottom-padding" });
-		return items;
-	}, [groups, archivedRows, sectionOpenState]);
-
-	// ── Virtualizer ───────────────────────────────────────────────────
-	const virtualizer = useVirtualizer({
-		count: flatItems.length,
-		getScrollElement: () => scrollContainerRef.current,
-		estimateSize: (index) => {
-			const item = flatItems[index];
-			switch (item.kind) {
-				case "group-header":
-					return getGroupHeaderHeight(item.group.rows.length > 0);
-				case "row":
-					return ROW_HEIGHT;
-				case "group-gap":
-					return item.size;
-				case "bottom-padding":
-					return BOTTOM_PADDING;
-			}
-		},
-		getItemKey: (index) => {
-			const item = flatItems[index];
-			switch (item.kind) {
-				case "group-header":
-					return `header-${item.groupId}`;
-				case "row":
-					return `row-${item.groupId}-${item.row.id}`;
-				case "group-gap":
-					return `gap-${index}`;
-				case "bottom-padding":
-					return "bottom-padding";
-			}
-		},
-		overscan: 12,
-	});
-
-	// ── Scroll selected into view ─────────────────────────────────────
-	useLayoutEffect(() => {
-		if (!selectedWorkspaceId) return;
-
-		const targetIndex = flatItems.findIndex(
-			(item) => item.kind === "row" && item.row.id === selectedWorkspaceId,
-		);
-		if (targetIndex === -1) return;
-
-		virtualizer.scrollToIndex(targetIndex, { align: "auto" });
-	}, [selectedWorkspaceId, sectionOpenState, flatItems, virtualizer]);
-
-	const workspaceActionsBusy = Boolean(
-		addingRepository || markingUnreadWorkspaceId || restoringWorkspaceId,
-	);
-	const createBusy = Boolean(creatingWorkspaceRepoId);
-	const addRepositoryBusy = Boolean(addingRepository);
-	const repositories = availableRepositories ?? [];
-
-	useEffect(() => {
-		const handleOpenNewWorkspace = () => {
-			if (addRepositoryBusy || createBusy || workspaceActionsBusy) return;
-			setIsRepoPickerOpen(true);
-		};
-
-		window.addEventListener(
-			"helmor:open-new-workspace",
-			handleOpenNewWorkspace,
-		);
+		const handler = () => setIsAddMenuOpen(true);
+		window.addEventListener("helmor:open-add-repository", handler);
 		return () =>
-			window.removeEventListener(
-				"helmor:open-new-workspace",
-				handleOpenNewWorkspace,
-			);
-	}, [addRepositoryBusy, createBusy, workspaceActionsBusy]);
-
-	useEffect(() => {
-		const handleOpenAddRepository = () => {
-			if (addRepositoryBusy || createBusy || workspaceActionsBusy) return;
-			setIsAddRepositoryMenuOpen(true);
-		};
-
-		window.addEventListener(
-			"helmor:open-add-repository",
-			handleOpenAddRepository,
-		);
-		return () =>
-			window.removeEventListener(
-				"helmor:open-add-repository",
-				handleOpenAddRepository,
-			);
-	}, [addRepositoryBusy, createBusy, workspaceActionsBusy]);
-
-	// ── Toggle section ────────────────────────────────────────────────
-	const toggleSection = useCallback((groupId: string) => {
-		setSectionOpenState((current) => ({
-			...current,
-			[groupId]: !current[groupId],
-		}));
+			window.removeEventListener("helmor:open-add-repository", handler);
 	}, []);
 
-	// ── Render a single virtual item ──────────────────────────────────
-	const renderItem = useCallback(
-		(item: VirtualItem) => {
-			if (item.kind === "group-gap" || item.kind === "bottom-padding") {
-				return null;
-			}
-
-			if (item.kind === "group-header") {
-				const isOpen =
-					item.groupId === ARCHIVED_SECTION_ID
-						? (sectionOpenState[item.groupId] ?? false)
-						: (sectionOpenState[item.groupId] ?? true);
-				const isArchived = item.groupId === ARCHIVED_SECTION_ID;
-				const isEmptyGroup = item.group.rows.length === 0;
-
-				return (
-					<button
-						type="button"
-						className={cn(
-							"group/trigger flex w-full select-none items-center justify-between rounded-lg px-2 text-[13px] font-semibold tracking-[-0.01em] text-foreground hover:bg-accent/60",
-							"py-1",
-							item.canCollapse ? "cursor-pointer" : "cursor-default",
-						)}
-						data-empty-group={isEmptyGroup ? "true" : "false"}
-						disabled={!item.canCollapse}
-						onClick={() => toggleSection(item.groupId)}
-					>
-						<span className="flex items-center gap-2">
-							{isArchived ? (
-								<Archive
-									className="size-[14px] shrink-0 text-[var(--workspace-sidebar-status-backlog)]"
-									strokeWidth={1.9}
-								/>
-							) : (
-								<GroupIcon tone={item.group.tone} />
-							)}
-							<span>{item.group.label}</span>
-						</span>
-
-						{item.group.rows.length > 0 ? (
-							<span className="relative flex h-5 min-w-5 items-center justify-center">
-								<Badge
-									variant="secondary"
-									className="h-4 min-w-[16px] justify-center rounded-full px-1 text-[9.5px] leading-none transition-opacity group-hover/trigger:opacity-0"
-								>
-									{item.group.rows.length}
-								</Badge>
-								<ChevronRight
-									className={cn(
-										"absolute left-1/2 top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 text-muted-foreground opacity-0 transition-all group-hover/trigger:opacity-100",
-										isOpen && "rotate-90",
-									)}
-									strokeWidth={2}
-								/>
-							</span>
-						) : null}
-					</button>
-				);
-			}
-
-			// kind === "row"
-			return (
-				<div className="pl-2">
-					<WorkspaceRowItem
-						row={item.row}
-						selected={selectedWorkspaceId === item.row.id}
-						isSending={sendingWorkspaceIds?.has(item.row.id)}
-						isInteractionRequired={interactionRequiredWorkspaceIds?.has(
-							item.row.id,
-						)}
-						onSelect={onSelectWorkspace}
-						onPrefetch={onPrefetchWorkspace}
-						onArchiveWorkspace={onArchiveWorkspace}
-						onMarkWorkspaceUnread={onMarkWorkspaceUnread}
-						onOpenInFinder={onOpenInFinder}
-						onTogglePin={onTogglePin}
-						onSetWorkspaceStatus={onSetWorkspaceStatus}
-						archivingWorkspaceIds={archivingWorkspaceIds}
-						markingUnreadWorkspaceId={markingUnreadWorkspaceId}
-						restoringWorkspaceId={restoringWorkspaceId}
-						workspaceActionsDisabled={Boolean(
-							markingUnreadWorkspaceId || restoringWorkspaceId,
-						)}
-						{...(item.isArchived
-							? {
-									onRestoreWorkspace,
-									onDeleteWorkspace,
-								}
-							: {})}
-					/>
-				</div>
-			);
-		},
-		[
-			sectionOpenState,
-			toggleSection,
-			selectedWorkspaceId,
-			sendingWorkspaceIds,
-			interactionRequiredWorkspaceIds,
-			onSelectWorkspace,
-			onPrefetchWorkspace,
-			onArchiveWorkspace,
-			onMarkWorkspaceUnread,
-			onRestoreWorkspace,
-			onDeleteWorkspace,
-			onTogglePin,
-			onSetWorkspaceStatus,
-			archivingWorkspaceIds,
-			markingUnreadWorkspaceId,
-			restoringWorkspaceId,
-			creatingWorkspaceRepoId,
-		],
-	);
+	const addBusy = Boolean(addingRepository);
 
 	return (
 		<div className="flex h-full min-h-0 flex-col overflow-hidden">
 			<CloneFromUrlDialog
-				open={isCloneDialogOpen ?? false}
-				onOpenChange={(nextOpen) => onCloneDialogOpenChange?.(nextOpen)}
-				defaultCloneDirectory={cloneDefaultDirectory ?? null}
-				onSubmit={async (args) => {
-					if (!onSubmitClone) {
-						return;
-					}
-					await onSubmitClone(args);
-				}}
+				open={isCloneDialogOpen}
+				onOpenChange={onCloneDialogOpenChange}
+				defaultCloneDirectory={cloneDefaultDirectory}
+				onSubmit={onSubmitClone}
 			/>
+
 			<div
 				data-slot="window-safe-top"
 				className="flex h-9 shrink-0 items-center pr-3"
@@ -533,41 +105,78 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 				<div data-tauri-drag-region className="h-full flex-1" />
 			</div>
 
-			<div className="flex items-center justify-between px-3">
-				<h2 className="text-[14px] font-medium tracking-[-0.01em] text-muted-foreground">
-					Workspaces
-				</h2>
-
-				<div className="flex items-center gap-1 text-muted-foreground">
-					<DropdownMenu
-						open={isAddRepositoryMenuOpen}
-						onOpenChange={setIsAddRepositoryMenuOpen}
-					>
+			<div className="scrollbar-stable min-h-0 flex-1 overflow-y-auto pr-1 pl-2 [scrollbar-width:thin]">
+				{folders.length === 0 ? (
+					<EmptySidebar onAddRepository={onAddRepository} />
+				) : (
+					<ul className="flex flex-col gap-0.5 pb-2">
+						{folders.map((folder) => (
+							<li key={folder.repoId} className="flex flex-col">
+								<FolderRow
+									folder={folder}
+									expanded={isFolderExpanded(folder.repoId)}
+									itemCount={folder.chats.length}
+									onToggle={onToggleFolder}
+									onCreateChat={onCreateChat}
+									onRemoveProject={onRemoveProject}
+									creatingChat={creatingChatRepoId === folder.repoId}
+								/>
+								{isFolderExpanded(folder.repoId) ? (
+									<div className="ml-5 flex flex-col gap-0.5 border-l border-border/40 pl-2">
+										{folder.chats.length === 0 ? (
+											<FolderEmptyState
+												onCreateChat={() => onCreateChat(folder.repoId)}
+												busy={creatingChatRepoId === folder.repoId}
+											/>
+										) : (
+											folder.chats.map((chat) => (
+												<ChatRow
+													key={chat.sessionId}
+													chat={chat}
+													selected={
+														selectedWorkspaceId === chat.workspaceId &&
+														selectedSessionId === chat.sessionId
+													}
+													onSelect={(ws, session) => {
+														onPrefetchChat(ws, session);
+														onSelectChat(ws, session);
+													}}
+													onTogglePin={onToggleChatPin}
+													onDelete={onDeleteChat}
+												/>
+											))
+										)}
+									</div>
+								) : null}
+							</li>
+						))}
+					</ul>
+				)}
+			</div>
+			<div className="flex shrink-0 items-center justify-between px-3 pb-3 pt-1">
+				<div className="flex items-center gap-[2px]">
+					<DropdownMenu open={isAddMenuOpen} onOpenChange={setIsAddMenuOpen}>
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<DropdownMenuTrigger asChild>
 									<Button
 										type="button"
-										aria-label="Add repository"
+										aria-label="Add project"
 										variant="ghost"
-										size="icon-xs"
-										disabled={
-											addRepositoryBusy || createBusy || workspaceActionsBusy
-										}
+										size="icon"
+										disabled={addBusy}
 										className={cn(
-											"text-muted-foreground",
-											addRepositoryBusy || createBusy || workspaceActionsBusy
-												? "cursor-not-allowed opacity-60"
-												: undefined,
+											"text-muted-foreground hover:text-foreground",
+											addBusy && "cursor-not-allowed opacity-60",
 										)}
 									>
-										{addRepositoryBusy ? (
+										{addBusy ? (
 											<LoaderCircle
-												className="size-4 animate-spin"
+												className="size-[15px] animate-spin"
 												strokeWidth={2.1}
 											/>
 										) : (
-											<FolderPlus className="size-4" strokeWidth={2} />
+											<FolderPlus className="size-[15px]" strokeWidth={1.8} />
 										)}
 									</Button>
 								</DropdownMenuTrigger>
@@ -577,7 +186,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 								sideOffset={4}
 								className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
 							>
-								<span>Add repository</span>
+								<span>Add project</span>
 								{addRepositoryShortcut ? (
 									<InlineShortcutDisplay
 										hotkey={addRepositoryShortcut}
@@ -586,20 +195,18 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 								) : null}
 							</TooltipContent>
 						</Tooltip>
-						<DropdownMenuContent align="end" className="min-w-40">
+						<DropdownMenuContent align="start" className="min-w-44">
 							<DropdownMenuItem
 								onSelect={() => {
-									setIsRepoPickerOpen(false);
-									onAddRepository?.();
+									onAddRepository();
 								}}
 							>
-								<Folder strokeWidth={2} />
+								<FolderPlus strokeWidth={2} />
 								<span>Open project</span>
 							</DropdownMenuItem>
 							<DropdownMenuItem
 								onSelect={() => {
-									setIsRepoPickerOpen(false);
-									onOpenCloneDialog?.();
+									onOpenCloneDialog();
 								}}
 							>
 								<Globe strokeWidth={2} />
@@ -607,146 +214,56 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
-
-					<Popover open={isRepoPickerOpen} onOpenChange={setIsRepoPickerOpen}>
-						<PopoverAnchor asChild>
-							<span className="inline-flex">
-								<Tooltip>
-									<TooltipTrigger asChild>
-										<Button
-											type="button"
-											aria-label="New workspace"
-											aria-expanded={isRepoPickerOpen}
-											aria-haspopup="dialog"
-											variant="ghost"
-											size="icon-xs"
-											disabled={
-												addRepositoryBusy || createBusy || workspaceActionsBusy
-											}
-											onClick={() => {
-												if (
-													addRepositoryBusy ||
-													createBusy ||
-													workspaceActionsBusy
-												) {
-													return;
-												}
-
-												setIsRepoPickerOpen((open) => !open);
-											}}
-										>
-											{createBusy ? (
-												<LoaderCircle
-													className="size-4 animate-spin"
-													strokeWidth={2.1}
-												/>
-											) : (
-												<Plus className="size-4" strokeWidth={2.4} />
-											)}
-										</Button>
-									</TooltipTrigger>
-									<TooltipContent
-										side="top"
-										sideOffset={4}
-										className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
-									>
-										<span>Create new workspace</span>
-										{newWorkspaceShortcut ? (
-											<InlineShortcutDisplay
-												hotkey={newWorkspaceShortcut}
-												className="text-background/60"
-											/>
-										) : null}
-									</TooltipContent>
-								</Tooltip>
-							</span>
-						</PopoverAnchor>
-						<CommandPopoverContent
-							align="end"
-							sideOffset={4}
-							className="w-fit min-w-[220px] max-w-[min(90vw,28rem)]"
-							onOpenAutoFocus={(event) => {
-								event.preventDefault();
-								window.requestAnimationFrame(() =>
-									repoCommandListRef.current?.focus(),
-								);
-							}}
-						>
-							<CommandList
-								ref={repoCommandListRef}
-								tabIndex={0}
-								className="max-h-64 outline-none"
-							>
-								<CommandEmpty>No repositories found.</CommandEmpty>
-								{repositories.map((repository) => (
-									<CommandItem
-										key={repository.id}
-										value={`${repository.name} ${repository.defaultBranch ?? ""}`}
-										onSelect={() => {
-											setIsRepoPickerOpen(false);
-											onCreateWorkspace?.(repository.id);
-										}}
-										className="rounded-lg [&>svg:last-child]:hidden"
-									>
-										<div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-											<div className="flex min-w-0 items-center gap-2">
-												<WorkspaceAvatar
-													repoIconSrc={repository.repoIconSrc}
-													repoInitials={repository.repoInitials}
-													repoName={repository.name}
-													title={repository.name}
-													className="size-5 rounded-md"
-													fallbackClassName="text-[8px]"
-												/>
-												<span className="truncate font-medium">
-													{repository.name}
-												</span>
-											</div>
-											{repository.defaultBranch ? (
-												<span className="shrink-0 text-right whitespace-nowrap text-xs text-muted-foreground">
-													{repository.remote ?? "origin"}/
-													{repository.defaultBranch.toLowerCase()}
-												</span>
-											) : null}
-										</div>
-									</CommandItem>
-								))}
-							</CommandList>
-						</CommandPopoverContent>
-					</Popover>
+					{footerControls}
 				</div>
-			</div>
-
-			{/* Virtualized workspace list */}
-			<div
-				ref={scrollContainerRef}
-				data-slot="workspace-groups-scroll"
-				className="scrollbar-stable relative mt-2 min-h-0 flex-1 overflow-y-auto pr-1 pl-2 [scrollbar-width:thin]"
-			>
-				<div
-					style={{
-						height: `${virtualizer.getTotalSize()}px`,
-						width: "100%",
-						position: "relative",
-					}}
-				>
-					{virtualizer.getVirtualItems().map((vItem) => (
-						<div
-							key={vItem.key}
-							style={{
-								position: "absolute",
-								top: 0,
-								left: 0,
-								width: "100%",
-								height: `${vItem.size}px`,
-								transform: `translateY(${vItem.start}px)`,
-							}}
-						>
-							{renderItem(flatItems[vItem.index])}
-						</div>
-					))}
-				</div>
+				{accountControl}
 			</div>
 		</div>
 	);
 });
+
+function EmptySidebar({ onAddRepository }: { onAddRepository: () => void }) {
+	return (
+		<div className="flex flex-col items-center justify-center gap-3 px-4 pt-12 text-center">
+			<FolderPlus
+				className="size-8 text-muted-foreground/50"
+				strokeWidth={1.5}
+			/>
+			<p className="text-[13px] text-muted-foreground">
+				No projects yet. Open a folder to start a chat.
+			</p>
+			<Button
+				type="button"
+				size="sm"
+				variant="secondary"
+				onClick={onAddRepository}
+				className="cursor-pointer"
+			>
+				<FolderPlus className="size-3.5" strokeWidth={2} />
+				<span>Open project</span>
+			</Button>
+		</div>
+	);
+}
+
+function FolderEmptyState({
+	onCreateChat,
+	busy,
+}: {
+	onCreateChat: () => void;
+	busy: boolean;
+}) {
+	return (
+		<div className="flex flex-col gap-1 py-1.5 pl-1 text-[12px] text-muted-foreground">
+			<button
+				type="button"
+				disabled={busy}
+				className="flex h-7 items-center gap-2 rounded-md px-2 hover:bg-accent/60 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+				onClick={onCreateChat}
+			>
+				<MessageSquarePlus className="size-3.5" strokeWidth={2} />
+				<span>New chat</span>
+			</button>
+		</div>
+	);
+}

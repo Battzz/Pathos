@@ -721,6 +721,31 @@ describe("useConversationStreaming", () => {
 				],
 			},
 		]);
+		queryClient.setQueryData(helmorQueryKeys.repositoryFolders, [
+			{
+				repoId: "repo-1",
+				repoName: "helmor",
+				repoIconSrc: null,
+				repoInitials: "HE",
+				rootPath: "/tmp/helmor",
+				defaultBranch: "main",
+				isGit: true,
+				chats: [
+					{
+						sessionId: "session-1",
+						workspaceId: "workspace-1",
+						title: "Untitled",
+						agentType: "codex",
+						status: "idle",
+						unreadCount: 0,
+						createdAt: "2026-04-17T00:00:00Z",
+						updatedAt: "2026-04-17T00:00:00Z",
+						lastUserMessageAt: null,
+					},
+				],
+				workspaces: [],
+			},
+		]);
 
 		const { result } = renderHook(
 			() =>
@@ -769,6 +794,90 @@ describe("useConversationStreaming", () => {
 				Array<{ rows: Array<{ activeSessionTitle: string }> }>
 			>(helmorQueryKeys.workspaceGroups)?.[0]?.rows[0]?.activeSessionTitle,
 		).toBe("Investigate reconnect failures af...");
+		expect(
+			queryClient.getQueryData<Array<{ chats: Array<{ title: string }> }>>(
+				helmorQueryKeys.repositoryFolders,
+			)?.[0]?.chats[0]?.title,
+		).toBe("Investigate reconnect failures af...");
+	});
+
+	it("optimistically inserts a project chat into the sidebar on first send", async () => {
+		apiMocks.startAgentMessageStream.mockImplementation(async () => {});
+
+		const { Wrapper, queryClient } = createWrapper();
+		queryClient.setQueryData(helmorQueryKeys.workspaceSessions("workspace-1"), [
+			{
+				id: "session-1",
+				workspaceId: "workspace-1",
+				title: "Untitled",
+				agentType: null,
+				status: "idle",
+				model: null,
+				permissionMode: "default",
+				providerSessionId: null,
+				effortLevel: null,
+				unreadCount: 0,
+				fastMode: false,
+				createdAt: "2026-04-17T00:00:00Z",
+				updatedAt: "2026-04-17T00:00:00Z",
+				lastUserMessageAt: null,
+				isHidden: false,
+				pinnedAt: null,
+				actionKind: null,
+				active: true,
+			},
+		]);
+		queryClient.setQueryData(helmorQueryKeys.repositoryFolders, [
+			{
+				repoId: "repo-1",
+				repoName: "helmor",
+				repoIconSrc: null,
+				repoInitials: "HE",
+				rootPath: "/tmp/helmor",
+				defaultBranch: "main",
+				isGit: true,
+				chats: [],
+				workspaces: [],
+			},
+		]);
+
+		const { result } = renderHook(
+			() =>
+				useConversationStreaming({
+					composerContextKey: "session:session-1",
+					displayedSelectedModelId: MODEL.id,
+					displayedSessionId: "session-1",
+					displayedWorkspaceId: "workspace-1",
+					repoId: "repo-1",
+					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
+				}),
+			{ wrapper: Wrapper },
+		);
+
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "Start with a real project chat",
+				imagePaths: [],
+				filePaths: [],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/helmor",
+				effortLevel: "medium",
+				permissionMode: "default",
+				fastMode: false,
+			});
+		});
+
+		const chat = queryClient.getQueryData<
+			Array<{ chats: Array<{ agentType: string | null; title: string }> }>
+		>(helmorQueryKeys.repositoryFolders)?.[0]?.chats[0];
+
+		expect(chat).toMatchObject({
+			agentType: "codex",
+			title: "Start with a real project chat",
+		});
 	});
 
 	it("tracks pending elicitation separately from deferred tools", async () => {

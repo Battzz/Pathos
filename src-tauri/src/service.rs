@@ -16,18 +16,14 @@ use uuid::Uuid;
 pub use crate::commands::DataInfo;
 pub use crate::repos::{AddRepositoryResponse, RepositoryCreateOption};
 pub use crate::sessions::{CreateSessionResponse, WorkspaceSessionSummary};
-pub use crate::workspaces::{
-    CreateWorkspaceResponse, WorkspaceDetail, WorkspaceSidebarGroup, WorkspaceSidebarRow,
-};
+pub use crate::workspaces::{WorkspaceDetail, WorkspaceSidebarGroup, WorkspaceSidebarRow};
 
 // ---- Domain functions ----
 
 pub use crate::models::workspaces::load_workspace_records;
 pub use crate::repos::{add_repository_from_local_path, list_repositories};
 pub use crate::sessions::{create_session, list_workspace_sessions};
-pub use crate::workspaces::{
-    create_workspace_from_repo_impl, get_workspace, list_workspace_groups,
-};
+pub use crate::workspaces::{get_workspace, list_workspace_groups};
 
 /// Build [`DataInfo`] without needing a Tauri runtime.
 pub fn get_data_info() -> Result<DataInfo> {

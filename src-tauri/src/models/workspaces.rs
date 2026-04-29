@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use rusqlite::Row;
 
 use crate::{
-    repos, workspace_pr_sync::PrSyncState, workspace_state::WorkspaceState,
+    workspace_kind::WorkspaceKind, workspace_pr_sync::PrSyncState, workspace_state::WorkspaceState,
     workspace_status::WorkspaceStatus,
 };
 
@@ -17,6 +17,10 @@ pub struct WorkspaceRecord {
     pub default_branch: Option<String>,
     pub root_path: Option<String>,
     pub directory_name: String,
+    /// `Project`: this workspace IS the imported folder; sessions in it
+    /// render as "chats" and the agent operates on `root_path` directly.
+    /// `Workspace`: a branched git worktree under the helmor data dir.
+    pub kind: WorkspaceKind,
     pub state: WorkspaceState,
     pub has_unread: bool,
     pub workspace_unread: i64,
@@ -122,6 +126,7 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
       r.default_branch,
       r.root_path,
       w.directory_name,
+      COALESCE(w.kind, 'workspace') AS kind,
       w.state,
       CASE
         WHEN COALESCE(w.unread, 0) > 0 OR COALESCE(wss.unread_session_count, 0) > 0 THEN 1
@@ -200,77 +205,6 @@ pub fn load_archived_workspace_records() -> Result<Vec<WorkspaceRecord>> {
     let rows = statement.query_map([WorkspaceState::Archived], workspace_record_from_row)?;
 
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
-}
-
-pub(crate) fn insert_initializing_workspace_and_session(
-    repository: &repos::RepositoryRecord,
-    workspace_id: &str,
-    session_id: &str,
-    directory_name: &str,
-    branch: &str,
-    default_branch: &str,
-    timestamp: &str,
-) -> Result<()> {
-    let mut connection = db::write_conn()?;
-    let transaction = connection
-        .transaction()
-        .context("Failed to start create-workspace transaction")?;
-
-    transaction
-        .execute(
-            r#"
-            INSERT INTO workspaces (
-              id,
-              repository_id,
-              directory_name,
-              active_session_id,
-              branch,
-              state,
-              initialization_parent_branch,
-              intended_target_branch,
-              status,
-              unread,
-              created_at,
-              updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'in-progress', 0, ?9, ?9)
-            "#,
-            (
-                workspace_id,
-                repository.id.as_str(),
-                directory_name,
-                session_id,
-                branch,
-                WorkspaceState::Initializing,
-                default_branch,
-                default_branch,
-                timestamp,
-            ),
-        )
-        .context("Failed to insert initializing workspace")?;
-
-    transaction
-        .execute(
-            r#"
-            INSERT INTO sessions (
-              id,
-              workspace_id,
-              title,
-              status,
-              permission_mode,
-              unread_count,
-              fast_mode,
-              created_at,
-              updated_at,
-              is_hidden
-            ) VALUES (?1, ?2, 'Untitled', 'idle', 'default', 0, 0, ?3, ?3, 0)
-            "#,
-            (session_id, workspace_id, timestamp),
-        )
-        .context("Failed to insert initial session")?;
-
-    transaction
-        .commit()
-        .context("Failed to commit create-workspace transaction")
 }
 
 pub(crate) fn update_workspace_state(
@@ -438,32 +372,33 @@ fn workspace_record_from_row(row: &Row<'_>) -> rusqlite::Result<WorkspaceRecord>
         default_branch: row.get(4)?,
         root_path: row.get(5)?,
         directory_name: row.get(6)?,
-        state: row.get(7)?,
-        has_unread: row.get::<_, i64>(8)? != 0,
-        workspace_unread: row.get(9)?,
-        unread_session_count: row.get(10)?,
-        status: row.get(11)?,
-        branch: row.get(12)?,
-        initialization_parent_branch: row.get(13)?,
-        intended_target_branch: row.get(14)?,
-        pinned_at: row.get(15)?,
-        active_session_id: row.get(16)?,
-        active_session_title: row.get(17)?,
-        active_session_agent_type: row.get(18)?,
-        active_session_status: row.get(19)?,
-        primary_session_id: row.get(20)?,
-        primary_session_title: row.get(21)?,
-        primary_session_agent_type: row.get(22)?,
-        pr_title: row.get(23)?,
-        pr_sync_state: row.get(24)?,
-        pr_url: row.get(25)?,
-        archive_commit: row.get(26)?,
-        session_count: row.get(27)?,
-        message_count: row.get(28)?,
-        remote: row.get(29)?,
-        forge_provider: row.get(30)?,
-        created_at: row.get(31)?,
-        updated_at: row.get(32)?,
-        last_user_message_at: row.get(33)?,
+        kind: row.get(7)?,
+        state: row.get(8)?,
+        has_unread: row.get::<_, i64>(9)? != 0,
+        workspace_unread: row.get(10)?,
+        unread_session_count: row.get(11)?,
+        status: row.get(12)?,
+        branch: row.get(13)?,
+        initialization_parent_branch: row.get(14)?,
+        intended_target_branch: row.get(15)?,
+        pinned_at: row.get(16)?,
+        active_session_id: row.get(17)?,
+        active_session_title: row.get(18)?,
+        active_session_agent_type: row.get(19)?,
+        active_session_status: row.get(20)?,
+        primary_session_id: row.get(21)?,
+        primary_session_title: row.get(22)?,
+        primary_session_agent_type: row.get(23)?,
+        pr_title: row.get(24)?,
+        pr_sync_state: row.get(25)?,
+        pr_url: row.get(26)?,
+        archive_commit: row.get(27)?,
+        session_count: row.get(28)?,
+        message_count: row.get(29)?,
+        remote: row.get(30)?,
+        forge_provider: row.get(31)?,
+        created_at: row.get(32)?,
+        updated_at: row.get(33)?,
+        last_user_message_at: row.get(34)?,
     })
 }

@@ -219,6 +219,17 @@ fn run_migrations(connection: &Connection) -> Result<()> {
             .context("Failed to add action_kind column")?;
     }
 
+    let has_session_pinned_at: bool = connection
+        .prepare("SELECT 1 FROM pragma_table_info('sessions') WHERE name = 'pinned_at'")
+        .and_then(|mut stmt| stmt.exists([]))
+        .unwrap_or(false);
+
+    if !has_session_pinned_at {
+        connection
+            .execute_batch("ALTER TABLE sessions ADD COLUMN pinned_at TEXT")
+            .context("Failed to add sessions.pinned_at column")?;
+    }
+
     // Migration: wrap plain-text user prompts as JSON.
     //
     // Pre-migration, the `content` column held a union type: assistant/system/
@@ -383,6 +394,28 @@ fn run_migrations(connection: &Connection) -> Result<()> {
             .context("Failed to add branch_prefix_custom column")?;
     }
 
+    // Migration: is_git flag — distinguishes folders imported as git
+    // working trees (the historical default, value 1) from non-git
+    // project folders (value 0). Non-git projects can host chats but
+    // not branched workspaces, since the worktree feature requires git.
+    if has_table(connection, "repos") && !has_column(connection, "repos", "is_git") {
+        connection
+            .execute_batch("ALTER TABLE repos ADD COLUMN is_git INTEGER NOT NULL DEFAULT 1")
+            .context("Failed to add is_git column")?;
+    }
+
+    // Migration: workspace kind — 'project' workspaces represent the
+    // imported folder itself (no worktree, sessions = "chats" in the
+    // sidebar). 'workspace' workspaces are branched git worktrees
+    // (the historical behavior, value defaulted for legacy rows).
+    if has_table(connection, "workspaces") && !has_column(connection, "workspaces", "kind") {
+        connection
+            .execute_batch(
+                "ALTER TABLE workspaces ADD COLUMN kind TEXT NOT NULL DEFAULT 'workspace'",
+            )
+            .context("Failed to add workspaces.kind column")?;
+    }
+
     if has_table(connection, "workspaces") && !has_column(connection, "workspaces", "pr_sync_state")
     {
         connection
@@ -472,6 +505,7 @@ CREATE TABLE IF NOT EXISTS repos (
     auto_run_setup INTEGER DEFAULT 1,
     forge_provider TEXT,
     branch_prefix_custom TEXT,
+    is_git INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -510,6 +544,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
     pr_url TEXT,
     archive_commit TEXT,
     linked_directory_paths TEXT,
+    kind TEXT NOT NULL DEFAULT 'workspace',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -529,6 +564,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     effort_level TEXT DEFAULT 'high',
     fast_mode INTEGER DEFAULT 0,
     action_kind TEXT,
+    pinned_at TEXT,
     context_usage_meta TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))

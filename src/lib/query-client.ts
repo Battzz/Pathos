@@ -18,6 +18,7 @@ import {
 	getSessionContextUsage,
 	getWorkspaceForge,
 	listRepositories,
+	listRepositoryFolders,
 	listSlashCommands,
 	listWorkspaceCandidateDirectories,
 	listWorkspaceChangesWithContent,
@@ -48,6 +49,7 @@ const PERSIST_GC_TIME = 24 * 60 * 60_000; // 24h — persisted entries live this
 
 export const helmorQueryKeys = {
 	workspaceGroups: ["workspaceGroups"] as const,
+	repositoryFolders: ["repositoryFolders"] as const,
 	archivedWorkspaces: ["archivedWorkspaces"] as const,
 	repositories: ["repositories"] as const,
 	agentModelSections: ["agentModelSections"] as const,
@@ -186,6 +188,16 @@ export function workspaceGroupsQueryOptions() {
 		queryKey: helmorQueryKeys.workspaceGroups,
 		queryFn: loadWorkspaceGroups,
 		initialData: DEFAULT_WORKSPACE_GROUPS,
+		initialDataUpdatedAt: 0,
+		staleTime: 0,
+	});
+}
+
+export function repositoryFoldersQueryOptions() {
+	return queryOptions({
+		queryKey: helmorQueryKeys.repositoryFolders,
+		queryFn: listRepositoryFolders,
+		initialData: [],
 		initialDataUpdatedAt: 0,
 		staleTime: 0,
 	});

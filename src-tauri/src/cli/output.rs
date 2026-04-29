@@ -37,8 +37,8 @@ pub fn print_ok(cli: &Cli, human: &str) {
     }
 }
 
-/// Emit a raw ID to stdout. Used by `workspace new`, `session new`, etc.
-/// to keep shell pipelines ergonomic (`helmor workspace new ... | xargs`).
+/// Emit a raw ID to stdout. Used by commands such as `session new` to keep
+/// shell pipelines ergonomic.
 pub fn print_id(cli: &Cli, label: &str, id: &str) {
     if cli.json {
         let body = serde_json::json!({ label: id });

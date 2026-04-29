@@ -100,14 +100,7 @@ fn show(repo_ref: &str, cli: &Cli) -> Result<()> {
 
 fn add(path: &str, cli: &Cli) -> Result<()> {
     let response = service::add_repository_from_local_path(path)?;
-    let mut events = vec![UiMutationEvent::RepositoryListChanged];
-    if response.created_workspace_id.is_some() {
-        events.push(UiMutationEvent::WorkspaceListChanged);
-    }
-    events.push(UiMutationEvent::WorkspaceChanged {
-        workspace_id: response.selected_workspace_id.clone(),
-    });
-    notify_ui_events(events);
+    notify_ui_events([UiMutationEvent::RepositoryListChanged]);
     output::print(cli, &response, |r| {
         let mut lines = Vec::new();
         if r.created_repository {
@@ -115,10 +108,7 @@ fn add(path: &str, cli: &Cli) -> Result<()> {
         } else {
             lines.push(format!("Repository already exists: {}", r.repository_id));
         }
-        if let Some(ref ws_id) = r.created_workspace_id {
-            lines.push(format!("Created workspace  {ws_id}"));
-        }
-        lines.push(format!("Selected workspace {}", r.selected_workspace_id));
+        lines.push(format!("Git: {}", if r.is_git { "yes" } else { "no" }));
         lines.join("\n")
     })
 }

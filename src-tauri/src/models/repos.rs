@@ -7,12 +7,18 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{
-    git_ops, helpers,
-    workspace_state::{self, WorkspaceState},
-};
+use crate::{git_ops, helpers, workspace_state};
 
 use super::db;
+
+/// Sentinel value: when a folder is selected for import but doesn't have a
+/// `.git` directory, we mark the resolved input as non-git so the import
+/// flow skips git-only fields (remote, default_branch, forge detection).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImportKind {
+    Git,
+    NonGit,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +32,7 @@ pub struct RepositoryCreateOption {
     pub forge_provider: Option<String>,
     pub repo_icon_src: Option<String>,
     pub repo_initials: String,
+    pub is_git: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,18 +46,23 @@ pub struct AddRepositoryDefaults {
 pub struct AddRepositoryResponse {
     pub repository_id: String,
     pub created_repository: bool,
-    pub selected_workspace_id: String,
-    pub created_workspace_id: Option<String>,
-    pub created_workspace_state: WorkspaceState,
+    /// True when the imported folder is a git working tree. False for
+    /// plain folders — those can host chats but not branched workspaces.
+    pub is_git: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct ResolvedRepositoryInput {
     pub name: String,
     pub normalized_root_path: String,
+    /// False when the imported folder isn't a git working tree. Drives
+    /// the `repos.is_git` column and gates worktree-creating UI.
+    pub is_git: bool,
     pub remote: Option<String>,
     pub remote_url: Option<String>,
-    pub default_branch: String,
+    /// Optional for non-git folders. For git folders this is resolved
+    /// from the remote HEAD (or local refs as a fallback).
+    pub default_branch: Option<String>,
     /// Forge classification cached on the repo record. Set at repo-creation
     /// time by `crate::forge::detect_provider_for_repo_offline`.
     pub forge_provider: Option<String>,
@@ -59,21 +71,25 @@ pub struct ResolvedRepositoryInput {
 #[derive(Debug, Clone)]
 pub(crate) struct RepositoryRecord {
     pub id: String,
+    #[allow(dead_code)] // Kept for callers that need a complete repository snapshot.
     pub name: String,
     pub remote: Option<String>,
     pub default_branch: Option<String>,
     pub root_path: String,
+    #[allow(dead_code)] // Queried separately via RepoScripts; kept here for completeness.
     pub setup_script: Option<String>,
     #[allow(dead_code)] // Queried separately via RepoScripts; kept here for completeness.
     pub run_script: Option<String>,
-    /// Auto-run the setup script when a workspace is created.
-    /// Defaults to true; users disable it from repo settings.
+    /// Defaults to true for setup automation; users disable it from repo settings.
+    #[allow(dead_code)] // Queried separately via RepoScripts; kept here for completeness.
     pub auto_run_setup: bool,
     /// Cached forge classification ("github" / "gitlab" / "unknown").
     /// NULL for repos created before the detection feature — the loader
     /// re-runs detection on demand in that case.
     #[allow(dead_code)]
     pub forge_provider: Option<String>,
+    /// True when the imported folder is a git working tree.
+    pub is_git: bool,
 }
 
 pub fn list_repositories() -> Result<Vec<RepositoryCreateOption>> {
@@ -89,7 +105,8 @@ pub fn list_repositories() -> Result<Vec<RepositoryCreateOption>> {
               remote,
               remote_url,
               forge_provider,
-              branch_prefix_custom
+              branch_prefix_custom,
+              COALESCE(is_git, 1) AS is_git
             FROM repos
             WHERE COALESCE(hidden, 0) = 0
             ORDER BY COALESCE(display_order, 0) ASC, LOWER(name) ASC
@@ -114,6 +131,7 @@ pub fn list_repositories() -> Result<Vec<RepositoryCreateOption>> {
                 default_branch: row.get(2)?,
                 repo_icon_src: icon_src,
                 repo_initials: initials,
+                is_git: row.get::<_, i64>(8)? != 0,
             })
         })
         .context("Failed to load repositories")?;
@@ -127,7 +145,7 @@ pub(crate) fn load_repository_by_id(repo_id: &str) -> Result<Option<RepositoryRe
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, name, remote, default_branch, root_path, setup_script, run_script, auto_run_setup, forge_provider
+            SELECT id, name, remote, default_branch, root_path, setup_script, run_script, auto_run_setup, forge_provider, COALESCE(is_git, 1)
             FROM repos
             WHERE id = ?1
             "#,
@@ -146,6 +164,7 @@ pub(crate) fn load_repository_by_id(repo_id: &str) -> Result<Option<RepositoryRe
                 run_script: row.get(6)?,
                 auto_run_setup: row.get::<_, Option<i64>>(7)?.unwrap_or(1) != 0,
                 forge_provider: row.get(8)?,
+                is_git: row.get::<_, i64>(9)? != 0,
             })
         })
         .with_context(|| format!("Failed to query repository {repo_id}"))?;
@@ -197,7 +216,7 @@ fn query_repository_by_root_path(
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, name, remote, default_branch, root_path, setup_script, run_script, auto_run_setup, forge_provider
+            SELECT id, name, remote, default_branch, root_path, setup_script, run_script, auto_run_setup, forge_provider, COALESCE(is_git, 1)
             FROM repos
             WHERE root_path = ?1
             ORDER BY created_at ASC
@@ -218,6 +237,7 @@ fn query_repository_by_root_path(
                 run_script: row.get(6)?,
                 auto_run_setup: row.get::<_, Option<i64>>(7)?.unwrap_or(1) != 0,
                 forge_provider: row.get(8)?,
+                is_git: row.get::<_, i64>(9)? != 0,
             })
         })
         .with_context(|| format!("Failed to query repository row for {root_path}"))?;
@@ -238,7 +258,7 @@ fn query_repository_candidates_by_name(
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, name, remote, default_branch, root_path, setup_script, run_script, auto_run_setup, forge_provider
+            SELECT id, name, remote, default_branch, root_path, setup_script, run_script, auto_run_setup, forge_provider, COALESCE(is_git, 1)
             FROM repos
             WHERE name = ?1 OR root_path LIKE ?2
             ORDER BY created_at ASC
@@ -260,6 +280,7 @@ fn query_repository_candidates_by_name(
                 run_script: row.get(6)?,
                 auto_run_setup: row.get::<_, Option<i64>>(7)?.unwrap_or(1) != 0,
                 forge_provider: row.get(8)?,
+                is_git: row.get::<_, i64>(9)? != 0,
             })
         })
         .with_context(|| format!("Failed to query repository candidates for {repository_name}"))?;
@@ -297,9 +318,10 @@ pub(crate) fn insert_repository(repository: &ResolvedRepositoryInput) -> Result<
               run_script,
               archive_script,
               forge_provider,
+              is_git,
               created_at,
               updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, NULL, NULL, NULL, ?8, datetime('now'), datetime('now'))
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, NULL, NULL, NULL, ?8, ?9, datetime('now'), datetime('now'))
             "#,
             (
                 repo_id.as_str(),
@@ -307,9 +329,10 @@ pub(crate) fn insert_repository(repository: &ResolvedRepositoryInput) -> Result<
                 repository.normalized_root_path.as_str(),
                 repository.remote.as_deref(),
                 repository.remote_url.as_deref(),
-                repository.default_branch.as_str(),
+                repository.default_branch.as_deref(),
                 next_display_order,
                 repository.forge_provider.as_deref(),
+                if repository.is_git { 1_i64 } else { 0 },
             ),
         )
         .with_context(|| format!("Failed to insert repository {}", repository.name))?;
@@ -361,9 +384,8 @@ pub fn update_repository_remote(
         bail!("Repository not found: {repo_id}");
     }
 
-    // Fetch refs so the branch picker and workspace creation have local
-    // remote-tracking refs. This must succeed — without it,
-    // create_workspace_from_repo_impl will fail to resolve the start ref.
+    // Fetch refs so branch/target status has local remote-tracking refs.
+    // This must succeed before accepting the remote change.
     git_ops::fetch_all_remote(&repo_root, remote)
         .with_context(|| format!("Failed to fetch from remote \"{remote}\""))?;
 
@@ -551,8 +573,7 @@ pub fn load_repo_scripts(repo_id: &str, workspace_id: Option<&str>) -> Result<Re
         crate::models::workspaces::load_workspace_record_by_id(ws_id)
             .ok()
             .flatten()
-            .and_then(|ws| crate::data_dir::workspace_dir(&ws.repo_name, &ws.directory_name).ok())
-            .filter(|dir| dir.is_dir())
+            .and_then(|ws| crate::workspace_project::resolve_workspace_root_path(&ws))
             .and_then(|dir| load_helmor_json_scripts(&dir))
     });
 
@@ -767,22 +788,47 @@ fn normalize_repo_preference(value: Option<&str>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-pub(crate) fn delete_repository(repo_id: &str) -> Result<()> {
-    let connection = db::write_conn()?;
-    let deleted_rows = connection
-        .execute("DELETE FROM repos WHERE id = ?1", [repo_id])
-        .with_context(|| format!("Failed to delete repository {repo_id}"))?;
-
-    if deleted_rows != 1 {
-        bail!("Repository delete affected {deleted_rows} rows for {repo_id}");
-    }
-
-    Ok(())
+struct RepositoryWorkspaceArtifact {
+    repo_root: PathBuf,
+    repo_name: String,
+    directory_name: String,
+    kind: String,
 }
 
 /// Delete a repository and all related data (workspaces, sessions, messages, etc.)
+/// plus Helmor-managed worktree directories. The imported project root is
+/// never deleted; only `kind='workspace'` rows map to managed worktrees.
 pub fn delete_repository_cascade(repo_id: &str) -> Result<()> {
     let mut connection = db::write_conn()?;
+
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT
+              r.root_path,
+              r.name,
+              w.directory_name,
+              COALESCE(w.kind, 'workspace') AS kind
+            FROM workspaces w
+            JOIN repos r ON r.id = w.repository_id
+            WHERE w.repository_id = ?1
+            "#,
+        )
+        .context("Failed to prepare repository workspace cleanup query")?;
+    let artifacts = statement
+        .query_map([repo_id], |row| {
+            Ok(RepositoryWorkspaceArtifact {
+                repo_root: PathBuf::from(row.get::<_, String>(0)?),
+                repo_name: row.get(1)?,
+                directory_name: row.get(2)?,
+                kind: row.get(3)?,
+            })
+        })
+        .context("Failed to query repository workspace cleanup artifacts")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("Failed to collect repository workspace cleanup artifacts")?;
+    drop(statement);
+
     let tx = connection
         .transaction()
         .context("Failed to start delete repository transaction")?;
@@ -808,11 +854,39 @@ pub fn delete_repository_cascade(repo_id: &str) -> Result<()> {
     tx.commit()
         .context("Failed to commit delete repository transaction")?;
 
+    for artifact in artifacts {
+        if artifact.kind != "workspace" || artifact.directory_name.trim().is_empty() {
+            continue;
+        }
+        let Ok(workspace_dir) =
+            crate::data_dir::workspace_dir(&artifact.repo_name, &artifact.directory_name)
+        else {
+            continue;
+        };
+        if !workspace_dir.exists() {
+            continue;
+        }
+        if let Err(error) = git_ops::remove_worktree(&artifact.repo_root, &workspace_dir) {
+            tracing::warn!(
+                path = %workspace_dir.display(),
+                error = %error,
+                "Failed to remove managed worktree during project deletion; falling back to directory removal"
+            );
+            if let Err(remove_error) = std::fs::remove_dir_all(&workspace_dir) {
+                tracing::warn!(
+                    path = %workspace_dir.display(),
+                    error = %remove_error,
+                    "Failed to remove managed workspace directory during project deletion"
+                );
+            }
+        }
+    }
+
     Ok(())
 }
 
 pub fn resolve_repository_from_local_path(folder_path: &str) -> Result<ResolvedRepositoryInput> {
-    let normalized_root_path = resolve_git_root_path(folder_path)?;
+    let (normalized_root_path, kind) = resolve_project_root_path(folder_path)?;
     let normalized_root = Path::new(&normalized_root_path);
     let name = normalized_root
         .file_name()
@@ -826,18 +900,29 @@ pub fn resolve_repository_from_local_path(folder_path: &str) -> Result<ResolvedR
             )
         })?;
 
+    if kind == ImportKind::NonGit {
+        // Non-git folders only support chats (no remote, no branch, no
+        // forge). The frontend hides the "+ Workspace" affordance for these.
+        return Ok(ResolvedRepositoryInput {
+            name,
+            normalized_root_path,
+            is_git: false,
+            remote: None,
+            remote_url: None,
+            default_branch: None,
+            forge_provider: None,
+        });
+    }
+
     let remote = resolve_repository_remote(normalized_root)?;
     let remote_url = match remote.as_deref() {
         Some(remote_name) => Some(resolve_repository_remote_url(normalized_root, remote_name)?),
         None => None,
     };
-    let default_branch = resolve_repository_default_branch(normalized_root, remote.as_deref())
-        .with_context(|| {
-            format!(
-                "Unable to resolve a default branch for repository {}",
-                normalized_root.display()
-            )
-        })?;
+    // Default branch is best-effort for git repos: if there's no remote
+    // (e.g. a freshly initialized repo with no upstream yet) we leave it
+    // None and the user can configure it later from repo settings.
+    let default_branch = resolve_repository_default_branch(normalized_root, remote.as_deref());
 
     // Keep repo creation local: no network probes or CLI calls here.
     let (provider, _) = crate::forge::detect_provider_for_repo_offline(
@@ -849,6 +934,7 @@ pub fn resolve_repository_from_local_path(folder_path: &str) -> Result<ResolvedR
     Ok(ResolvedRepositoryInput {
         name,
         normalized_root_path,
+        is_git: true,
         remote,
         remote_url,
         default_branch,
@@ -920,8 +1006,9 @@ fn infer_repo_name_from_url(url: &str) -> Option<String> {
 }
 
 pub fn add_repository_from_local_path(folder_path: &str) -> Result<AddRepositoryResponse> {
-    // Fast duplicate check: only needs git root path, no network calls.
-    let normalized_root_path = resolve_git_root_path(folder_path)?;
+    // Resolve the project root (git root if it's a working tree, otherwise
+    // the folder itself). Cheap — no network calls.
+    let (normalized_root_path, _kind) = resolve_project_root_path(folder_path)?;
 
     let last_clone_directory = Path::new(&normalized_root_path)
         .parent()
@@ -932,61 +1019,39 @@ pub fn add_repository_from_local_path(folder_path: &str) -> Result<AddRepository
     }
 
     if let Some(repository) = load_repository_by_root_path(&normalized_root_path)? {
-        if let Some((selected_workspace_id, selected_workspace_state)) =
-            crate::workspaces::select_visible_workspace_for_repo(&repository.id)
-                .map_err(|e| anyhow::anyhow!(e))?
-        {
-            return Ok(AddRepositoryResponse {
-                repository_id: repository.id,
-                created_repository: false,
-                selected_workspace_id,
-                created_workspace_id: None,
-                created_workspace_state: selected_workspace_state,
-            });
-        }
-
-        let create_response = crate::workspaces::create_workspace_from_repo_impl(&repository.id)
-            .map_err(|error| {
-                anyhow::anyhow!("Repository already exists, but workspace create failed: {error}")
-            })?;
-
+        // Re-importing an existing project is a no-op — just open it.
         return Ok(AddRepositoryResponse {
             repository_id: repository.id,
             created_repository: false,
-            selected_workspace_id: create_response.selected_workspace_id.clone(),
-            created_workspace_id: Some(create_response.created_workspace_id),
-            created_workspace_state: create_response.created_state,
+            is_git: repository.is_git,
         });
     }
 
     // Only do the expensive remote/branch resolution for truly new repos.
     let resolved_repository = resolve_repository_from_local_path(folder_path)?;
+    let is_git = resolved_repository.is_git;
 
     let repository_id = insert_repository(&resolved_repository)
         .with_context(|| format!("Failed to persist repository {}", resolved_repository.name))?;
-    let create_result = crate::workspaces::create_workspace_from_repo_impl(&repository_id);
 
-    match create_result {
-        Ok(create_response) => Ok(AddRepositoryResponse {
-            repository_id,
-            created_repository: true,
-            selected_workspace_id: create_response.selected_workspace_id.clone(),
-            created_workspace_id: Some(create_response.created_workspace_id),
-            created_workspace_state: create_response.created_state,
-        }),
-        Err(error) => {
-            let _ = delete_repository(&repository_id);
-            bail!("First workspace create failed: {error}");
-        }
-    }
+    Ok(AddRepositoryResponse {
+        repository_id,
+        created_repository: true,
+        is_git,
+    })
 }
 
-/// Lightweight git root resolution — no network calls, just local git commands.
-fn resolve_git_root_path(folder_path: &str) -> Result<String> {
+/// Resolve the project's root path. If the selected folder is inside a
+/// git working tree, the git toplevel is returned (so a user who picked a
+/// subdirectory still imports the whole repo). Otherwise the folder
+/// itself is returned and the import is recorded as non-git.
+///
+/// No network calls — only local git commands and filesystem checks.
+fn resolve_project_root_path(folder_path: &str) -> Result<(String, ImportKind)> {
     let selected_path = PathBuf::from(folder_path.trim());
 
     if folder_path.trim().is_empty() {
-        bail!("No repository folder was selected.");
+        bail!("No project folder was selected.");
     }
     if !selected_path.exists() {
         bail!("Selected path does not exist: {}", selected_path.display());
@@ -1007,14 +1072,15 @@ fn resolve_git_root_path(folder_path: &str) -> Result<String> {
             "--is-inside-work-tree",
         ],
         None,
-    )
-    .map_err(|error| anyhow::anyhow!("Selected directory is not a Git working tree: {error}"))?;
+    );
 
-    if inside_work_tree.trim() != "true" {
-        bail!(
-            "Selected directory is not a Git working tree: {}",
-            selected_path.display()
-        );
+    let is_git = matches!(inside_work_tree, Ok(ref out) if out.trim() == "true");
+    if !is_git {
+        // Non-git folder: use its own canonical path. We canonicalize so
+        // duplicate-import detection (root_path uniqueness) is stable.
+        let canonical = normalize_filesystem_path(&selected_path)
+            .unwrap_or_else(|| selected_path.display().to_string());
+        return Ok((canonical, ImportKind::NonGit));
     }
 
     let root = git_ops::run_git(
@@ -1028,7 +1094,7 @@ fn resolve_git_root_path(folder_path: &str) -> Result<String> {
     )
     .map_err(|error| anyhow::anyhow!("Failed to resolve Git repository root: {error}"))?;
 
-    Ok(root.trim().to_string())
+    Ok((root.trim().to_string(), ImportKind::Git))
 }
 
 // ---- Git remote / branch resolution helpers ----
@@ -1150,6 +1216,98 @@ mod tests {
     use super::*;
 
     #[test]
+    fn delete_repository_cascade_removes_managed_worktrees_only() {
+        let env = crate::testkit::TestEnv::new("repo-delete-worktrees");
+        let git_repo = crate::testkit::GitTestRepo::init();
+        let project_root = git_repo.path().to_path_buf();
+        let project_marker = project_root.join("project-file.txt");
+        fs::write(&project_marker, "keep\n").unwrap();
+
+        let conn = env.db_connection();
+        crate::testkit::insert_repo(&conn, "r1", "demo", Some("origin"));
+        conn.execute(
+            "UPDATE repos SET root_path = ?1 WHERE id = 'r1'",
+            [project_root.display().to_string()],
+        )
+        .unwrap();
+        crate::testkit::insert_workspace(
+            &conn,
+            &crate::testkit::WorkspaceFixture {
+                id: "w-worktree",
+                repo_id: "r1",
+                directory_name: "alpha",
+                state: "ready",
+                branch: Some("feature/alpha"),
+                intended_target_branch: None,
+            },
+        );
+        conn.execute(
+            r#"
+            INSERT INTO workspaces (
+              id,
+              repository_id,
+              directory_name,
+              state,
+              status,
+              kind,
+              branch
+            ) VALUES ('w-project', 'r1', '', 'ready', 'in-progress', 'project', 'main')
+            "#,
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, workspace_id, status, title) VALUES ('s1', 'w-worktree', 'idle', 'Workspace chat')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_messages (id, session_id, role, content) VALUES ('m1', 's1', 'user', '{}')",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let workspace_dir = crate::data_dir::workspace_dir("demo", "alpha").unwrap();
+        fs::create_dir_all(&workspace_dir).unwrap();
+        fs::write(workspace_dir.join("worktree-file.txt"), "delete\n").unwrap();
+
+        delete_repository_cascade("r1").unwrap();
+
+        assert!(
+            !workspace_dir.exists(),
+            "managed worktree directory should be removed"
+        );
+        assert!(
+            project_marker.is_file(),
+            "project root should never be deleted with the Helmor project"
+        );
+
+        let conn = env.db_connection();
+        let repo_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM repos WHERE id = 'r1'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let workspace_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM workspaces WHERE repository_id = 'r1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let message_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM session_messages", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+
+        assert_eq!(repo_count, 0);
+        assert_eq!(workspace_count, 0);
+        assert_eq!(message_count, 0);
+    }
+
+    #[test]
     fn insert_and_load_repository_round_trips_forge_provider() {
         let env = crate::testkit::TestEnv::new("repos-forge-provider");
         let repo = ResolvedRepositoryInput {
@@ -1157,7 +1315,8 @@ mod tests {
             normalized_root_path: env.root.join("repo").display().to_string(),
             remote: Some("origin".to_string()),
             remote_url: Some("git@gitlab.com:acme/gitlab-repo.git".to_string()),
-            default_branch: "main".to_string(),
+            default_branch: Some("main".to_string()),
+            is_git: true,
             forge_provider: Some("gitlab".to_string()),
         };
 
@@ -1176,7 +1335,8 @@ mod tests {
             normalized_root_path: env.root.join("legacy").display().to_string(),
             remote: Some("origin".to_string()),
             remote_url: Some("git@github.com:acme/legacy-repo.git".to_string()),
-            default_branch: "main".to_string(),
+            default_branch: Some("main".to_string()),
+            is_git: true,
             forge_provider: None,
         };
 
@@ -1206,7 +1366,8 @@ mod tests {
             normalized_root_path: env.root.join("prefix").display().to_string(),
             remote: Some("origin".to_string()),
             remote_url: Some("git@github.com:acme/prefix-repo.git".to_string()),
-            default_branch: "main".to_string(),
+            default_branch: Some("main".to_string()),
+            is_git: true,
             forge_provider: Some("github".to_string()),
         };
 

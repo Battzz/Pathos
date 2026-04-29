@@ -66,6 +66,7 @@ export type WorkspaceRow = {
 	repoName?: string;
 	repoIconSrc?: string | null;
 	repoInitials?: string | null;
+	kind?: WorkspaceKind;
 	state?: WorkspaceState;
 	hasUnread?: boolean;
 	workspaceUnread?: number;
@@ -163,6 +164,7 @@ export type WorkspaceSummary = {
 	repoName: string;
 	repoIconSrc?: string | null;
 	repoInitials?: string | null;
+	kind?: WorkspaceKind;
 	state: WorkspaceState;
 	hasUnread: boolean;
 	workspaceUnread: number;
@@ -197,6 +199,7 @@ export type RepositoryCreateOption = {
 	forgeProvider?: ForgeProvider | null;
 	repoIconSrc?: string | null;
 	repoInitials?: string | null;
+	isGit?: boolean;
 };
 
 export type AddRepositoryDefaults = {
@@ -335,9 +338,54 @@ export type ForgeDetection = {
 export type AddRepositoryResponse = {
 	repositoryId: string;
 	createdRepository: boolean;
-	selectedWorkspaceId: string;
-	createdWorkspaceId?: string | null;
-	createdWorkspaceState: WorkspaceState;
+	/** False when the imported folder is not a git working tree. Non-git
+	 * projects can host chats but not branched workspaces. */
+	isGit: boolean;
+};
+
+/**
+ * Mirror of the Rust `WorkspaceKind` enum.
+ *
+ * - `project`: the imported folder itself. Lazily created the first
+ *   time the user starts a chat. Sessions in a project workspace
+ *   render as "chats" in the sidebar.
+ * - `workspace`: a branched git worktree under the helmor data dir.
+ *   The historical workspace concept.
+ */
+export type WorkspaceKind = "project" | "workspace";
+
+export type RepositoryFolderChat = {
+	sessionId: string;
+	workspaceId: string;
+	title: string;
+	agentType?: string | null;
+	status: string;
+	unreadCount: number;
+	pinnedAt?: string | null;
+	createdAt: string;
+	updatedAt: string;
+	lastUserMessageAt?: string | null;
+};
+
+export type RepositoryFolderWorkspace = WorkspaceRow & {
+	sessions: RepositoryFolderChat[];
+};
+
+export type RepositoryFolder = {
+	repoId: string;
+	repoName: string;
+	repoIconSrc?: string | null;
+	repoInitials: string;
+	rootPath?: string | null;
+	defaultBranch?: string | null;
+	isGit: boolean;
+	chats: RepositoryFolderChat[];
+	workspaces: RepositoryFolderWorkspace[];
+};
+
+export type CreateChatResponse = {
+	workspaceId: string;
+	sessionId: string;
 };
 
 export type WorkspaceDetail = {
@@ -352,6 +400,7 @@ export type WorkspaceDetail = {
 	defaultBranch?: string | null;
 	rootPath?: string | null;
 	directoryName: string;
+	kind?: WorkspaceKind;
 	state: WorkspaceState;
 	hasUnread: boolean;
 	workspaceUnread: number;
@@ -389,6 +438,7 @@ export type WorkspaceSessionSummary = {
 	updatedAt: string;
 	lastUserMessageAt?: string | null;
 	isHidden: boolean;
+	pinnedAt?: string | null;
 	/** Set when the session was created as a one-off dispatch from the
 	 * inspector commit button (e.g. "create-pr", "commit-and-push"). Drives
 	 * post-stream verifiers and auto-close behavior. */
@@ -425,32 +475,6 @@ export type ArchiveExecutionFailedPayload = {
 
 export type ArchiveExecutionSucceededPayload = {
 	workspaceId: string;
-};
-
-export type CreateWorkspaceResponse = {
-	createdWorkspaceId: string;
-	selectedWorkspaceId: string;
-	initialSessionId: string;
-	createdState: WorkspaceState;
-	directoryName: string;
-	branch: string;
-};
-
-export type PrepareWorkspaceResponse = {
-	workspaceId: string;
-	initialSessionId: string;
-	repoId: string;
-	repoName: string;
-	directoryName: string;
-	branch: string;
-	defaultBranch: string;
-	state: WorkspaceState;
-	repoScripts: RepoScripts;
-};
-
-export type FinalizeWorkspaceResponse = {
-	workspaceId: string;
-	finalState: WorkspaceState;
 };
 
 export type MarkWorkspaceReadResponse = undefined;
@@ -1801,43 +1825,6 @@ export async function updateSessionSettings(
 	});
 }
 
-export async function createWorkspaceFromRepo(
-	repoId: string,
-): Promise<CreateWorkspaceResponse> {
-	return invoke<CreateWorkspaceResponse>("create_workspace_from_repo", {
-		repoId,
-	});
-}
-
-/**
- * Phase 1 of workspace creation. Fast (<20ms): validates the repo,
- * allocates a unique directory, computes the branch name, generates the
- * workspace + session UUIDs, inserts the `initializing` DB row + initial
- * session, and returns all metadata plus repo-level scripts. The
- * frontend paints with this response immediately — no placeholders.
- */
-export async function prepareWorkspaceFromRepo(
-	repoId: string,
-): Promise<PrepareWorkspaceResponse> {
-	return invoke<PrepareWorkspaceResponse>("prepare_workspace_from_repo", {
-		repoId,
-	});
-}
-
-/**
- * Phase 2 of workspace creation. Slow (~200ms-2s): creates the git
- * worktree, probes `helmor.json`, and flips the
- * workspace row from `initializing` to `ready` / `setup_pending`. On
- * failure, the workspace row is cleaned up automatically.
- */
-export async function finalizeWorkspaceFromRepo(
-	workspaceId: string,
-): Promise<FinalizeWorkspaceResponse> {
-	return invoke<FinalizeWorkspaceResponse>("finalize_workspace_from_repo", {
-		workspaceId,
-	});
-}
-
 export async function completeWorkspaceSetup(
 	workspaceId: string,
 ): Promise<void> {
@@ -1857,6 +1844,26 @@ export async function cloneRepositoryFromUrl(args: {
 	cloneDirectory: string;
 }): Promise<AddRepositoryResponse> {
 	return invoke<AddRepositoryResponse>("clone_repository_from_url", args);
+}
+
+export async function listRepositoryFolders(): Promise<RepositoryFolder[]> {
+	try {
+		return await invoke<RepositoryFolder[]>("list_repository_folders");
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to load repository folders."),
+		);
+	}
+}
+
+export async function createChatSessionInRepo(
+	repoId: string,
+	options?: { permissionMode?: string | null },
+): Promise<CreateChatResponse> {
+	return invoke<CreateChatResponse>("create_chat_session_in_repo", {
+		repoId,
+		permissionMode: options?.permissionMode ?? null,
+	});
 }
 
 export async function markSessionRead(
@@ -2331,6 +2338,14 @@ export async function renameSession(
 	title: string,
 ): Promise<void> {
 	await invoke("rename_session", { sessionId, title });
+}
+
+export async function pinSession(sessionId: string): Promise<void> {
+	await invoke("pin_session", { sessionId });
+}
+
+export async function unpinSession(sessionId: string): Promise<void> {
+	await invoke("unpin_session", { sessionId });
 }
 
 export async function renameWorkspaceBranch(

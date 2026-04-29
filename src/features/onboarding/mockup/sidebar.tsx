@@ -1,4 +1,4 @@
-import { Folder, FolderPlus, Globe, Plus } from "lucide-react";
+import { Folder, FolderPlus, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -57,15 +57,6 @@ export function MockSidebar({
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
-					<Button
-						type="button"
-						aria-label="New workspace"
-						variant="ghost"
-						size="icon-xs"
-						className="text-muted-foreground"
-					>
-						<Plus className="size-4" strokeWidth={2.4} />
-					</Button>
 				</>
 			}
 		>

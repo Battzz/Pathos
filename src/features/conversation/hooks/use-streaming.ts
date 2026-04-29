@@ -17,7 +17,11 @@ import {
 	type PendingElicitation,
 } from "@/features/conversation/pending-elicitation";
 import { stabilizeStreamingMessages } from "@/features/conversation/streaming-tail-collapse";
-import type { AgentModelOption, ThreadMessageLike } from "@/lib/api";
+import type {
+	AgentModelOption,
+	RepositoryFolder,
+	ThreadMessageLike,
+} from "@/lib/api";
 import {
 	generateSessionTitle,
 	loadRepoPreferences,
@@ -242,7 +246,161 @@ export function useConversationStreaming({
 								: group.rows,
 						})),
 				);
+				queryClient.setQueryData<RepositoryFolder[] | undefined>(
+					helmorQueryKeys.repositoryFolders,
+					(current) =>
+						current?.map((folder) => ({
+							...folder,
+							chats: folder.chats.map((chat) =>
+								chat.sessionId === sessionId ? { ...chat, title } : chat,
+							),
+							workspaces: folder.workspaces.map((workspace) => ({
+								...workspace,
+								activeSessionTitle:
+									workspace.id === workspaceId &&
+									workspace.activeSessionId === sessionId
+										? title
+										: workspace.activeSessionTitle,
+								sessions: workspace.sessions.map((session) =>
+									session.sessionId === sessionId
+										? { ...session, title }
+										: session,
+								),
+							})),
+						})),
+				);
 			}
+		},
+		[queryClient],
+	);
+
+	const seedStartedProjectChat = useCallback(
+		({
+			repositoryId,
+			session,
+			sessionId,
+			title,
+			agentType,
+			now,
+			workspaceId,
+		}: {
+			repositoryId: string | null | undefined;
+			session: Record<string, unknown> | undefined;
+			sessionId: string;
+			title: string;
+			agentType: string;
+			now: string;
+			workspaceId: string | null;
+		}) => {
+			if (!workspaceId) {
+				return false;
+			}
+
+			queryClient.setQueryData(
+				helmorQueryKeys.workspaceSessions(workspaceId),
+				(current: Array<Record<string, unknown>> | undefined) =>
+					(current ?? []).map((candidate) =>
+						candidate.id === sessionId
+							? {
+									...candidate,
+									agentType,
+									lastUserMessageAt: now,
+								}
+							: candidate,
+					),
+			);
+			queryClient.setQueryData(
+				helmorQueryKeys.workspaceDetail(workspaceId),
+				(current: Record<string, unknown> | undefined) => {
+					if (!current || current.activeSessionId !== sessionId) {
+						return current;
+					}
+					return {
+						...current,
+						activeSessionAgentType: agentType,
+						activeSessionTitle: title,
+					};
+				},
+			);
+
+			let inserted = false;
+			queryClient.setQueryData<RepositoryFolder[] | undefined>(
+				helmorQueryKeys.repositoryFolders,
+				(current) =>
+					current?.map((folder) => {
+						const belongsToFolder =
+							(repositoryId && folder.repoId === repositoryId) ||
+							folder.chats.some(
+								(chat) =>
+									chat.sessionId === sessionId ||
+									chat.workspaceId === workspaceId,
+							);
+
+						if (!belongsToFolder) {
+							return folder;
+						}
+
+						const nextChat = {
+							sessionId,
+							workspaceId,
+							title,
+							agentType,
+							status:
+								typeof session?.status === "string" ? session.status : "idle",
+							unreadCount:
+								typeof session?.unreadCount === "number"
+									? session.unreadCount
+									: 0,
+							pinnedAt:
+								typeof session?.pinnedAt === "string" ? session.pinnedAt : null,
+							createdAt:
+								typeof session?.createdAt === "string"
+									? session.createdAt
+									: now,
+							updatedAt: now,
+							lastUserMessageAt: now,
+						};
+
+						const existingIndex = folder.chats.findIndex(
+							(chat) => chat.sessionId === sessionId,
+						);
+						if (existingIndex >= 0) {
+							return {
+								...folder,
+								chats: folder.chats.map((chat, index) =>
+									index === existingIndex ? { ...chat, ...nextChat } : chat,
+								),
+							};
+						}
+
+						inserted = true;
+						const firstUnpinnedIndex = folder.chats.findIndex(
+							(chat) => !chat.pinnedAt,
+						);
+						const chats = [...folder.chats];
+						chats.splice(
+							firstUnpinnedIndex === -1 ? chats.length : firstUnpinnedIndex,
+							0,
+							nextChat,
+						);
+						return { ...folder, chats };
+					}),
+			);
+			return inserted;
+		},
+		[queryClient],
+	);
+
+	const removeOptimisticProjectChat = useCallback(
+		(sessionId: string) => {
+			queryClient.setQueryData<RepositoryFolder[] | undefined>(
+				helmorQueryKeys.repositoryFolders,
+				(current) =>
+					current?.map((folder) => ({
+						...folder,
+						chats: folder.chats.filter((chat) => chat.sessionId !== sessionId),
+					})),
+			);
 		},
 		[queryClient],
 	);
@@ -1209,9 +1367,19 @@ export function useConversationStreaming({
 				files: filePaths,
 			});
 			let titleSeed: string | null = null;
+			let insertedOptimisticProjectChat = false;
 			if (isFirstUserMessage && !isCompactCommand) {
 				titleSeed = buildTitleSeed(trimmedPrompt);
 				seedSessionTitle(targetSessionId, targetWorkspaceId, titleSeed);
+				insertedOptimisticProjectChat = seedStartedProjectChat({
+					repositoryId: repoId,
+					session: currentSession,
+					sessionId: targetSessionId,
+					title: titleSeed,
+					agentType: model.provider,
+					now,
+					workspaceId: targetWorkspaceId,
+				});
 				void renameSession(targetSessionId, titleSeed).catch((error) => {
 					console.warn("[conversation] failed to seed session title:", error);
 				});
@@ -1490,6 +1658,9 @@ export function useConversationStreaming({
 								);
 							} else {
 								restoreSnapshot(queryClient, cacheSessionId, rollbackSnapshot);
+								if (insertedOptimisticProjectChat) {
+									removeOptimisticProjectChat(targetSessionId);
+								}
 								if (!isOverride) {
 									setComposerRestoreState({
 										contextKey,
@@ -1532,6 +1703,9 @@ export function useConversationStreaming({
 					});
 				}
 				restoreSnapshot(queryClient, cacheSessionId, rollbackSnapshot);
+				if (insertedOptimisticProjectChat) {
+					removeOptimisticProjectChat(targetSessionId);
+				}
 				clearFastPrelude(contextKey);
 				clearSendingState(contextKey);
 			}
@@ -1553,8 +1727,10 @@ export function useConversationStreaming({
 			queryClient,
 			repoId,
 			rememberInteractionWorkspace,
+			removeOptimisticProjectChat,
 			selectionPending,
 			refreshSessionThreadFromDb,
+			seedStartedProjectChat,
 			setFastPreludeActive,
 			activeSessionByContext,
 			sendingContextKeys,

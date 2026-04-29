@@ -54,24 +54,24 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 	changeRequest = null,
 	sessions,
 	selectedSessionId,
-	sessionDisplayProviders,
+	sessionDisplayProviders: _sessionDisplayProviders,
 	sessionPanes,
 	loadingWorkspace = false,
 	loadingSession = false,
 	refreshingWorkspace: _refreshingWorkspace = false,
 	refreshingSession: _refreshingSession = false,
-	sending = false,
-	sendingSessionIds,
-	interactionRequiredSessionIds,
-	onSelectSession,
-	onPrefetchSession,
-	onSessionsChanged,
-	onSessionRenamed,
+	sending: _sending = false,
+	sendingSessionIds: _sendingSessionIds,
+	interactionRequiredSessionIds: _interactionRequiredSessionIds,
+	onSelectSession: _onSelectSession,
+	onPrefetchSession: _onPrefetchSession,
+	onSessionsChanged: _onSessionsChanged,
+	onSessionRenamed: _onSessionRenamed,
 	onWorkspaceChanged,
-	onRequestCloseSession,
+	onRequestCloseSession: _onRequestCloseSession,
 	headerActions,
 	headerLeading,
-	newSessionShortcut,
+	newSessionShortcut: _newSessionShortcut,
 	missingScriptTypes = [],
 	onInitializeScript,
 }: WorkspacePanelProps) {
@@ -117,22 +117,9 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 				<WorkspacePanelHeader
 					workspace={workspace}
 					changeRequest={changeRequest}
-					sessions={sessions}
-					selectedSessionId={selectedSessionId}
-					sessionDisplayProviders={sessionDisplayProviders}
-					sending={sending}
-					sendingSessionIds={sendingSessionIds}
-					interactionRequiredSessionIds={interactionRequiredSessionIds}
-					loadingWorkspace={loadingWorkspace}
 					headerActions={headerActions}
 					headerLeading={headerLeading}
-					onSelectSession={onSelectSession}
-					onPrefetchSession={onPrefetchSession}
-					onSessionsChanged={onSessionsChanged}
-					onSessionRenamed={onSessionRenamed}
 					onWorkspaceChanged={onWorkspaceChanged}
-					onRequestCloseSession={onRequestCloseSession}
-					newSessionShortcut={newSessionShortcut}
 				/>
 
 				<div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">

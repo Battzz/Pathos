@@ -87,16 +87,13 @@ fn handle_tools_list(request: &Value) -> Value {
     let tools = json!([
         tool_def("helmor_data_info", "Show Helmor data directory, database path, and mode", json!({})),
         tool_def("helmor_repo_list", "List all registered repositories", json!({})),
-        tool_def("helmor_repo_add", "Register a local Git repository (creates first workspace automatically)", json!({
+        tool_def("helmor_repo_add", "Register a local project", json!({
             "path": { "type": "string", "description": "Absolute path to the repository root" }
         }).as_object().map(|o| json!({ "type": "object", "properties": o, "required": ["path"] })).unwrap()),
         tool_def("helmor_workspace_list", "List all active workspaces grouped by status", json!({})),
         tool_def("helmor_workspace_show", "Show details for a workspace", json!({
             "ref": { "type": "string", "description": "Workspace UUID or repo-name/directory-name" }
         }).as_object().map(|o| json!({ "type": "object", "properties": o, "required": ["ref"] })).unwrap()),
-        tool_def("helmor_workspace_create", "Create a new workspace for a repository", json!({
-            "repo": { "type": "string", "description": "Repository UUID or name" }
-        }).as_object().map(|o| json!({ "type": "object", "properties": o, "required": ["repo"] })).unwrap()),
         tool_def("helmor_session_list", "List sessions in a workspace", json!({
             "workspace": { "type": "string", "description": "Workspace UUID or repo-name/directory-name" }
         }).as_object().map(|o| json!({ "type": "object", "properties": o, "required": ["workspace"] })).unwrap()),
@@ -173,14 +170,6 @@ fn dispatch_tool(name: &str, args: &Value) -> Result<String> {
             let ws_id = service::resolve_workspace_ref(ws_ref)?;
             let detail = service::get_workspace(&ws_id)?;
             Ok(serde_json::to_string_pretty(&detail)?)
-        }
-        "helmor_workspace_create" => {
-            let repo_ref = args["repo"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Missing required param: repo"))?;
-            let repo_id = service::resolve_repo_ref(repo_ref)?;
-            let resp = service::create_workspace_from_repo_impl(&repo_id)?;
-            Ok(serde_json::to_string_pretty(&resp)?)
         }
         "helmor_session_list" => {
             let ws_ref = args["workspace"]

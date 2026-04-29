@@ -6,4 +6,3 @@ mod primary_session;
 mod repository;
 mod system_commands;
 mod unread_state;
-mod workspace_creation;

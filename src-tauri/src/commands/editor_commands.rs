@@ -111,8 +111,15 @@ pub async fn get_workspace_git_action_status(
         if !record.state.is_operational() {
             return Ok(quiet_status());
         }
-        let workspace_dir =
-            crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
+        let workspace_dir = crate::workspace_project::resolve_workspace_root_path_unchecked(
+            &record,
+        )
+        .with_context(|| {
+            format!(
+                "Workspace {} has no resolvable working directory",
+                workspace_id
+            )
+        })?;
         // Defensive: if the worktree directory was removed externally (e.g.
         // user `rm -rf`ed it while the row is still `ready`), return quiet
         // status rather than erroring on every poll. User-triggered paths
@@ -125,6 +132,12 @@ pub async fn get_workspace_git_action_status(
                 path = %workspace_dir.display(),
                 "worktree missing during git-status poll; returning quiet status",
             );
+            return Ok(quiet_status());
+        }
+        // Non-git project folders don't have meaningful sync/push state.
+        // Short-circuit to "quiet" so the inspector doesn't render
+        // misleading "Sync status unavailable" placeholders for them.
+        if !workspace_dir.join(".git").exists() {
             return Ok(quiet_status());
         }
         let remote = record.remote.as_deref();

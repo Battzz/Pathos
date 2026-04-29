@@ -46,13 +46,8 @@ pub(super) fn load_gitlab_context(workspace_id: &str) -> Result<GitlabContext> {
 }
 
 fn workspace_branch_has_remote_tracking(record: &WorkspaceRecord) -> bool {
-    let Ok(workspace_dir) =
-        crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)
-    else {
+    let Some(workspace_dir) = crate::workspace_project::resolve_workspace_root_path(record) else {
         return false;
     };
-    if !workspace_dir.exists() {
-        return false;
-    }
     git_ops::resolve_remote_tracking_ref(&workspace_dir, record.remote.as_deref()).is_some()
 }

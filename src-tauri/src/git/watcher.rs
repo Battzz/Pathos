@@ -682,11 +682,15 @@ fn update_branch_in_db(
 
 fn load_watchable_workspaces() -> Result<Vec<WatchableWorkspace>> {
     let connection = db::read_conn()?;
+    // Filter out project workspaces — they don't have a separate worktree
+    // under the helmor data dir; the imported folder owns its own git
+    // metadata changes and does not need a watcher of its own.
     let mut stmt = connection.prepare(
         "SELECT w.id, r.name, w.directory_name, w.branch, w.state,
                 r.remote, COALESCE(w.intended_target_branch, r.default_branch), r.id
          FROM workspaces w
-         JOIN repos r ON r.id = w.repository_id",
+         JOIN repos r ON r.id = w.repository_id
+         WHERE COALESCE(w.kind, 'workspace') = 'workspace'",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(WatchableWorkspace {

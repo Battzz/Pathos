@@ -485,14 +485,8 @@ pub async fn open_workspace_in_editor(workspace_id: String, editor: String) -> C
         let record = workspace_models::load_workspace_record_by_id(&workspace_id)?
             .with_context(|| format!("Workspace not found: {workspace_id}"))?;
 
-        let workspace_dir =
-            crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
-        if !workspace_dir.is_dir() {
-            return Err(anyhow::anyhow!(
-                "Workspace directory not found: {}",
-                workspace_dir.display()
-            ));
-        }
+        let workspace_dir = crate::workspace_project::resolve_workspace_root_path(&record)
+            .with_context(|| format!("Workspace directory not found for {}", record.id))?;
 
         // Prefer the absolute app path (bypasses Launch Services name resolution,
         // which trips on renamed bundles and ambiguous names).
@@ -509,14 +503,8 @@ pub async fn open_workspace_in_finder(workspace_id: String) -> CmdResult<()> {
         let record = workspace_models::load_workspace_record_by_id(&workspace_id)?
             .with_context(|| format!("Workspace not found: {workspace_id}"))?;
 
-        let workspace_dir =
-            crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
-        if !workspace_dir.is_dir() {
-            return Err(anyhow::anyhow!(
-                "Workspace directory not found: {}",
-                workspace_dir.display()
-            ));
-        }
+        let workspace_dir = crate::workspace_project::resolve_workspace_root_path(&record)
+            .with_context(|| format!("Workspace directory not found for {}", record.id))?;
 
         reveal_in_finder(&workspace_dir).context("Failed to open Finder")
     })

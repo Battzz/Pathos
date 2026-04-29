@@ -31,7 +31,6 @@ pub fn dispatch(action: &WorkspaceAction, cli: &Cli) -> Result<()> {
             cli,
         ),
         WorkspaceAction::Show { workspace_ref } => show(workspace_ref, cli),
-        WorkspaceAction::New { repo } => new(repo, cli),
         WorkspaceAction::Delete { workspace_ref } => delete(workspace_ref, cli),
         WorkspaceAction::Archive { workspace_ref } => archive(workspace_ref, cli),
         WorkspaceAction::Restore {
@@ -188,27 +187,6 @@ fn show(workspace_ref: &str, cli: &Cli) -> Result<()> {
             d.session_count,
             d.message_count,
             d.pr_title.as_deref().unwrap_or("-"),
-        )
-    })
-}
-
-fn new(repo_ref: &str, cli: &Cli) -> Result<()> {
-    let repo_id = service::resolve_repo_ref(repo_ref)?;
-    let response = service::create_workspace_from_repo_impl(&repo_id)?;
-    notify_ui_events([
-        UiMutationEvent::WorkspaceListChanged,
-        UiMutationEvent::WorkspaceChanged {
-            workspace_id: response.created_workspace_id.clone(),
-        },
-    ]);
-    if cli.quiet && !cli.json {
-        println!("{}", response.created_workspace_id);
-        return Ok(());
-    }
-    output::print(cli, &response, |r| {
-        format!(
-            "Created workspace: {}\nDirectory:         {}\nBranch:            {}\nState:             {:?}",
-            r.created_workspace_id, r.directory_name, r.branch, r.created_state
         )
     })
 }

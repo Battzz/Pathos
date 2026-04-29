@@ -26,6 +26,7 @@ pub struct WorkspaceSessionSummary {
     pub updated_at: String,
     pub last_user_message_at: Option<String>,
     pub is_hidden: bool,
+    pub pinned_at: Option<String>,
     /// Non-null when the session was created as a one-off "action" dispatch
     /// (e.g. "create-pr", "commit-and-push"). The inspector commit button
     /// uses this to drive post-stream verifiers and the auto-close behavior.
@@ -60,10 +61,13 @@ pub fn list_workspace_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessio
               s.updated_at,
               s.last_user_message_at,
               s.is_hidden,
-              s.action_kind
+              s.action_kind,
+              s.pinned_at
             FROM sessions s
             WHERE s.workspace_id = ?1 AND COALESCE(s.is_hidden, 0) = 0
             ORDER BY
+              CASE WHEN s.pinned_at IS NULL THEN 1 ELSE 0 END,
+              datetime(s.pinned_at) DESC,
               datetime(s.created_at) ASC
             "#,
     )?;
@@ -89,6 +93,7 @@ pub fn list_workspace_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessio
             last_user_message_at: row.get(13)?,
             is_hidden: row.get::<_, i64>(14)? != 0,
             action_kind: row.get(15)?,
+            pinned_at: row.get(16)?,
         })
     })?;
 
@@ -425,6 +430,51 @@ pub fn create_session(
     Ok(CreateSessionResponse { session_id })
 }
 
+pub fn delete_empty_visible_chat_sessions(workspace_id: &str) -> Result<usize> {
+    let mut connection = db::write_conn()?;
+    let transaction = connection
+        .transaction()
+        .context("Failed to start empty-chat cleanup transaction")?;
+
+    let session_ids = {
+        let mut statement = transaction
+            .prepare(
+                r#"
+                SELECT s.id
+                FROM sessions s
+                WHERE s.workspace_id = ?1
+                  AND COALESCE(s.is_hidden, 0) = 0
+                  AND s.action_kind IS NULL
+                  AND s.pinned_at IS NULL
+                  AND s.last_user_message_at IS NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id
+                  )
+                "#,
+            )
+            .context("Failed to prepare empty-chat cleanup query")?;
+
+        let rows = statement
+            .query_map([workspace_id], |row| row.get::<_, String>(0))
+            .context("Failed to query empty chat sessions")?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("Failed to collect empty chat sessions")?;
+        rows
+    };
+
+    for session_id in &session_ids {
+        transaction
+            .execute("DELETE FROM sessions WHERE id = ?1", [session_id])
+            .with_context(|| format!("Failed to delete empty chat session {session_id}"))?;
+    }
+
+    transaction
+        .commit()
+        .context("Failed to commit empty-chat cleanup")?;
+
+    Ok(session_ids.len())
+}
+
 /// Read the `model` column from a session row.
 pub fn get_session_model(session_id: &str) -> Result<Option<String>> {
     let conn = db::read_conn()?;
@@ -480,6 +530,48 @@ pub fn rename_session(session_id: &str, title: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+pub fn pin_session(session_id: &str) -> Result<String> {
+    let connection = db::write_conn()?;
+    let updated_rows = connection
+        .execute(
+            "UPDATE sessions SET pinned_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1",
+            [session_id],
+        )
+        .with_context(|| format!("Failed to pin session {session_id}"))?;
+
+    if updated_rows != 1 {
+        bail!("Session pin affected {updated_rows} rows for session {session_id}");
+    }
+
+    session_workspace_id(&connection, session_id)
+}
+
+pub fn unpin_session(session_id: &str) -> Result<String> {
+    let connection = db::write_conn()?;
+    let updated_rows = connection
+        .execute(
+            "UPDATE sessions SET pinned_at = NULL, updated_at = datetime('now') WHERE id = ?1",
+            [session_id],
+        )
+        .with_context(|| format!("Failed to unpin session {session_id}"))?;
+
+    if updated_rows != 1 {
+        bail!("Session unpin affected {updated_rows} rows for session {session_id}");
+    }
+
+    session_workspace_id(&connection, session_id)
+}
+
+fn session_workspace_id(connection: &Connection, session_id: &str) -> Result<String> {
+    connection
+        .query_row(
+            "SELECT workspace_id FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("Failed to load workspace for session {session_id}"))
 }
 
 pub fn hide_session(session_id: &str) -> Result<()> {
@@ -615,7 +707,7 @@ pub fn list_hidden_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessionSu
               s.id, s.workspace_id, s.title, s.agent_type, s.status, s.model,
               s.permission_mode, s.provider_session_id, s.effort_level,
               s.unread_count, s.fast_mode, s.created_at, s.updated_at,
-              s.last_user_message_at, s.is_hidden, s.action_kind
+              s.last_user_message_at, s.is_hidden, s.action_kind, s.pinned_at
             FROM sessions s
             WHERE s.workspace_id = ?1 AND s.is_hidden = 1
             ORDER BY datetime(s.created_at) ASC
@@ -644,6 +736,7 @@ pub fn list_hidden_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessionSu
                 last_user_message_at: row.get(13)?,
                 is_hidden: row.get::<_, i64>(14)? != 0,
                 action_kind: row.get(15)?,
+                pinned_at: row.get(16)?,
             })
         })
         .context("Failed to query hidden sessions")?;

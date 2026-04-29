@@ -36,7 +36,9 @@ pub use models::sessions;
 pub use models::settings;
 pub use workspace::files as editor_files;
 pub use workspace::helpers;
+pub use workspace::kind as workspace_kind;
 pub use workspace::pr_sync as workspace_pr_sync;
+pub use workspace::project as workspace_project;
 pub use workspace::state as workspace_state;
 pub use workspace::status as workspace_status;
 pub use workspace::workspaces;
@@ -100,6 +102,15 @@ pub fn run() {
                 data = %db_path.display(),
                 "Helmor started"
             );
+
+            match workspace::workspaces::reactivate_archived_project_workspaces() {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(
+                    count = n,
+                    "Reactivated archived project workspaces (chat history restored)"
+                ),
+                Err(e) => tracing::warn!("Failed to repair project workspaces: {e:#}"),
+            }
 
             // Reconcile workspaces whose directory was deleted outside the
             // app: degrade them to `archived` so chat history is preserved
@@ -191,9 +202,6 @@ pub fn run() {
             commands::workspace_commands::validate_restore_workspace,
             commands::github_commands::cancel_github_identity_connect,
             commands::workspace_commands::complete_workspace_setup,
-            commands::workspace_commands::create_workspace_from_repo,
-            commands::workspace_commands::prepare_workspace_from_repo,
-            commands::workspace_commands::finalize_workspace_from_repo,
             commands::github_commands::disconnect_github_identity,
             commands::repository_commands::get_add_repository_defaults,
             commands::settings_commands::get_app_settings,
@@ -253,9 +261,13 @@ pub fn run() {
             commands::terminal_commands::resize_terminal,
             commands::session_commands::list_session_thread_messages,
             commands::workspace_commands::list_workspace_groups,
+            commands::workspace_commands::list_repository_folders,
             commands::session_commands::list_workspace_sessions,
             commands::session_commands::create_session,
+            commands::session_commands::create_chat_session_in_repo,
             commands::session_commands::rename_session,
+            commands::session_commands::pin_session,
+            commands::session_commands::unpin_session,
             commands::session_commands::hide_session,
             commands::session_commands::unhide_session,
             commands::session_commands::delete_session,

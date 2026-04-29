@@ -79,14 +79,6 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		editable: true,
 	},
 	{
-		id: "workspace.new",
-		title: "Create new workspace",
-		group: "Workspace",
-		defaultHotkey: "Mod+N",
-		scopes: ["app"],
-		editable: true,
-	},
-	{
 		id: "workspace.addRepository",
 		title: "Add repository",
 		group: "Workspace",

@@ -82,6 +82,24 @@ const BUILTIN_CLIENT_COMMANDS: readonly SlashCommandEntry[] = [
 	CODEX_COMPACT_COMMAND,
 ];
 
+function isAgentProvider(
+	value: string | null | undefined,
+): value is AgentProvider {
+	return value === "claude" || value === "codex";
+}
+
+function filterModelSectionsForProvider(
+	sections: AgentModelSection[],
+	provider: AgentProvider,
+): AgentModelSection[] {
+	return sections
+		.map((section) => ({
+			...section,
+			options: section.options.filter((option) => option.provider === provider),
+		}))
+		.filter((section) => section.options.length > 0);
+}
+
 type WorkspaceComposerContainerProps = {
 	displayedWorkspaceId: string | null;
 	displayedSessionId: string | null;
@@ -363,6 +381,18 @@ export const WorkspaceComposerContainer = memo(
 		const effectiveSelectedModelId = effectiveModel?.id ?? selectedModelId;
 		const provider =
 			effectiveModel?.provider ?? currentSession?.agentType ?? "claude";
+		const activeSessionProvider = isAgentProvider(currentSession?.agentType)
+			? currentSession.agentType
+			: isAgentProvider(provider)
+				? provider
+				: null;
+		const visibleModelSections = useMemo(
+			() =>
+				!isNewSession(currentSession) && activeSessionProvider
+					? filterModelSectionsForProvider(modelSections, activeSessionProvider)
+					: modelSections,
+			[activeSessionProvider, currentSession, modelSections],
+		);
 		const cachedEffort = composerContextKey.startsWith("session:")
 			? effortLevels[composerContextKey]
 			: undefined;
@@ -808,7 +838,7 @@ export const WorkspaceComposerContainer = memo(
 						onStop={onStop}
 						sending={sending}
 						selectedModelId={effectiveSelectedModelId}
-						modelSections={modelSections}
+						modelSections={visibleModelSections}
 						modelsLoading={modelsLoading}
 						onSelectModel={handleSelectModelInner}
 						provider={provider}

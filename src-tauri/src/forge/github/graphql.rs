@@ -717,14 +717,9 @@ mutation($prId: ID!) {
 /// can't possibly have a PR — avoids ghost matches against historical PRs
 /// whose head branch happens to share the workspace's placeholder name.
 fn workspace_branch_has_remote_tracking(record: &workspace_models::WorkspaceRecord) -> bool {
-    let Ok(workspace_dir) =
-        crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)
-    else {
+    let Some(workspace_dir) = crate::workspace_project::resolve_workspace_root_path(record) else {
         return false;
     };
-    if !workspace_dir.exists() {
-        return false;
-    }
     git_ops::resolve_remote_tracking_ref(&workspace_dir, record.remote.as_deref()).is_some()
 }
 

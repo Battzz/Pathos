@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use rusqlite::OptionalExtension;
 use serde::Serialize;
 
 use crate::{
@@ -8,6 +9,7 @@ use crate::{
     helpers,
     models::workspaces::{self as workspace_models, WorkspaceRecord},
     sessions,
+    workspace_kind::WorkspaceKind,
     workspace_pr_sync::PrSyncState,
     workspace_state::WorkspaceState,
     workspace_status::WorkspaceStatus,
@@ -26,12 +28,10 @@ pub use super::branching::{
     UpdateIntendedTargetBranchInternal, UpdateIntendedTargetBranchResponse,
 };
 pub use super::lifecycle::{
-    archive_workspace_impl, cleanup_orphaned_initializing_workspaces,
-    create_workspace_from_repo_impl, finalize_workspace_from_repo_impl, prepare_archive_plan,
-    prepare_workspace_from_repo_impl, restore_workspace_impl, validate_archive_workspace,
-    validate_restore_workspace, ArchivePreparedPlan, ArchiveWorkspaceResponse, BranchRename,
-    CreateWorkspaceResponse, FinalizeWorkspaceResponse, PrepareWorkspaceResponse,
-    RestoreWorkspaceResponse, TargetBranchConflict, ValidateRestoreResponse,
+    archive_workspace_impl, cleanup_orphaned_initializing_workspaces, prepare_archive_plan,
+    restore_workspace_impl, validate_archive_workspace, validate_restore_workspace,
+    ArchivePreparedPlan, ArchiveWorkspaceResponse, BranchRename, RestoreWorkspaceResponse,
+    TargetBranchConflict, ValidateRestoreResponse,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -44,6 +44,7 @@ pub struct WorkspaceSidebarRow {
     pub repo_name: String,
     pub repo_icon_src: Option<String>,
     pub repo_initials: String,
+    pub kind: WorkspaceKind,
     pub state: WorkspaceState,
     pub has_unread: bool,
     pub workspace_unread: i64,
@@ -86,6 +87,7 @@ pub struct WorkspaceSummary {
     pub repo_name: String,
     pub repo_icon_src: Option<String>,
     pub repo_initials: String,
+    pub kind: WorkspaceKind,
     pub state: WorkspaceState,
     pub has_unread: bool,
     pub workspace_unread: i64,
@@ -124,6 +126,7 @@ pub struct WorkspaceDetail {
     pub default_branch: Option<String>,
     pub root_path: Option<String>,
     pub directory_name: String,
+    pub kind: WorkspaceKind,
     pub state: WorkspaceState,
     pub has_unread: bool,
     pub workspace_unread: i64,
@@ -147,7 +150,184 @@ pub struct WorkspaceDetail {
 
 // Workspace persistence lives in `crate::models::workspaces`.
 
-// ---- Sidebar groups ----
+// ---- Sidebar folders (per-repo, collapsible) ----
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryFolderChat {
+    pub session_id: String,
+    pub workspace_id: String,
+    pub title: String,
+    pub agent_type: Option<String>,
+    pub status: String,
+    pub unread_count: i64,
+    pub pinned_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub last_user_message_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryFolderWorkspace {
+    /// All sidebar metadata for the workspace row itself.
+    #[serde(flatten)]
+    pub row: WorkspaceSidebarRow,
+    /// Visible sessions inside this branched workspace. Used by the
+    /// sidebar to let the user switch between sessions without going
+    /// through the panel's tab bar.
+    pub sessions: Vec<RepositoryFolderChat>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryFolder {
+    pub repo_id: String,
+    pub repo_name: String,
+    pub repo_icon_src: Option<String>,
+    pub repo_initials: String,
+    pub root_path: Option<String>,
+    pub default_branch: Option<String>,
+    pub is_git: bool,
+    /// Sessions inside the repo's project workspace, newest first.
+    pub chats: Vec<RepositoryFolderChat>,
+    /// Deprecated compatibility field. Project folders no longer surface
+    /// branched worktree workspaces in the sidebar.
+    pub workspaces: Vec<RepositoryFolderWorkspace>,
+}
+
+/// Per-repo folders for the project sidebar. Each folder lists only the
+/// repo's chats (sessions in its project workspace). Repos with no chats
+/// yet still appear so the user can land on the empty state.
+pub fn list_repository_folders() -> Result<Vec<RepositoryFolder>> {
+    let connection = db::read_conn()?;
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT
+              id,
+              name,
+              root_path,
+              default_branch,
+              COALESCE(is_git, 1)
+            FROM repos
+            WHERE COALESCE(hidden, 0) = 0
+            ORDER BY COALESCE(display_order, 0) ASC, LOWER(name) ASC
+            "#,
+        )
+        .context("Failed to prepare repository folder query")?;
+
+    let repo_rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, i64>(4)? != 0,
+            ))
+        })
+        .context("Failed to load repositories for folder listing")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("Failed to collect repositories for folder listing")?;
+
+    drop(statement);
+    drop(connection);
+
+    let workspace_records = workspace_models::load_workspace_records()?;
+
+    let mut folders = Vec::with_capacity(repo_rows.len());
+    for (repo_id, repo_name, root_path, default_branch, is_git) in repo_rows {
+        let repo_initials = helpers::repo_initials_for_name(&repo_name);
+        let repo_icon_src = helpers::repo_icon_src_for_root_path(root_path.as_deref());
+
+        let mut chats: Vec<RepositoryFolderChat> = Vec::new();
+        let workspaces: Vec<RepositoryFolderWorkspace> = Vec::new();
+
+        for record in workspace_records.iter() {
+            if record.repo_id != repo_id {
+                continue;
+            }
+            if record.state == WorkspaceState::Archived {
+                continue;
+            }
+            match record.kind {
+                WorkspaceKind::Project => {
+                    chats.extend(load_chats_for_workspace(record)?);
+                }
+                WorkspaceKind::Workspace => {}
+            }
+        }
+
+        folders.push(RepositoryFolder {
+            repo_id,
+            repo_name,
+            repo_icon_src,
+            repo_initials,
+            root_path,
+            default_branch,
+            is_git,
+            chats,
+            workspaces,
+        });
+    }
+
+    Ok(folders)
+}
+
+fn load_chats_for_workspace(record: &WorkspaceRecord) -> Result<Vec<RepositoryFolderChat>> {
+    let connection = db::read_conn()?;
+    let mut stmt = connection.prepare(
+        r#"
+        SELECT
+          id,
+          workspace_id,
+          title,
+          agent_type,
+          status,
+          unread_count,
+          pinned_at,
+          created_at,
+          updated_at,
+          last_user_message_at
+        FROM sessions
+        WHERE workspace_id = ?1
+          AND COALESCE(is_hidden, 0) = 0
+          AND action_kind IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM session_messages
+            WHERE session_messages.session_id = sessions.id
+              AND session_messages.role = 'user'
+          )
+        ORDER BY
+          CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END,
+          datetime(pinned_at) DESC,
+          datetime(created_at) DESC
+        "#,
+    )?;
+
+    let rows = stmt
+        .query_map([record.id.as_str()], |row| {
+            Ok(RepositoryFolderChat {
+                session_id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                title: row.get(2)?,
+                agent_type: row.get(3)?,
+                status: row.get(4)?,
+                unread_count: row.get(5)?,
+                pinned_at: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+                last_user_message_at: row.get(9)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    Ok(rows)
+}
+
+// ---- Sidebar groups (legacy kanban view, retained for compatibility) ----
 
 pub fn list_workspace_groups() -> Result<Vec<WorkspaceSidebarGroup>> {
     let mut pinned = Vec::new();
@@ -163,6 +343,13 @@ pub fn list_workspace_groups() -> Result<Vec<WorkspaceSidebarGroup>> {
     // re-sort needed.
     for record in workspace_models::load_workspace_records()? {
         if record.state == WorkspaceState::Archived {
+            continue;
+        }
+        // Project workspaces represent the imported folder itself —
+        // they're surfaced as the parent folder in the new sidebar
+        // layout, and their sessions show up there as "chats". They
+        // never appear in the kanban groups.
+        if record.kind == WorkspaceKind::Project {
             continue;
         }
         let is_pinned = record.pinned_at.is_some();
@@ -419,14 +606,15 @@ fn stabilize_pr_sync_state(current: PrSyncState, next: PrSyncState) -> PrSyncSta
 
 pub fn get_workspace_linked_directories(workspace_id: &str) -> Result<Vec<String>> {
     let connection = db::read_conn()?;
-    let raw: Option<String> = connection
+    let raw: Option<Option<String>> = connection
         .query_row(
             "SELECT linked_directory_paths FROM workspaces WHERE id = ?1",
             [workspace_id],
             |row| row.get(0),
         )
+        .optional()
         .context("Failed to read linked_directory_paths")?;
-    Ok(parse_linked_directory_paths(raw.as_deref()))
+    Ok(parse_linked_directory_paths(raw.flatten().as_deref()))
 }
 
 /// One entry in the `/add-dir` picker's "known workspaces" list. Mirrors
@@ -676,32 +864,6 @@ mod candidate_directories_tests {
     }
 }
 
-// ---- Select visible workspace for repo ----
-
-pub(crate) fn select_visible_workspace_for_repo(
-    repo_id: &str,
-) -> Result<Option<(String, WorkspaceState)>> {
-    let mut visible_records = workspace_models::load_workspace_records()?
-        .into_iter()
-        .filter(|record| record.repo_id == repo_id && record.state != WorkspaceState::Archived)
-        .collect::<Vec<_>>();
-
-    visible_records.sort_by(|left, right| {
-        helpers::sidebar_sort_rank(left)
-            .cmp(&helpers::sidebar_sort_rank(right))
-            .then_with(|| {
-                helpers::display_title(left)
-                    .to_lowercase()
-                    .cmp(&helpers::display_title(right).to_lowercase())
-            })
-    });
-
-    Ok(visible_records
-        .into_iter()
-        .next()
-        .map(|record| (record.id, record.state)))
-}
-
 // ---- Record-to-DTO conversion ----
 
 pub fn record_to_sidebar_row(record: WorkspaceRecord) -> WorkspaceSidebarRow {
@@ -716,6 +878,7 @@ pub fn record_to_sidebar_row(record: WorkspaceRecord) -> WorkspaceSidebarRow {
         repo_name: record.repo_name,
         repo_icon_src: helpers::repo_icon_src_for_root_path(record.root_path.as_deref()),
         repo_initials,
+        kind: record.kind,
         state: record.state,
         has_unread: record.has_unread,
         workspace_unread: record.workspace_unread,
@@ -751,6 +914,7 @@ pub fn record_to_summary(record: WorkspaceRecord) -> WorkspaceSummary {
         repo_name: record.repo_name,
         repo_icon_src: helpers::repo_icon_src_for_root_path(record.root_path.as_deref()),
         repo_initials,
+        kind: record.kind,
         state: record.state,
         has_unread: record.has_unread,
         workspace_unread: record.workspace_unread,
@@ -779,19 +943,13 @@ pub fn record_to_summary(record: WorkspaceRecord) -> WorkspaceSummary {
 pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
     let repo_initials = helpers::repo_initials_for_name(&record.repo_name);
 
-    // Use the worktree path as root_path so Claude Code/Codex operate in the
-    // correct workspace directory, not the source repository.
-    // Archived workspaces have no worktree — return None so the frontend
-    // knows agent messaging is unavailable.
-    let worktree_path = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)
-        .ok()
-        .and_then(|p| {
-            if p.is_dir() {
-                p.to_str().map(|s| s.to_string())
-            } else {
-                None
-            }
-        });
+    // For `Project` workspaces, the agent operates on the repo's actual
+    // root path (no worktree). For `Workspace`-kind workspaces, use the
+    // branched worktree directory under the helmor data dir. Archived
+    // workspaces (whose worktree is gone) and missing project paths
+    // return None so the frontend knows agent messaging is unavailable.
+    let resolved_root_path = crate::workspace_project::resolve_workspace_root_path(&record)
+        .and_then(|p| p.to_str().map(|s| s.to_string()));
 
     WorkspaceDetail {
         title: helpers::display_title(&record),
@@ -803,8 +961,9 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
         remote: record.remote,
         remote_url: record.remote_url,
         default_branch: record.default_branch,
-        root_path: worktree_path,
+        root_path: resolved_root_path,
         directory_name: record.directory_name,
+        kind: record.kind,
         state: record.state,
         has_unread: record.has_unread,
         workspace_unread: record.workspace_unread,
@@ -844,7 +1003,7 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
 pub fn purge_orphaned_workspaces() -> Result<usize> {
     let connection = db::read_conn()?;
     let mut stmt = connection.prepare(&format!(
-        "SELECT w.id, r.name, w.directory_name, w.state
+        "SELECT w.id, r.name, w.directory_name, w.state, COALESCE(w.kind, 'workspace') AS kind
          FROM workspaces w
          JOIN repos r ON r.id = w.repository_id
          WHERE w.state {}",
@@ -857,14 +1016,19 @@ pub fn purge_orphaned_workspaces() -> Result<usize> {
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, WorkspaceState>(3)?,
+                row.get::<_, WorkspaceKind>(4)?,
             ))
         })?
         .filter_map(|r| r.ok())
-        .filter(|(_, repo_name, dir_name, _)| {
+        .filter(|(_, repo_name, dir_name, _, kind)| {
+            if *kind != WorkspaceKind::Workspace {
+                return false;
+            }
             crate::data_dir::workspace_dir(repo_name, dir_name)
                 .map(|p| !p.is_dir())
                 .unwrap_or(false)
         })
+        .map(|(id, repo_name, dir_name, state, _)| (id, repo_name, dir_name, state))
         .collect();
     // Release the read connection so `degrade_workspace_to_archived`
     // (which takes a write conn) doesn't deadlock on SQLite.
@@ -903,6 +1067,63 @@ pub fn purge_orphaned_workspaces() -> Result<usize> {
         }
     }
     Ok(count)
+}
+
+/// Repair project chat containers that older orphan cleanup incorrectly
+/// archived. Project workspaces do not own a Helmor-managed worktree, so
+/// they are valid as long as the imported repository root still exists.
+pub fn reactivate_archived_project_workspaces() -> Result<usize> {
+    let connection = db::read_conn()?;
+    let mut stmt = connection
+        .prepare(
+            "SELECT w.id, r.root_path
+             FROM workspaces w
+             JOIN repos r ON r.id = w.repository_id
+             WHERE w.state = 'archived'
+               AND COALESCE(w.kind, 'workspace') = 'project'",
+        )
+        .context("Failed to prepare archived project workspace repair query")?;
+    let candidates = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })
+        .context("Failed to query archived project workspaces")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("Failed to collect archived project workspaces")?;
+    drop(stmt);
+    drop(connection);
+
+    let workspace_ids = candidates
+        .into_iter()
+        .filter_map(|(id, root_path)| {
+            let root_path = root_path?.trim().to_string();
+            if root_path.is_empty() || !std::path::Path::new(&root_path).is_dir() {
+                return None;
+            }
+            Some(id)
+        })
+        .collect::<Vec<_>>();
+
+    if workspace_ids.is_empty() {
+        return Ok(0);
+    }
+
+    let connection = db::write_conn()?;
+    let mut repaired = 0;
+    for workspace_id in workspace_ids {
+        repaired += connection
+            .execute(
+                "UPDATE workspaces
+                 SET state = 'ready',
+                     updated_at = datetime('now')
+                 WHERE id = ?1
+                   AND state = 'archived'
+                   AND COALESCE(kind, 'workspace') = 'project'",
+                [workspace_id],
+            )
+            .context("Failed to reactivate archived project workspace")?;
+    }
+    Ok(repaired)
 }
 
 /// Flip a single workspace row from its current operational state to
@@ -1022,6 +1243,143 @@ mod tests {
     }
 
     #[test]
+    fn get_linked_directories_treats_null_as_empty() {
+        let env = TestEnv::new("linked-null");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-ready",
+                repo_id: "r1",
+                directory_name: "alpha",
+                state: WorkspaceState::Ready.as_str(),
+                branch: Some("feature/alpha"),
+                intended_target_branch: None,
+            },
+        );
+
+        let parsed = get_workspace_linked_directories("w-ready").unwrap();
+
+        assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn repository_folders_show_project_chats_not_worktree_workspaces() {
+        let env = TestEnv::new("folders-project-only");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        conn.execute(
+            r#"
+            INSERT INTO workspaces (
+              id,
+              repository_id,
+              directory_name,
+              state,
+              status,
+              kind,
+              branch
+            ) VALUES ('w-project', 'r1', '', 'ready', 'in-progress', 'project', 'main')
+            "#,
+            [],
+        )
+        .unwrap();
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-worktree",
+                repo_id: "r1",
+                directory_name: "feature-demo",
+                state: WorkspaceState::Ready.as_str(),
+                branch: Some("feature/demo"),
+                intended_target_branch: None,
+            },
+        );
+        conn.execute(
+            "INSERT INTO sessions (id, workspace_id, status, title) VALUES ('s-project', 'w-project', 'idle', 'Project chat')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO session_messages (id, session_id, role, content, sent_at)
+            VALUES ('m-project', 's-project', 'user', '{"type":"user_prompt","text":"hi"}', datetime('now'))
+            "#,
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, workspace_id, status, title) VALUES ('s-worktree', 'w-worktree', 'idle', 'Worktree chat')",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let folders = list_repository_folders().unwrap();
+        let folder = folders
+            .iter()
+            .find(|folder| folder.repo_id == "r1")
+            .unwrap();
+
+        assert_eq!(folder.chats.len(), 1);
+        assert_eq!(folder.chats[0].session_id, "s-project");
+        assert!(
+            folder.workspaces.is_empty(),
+            "worktree workspaces should not appear in the project sidebar"
+        );
+    }
+
+    #[test]
+    fn repository_folders_hide_project_chats_without_user_messages() {
+        let env = TestEnv::new("folders-hide-empty-project-chats");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        conn.execute(
+            r#"
+            INSERT INTO workspaces (
+              id,
+              repository_id,
+              directory_name,
+              state,
+              status,
+              kind,
+              branch
+            ) VALUES ('w-project', 'r1', '', 'ready', 'in-progress', 'project', 'main')
+            "#,
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, workspace_id, status, title) VALUES ('s-empty', 'w-project', 'idle', 'Untitled')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, workspace_id, status, title) VALUES ('s-started', 'w-project', 'idle', 'Started chat')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO session_messages (id, session_id, role, content, sent_at)
+            VALUES ('m-started', 's-started', 'user', '{"type":"user_prompt","text":"hi"}', datetime('now'))
+            "#,
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let folders = list_repository_folders().unwrap();
+        let folder = folders
+            .iter()
+            .find(|folder| folder.repo_id == "r1")
+            .unwrap();
+
+        assert_eq!(folder.chats.len(), 1);
+        assert_eq!(folder.chats[0].session_id, "s-started");
+    }
+
+    #[test]
     fn purge_skips_archived_even_when_worktree_missing() {
         let env = TestEnv::new("purge-archived");
         let conn = env.db_connection();
@@ -1099,6 +1457,76 @@ mod tests {
             1,
             "chat history must survive the degrade",
         );
+    }
+
+    #[test]
+    fn purge_keeps_project_workspace_without_worktree() {
+        let env = TestEnv::new("purge-project");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        conn.execute(
+            r#"
+            INSERT INTO workspaces (
+              id,
+              repository_id,
+              directory_name,
+              state,
+              status,
+              kind,
+              branch
+            ) VALUES ('w-project', 'r1', '', 'ready', 'in-progress', 'project', 'main')
+            "#,
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, workspace_id, status, title) VALUES ('s1', 'w-project', 'idle', 'Project chat')",
+            [],
+        )
+        .unwrap();
+
+        let degraded = purge_orphaned_workspaces().unwrap();
+
+        assert_eq!(degraded, 0, "project workspaces do not own worktrees");
+        assert_eq!(
+            workspace_state(&env, "w-project").as_deref(),
+            Some("ready"),
+            "project chat container must remain selectable after restart",
+        );
+    }
+
+    #[test]
+    fn repair_reactivates_archived_project_workspace_when_repo_exists() {
+        let env = TestEnv::new("repair-project");
+        let repo_root = env.root.join("repo-root");
+        fs::create_dir_all(&repo_root).unwrap();
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        conn.execute(
+            "UPDATE repos SET root_path = ?1 WHERE id = 'r1'",
+            [repo_root.display().to_string()],
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO workspaces (
+              id,
+              repository_id,
+              directory_name,
+              state,
+              status,
+              kind,
+              branch
+            ) VALUES ('w-project', 'r1', '', 'archived', 'in-progress', 'project', 'main')
+            "#,
+            [],
+        )
+        .unwrap();
+
+        let repaired = reactivate_archived_project_workspaces().unwrap();
+
+        assert_eq!(repaired, 1);
+        assert_eq!(workspace_state(&env, "w-project").as_deref(), Some("ready"),);
     }
 
     #[test]

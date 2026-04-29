@@ -460,9 +460,7 @@ function AppShell({
 	const [editorSession, setEditorSession] = useState<EditorSessionState | null>(
 		null,
 	);
-	const [sendingWorkspaceIds, setSendingWorkspaceIds] = useState<Set<string>>(
-		() => new Set(),
-	);
+	const [, setSendingWorkspaceIds] = useState<Set<string>>(() => new Set());
 	// Session IDs currently streaming — reported by WorkspaceConversationContainer
 	// and consumed by the commit button driver to detect stream completion.
 	const [sendingSessionIds, setSendingSessionIds] = useState<Set<string>>(
@@ -490,11 +488,6 @@ function AppShell({
 		() => new Set(interactionRequiredSessions.keys()),
 		[interactionRequiredSessions],
 	);
-	const interactionRequiredWorkspaceIds = useMemo(
-		() => new Set(interactionRequiredSessions.values()),
-		[interactionRequiredSessions],
-	);
-
 	// Persist "session read" once the user actually views a session AND it is
 	// not waiting on an interaction prompt. Workspace.unread is purely derived
 	// from sessions, so clearing the session naturally drops the workspace red
@@ -648,10 +641,6 @@ function AppShell({
 		appSettings.shortcuts,
 		"workspace.openInEditor",
 	);
-	const newWorkspaceShortcut = getShortcut(
-		appSettings.shortcuts,
-		"workspace.new",
-	);
 	const addRepositoryShortcut = getShortcut(
 		appSettings.shortcuts,
 		"workspace.addRepository",
@@ -769,6 +758,8 @@ function AppShell({
 				)
 			: null) ??
 		null;
+	const hasResolvedSelectedWorkspace =
+		selectedWorkspaceId !== null && selectedWorkspaceDetail !== null;
 	const workspaceRootPath =
 		selectedWorkspaceDetail?.state === "archived"
 			? null
@@ -786,12 +777,12 @@ function AppShell({
 
 	const workspaceForgeQuery = useQuery({
 		...workspaceForgeQueryOptions(selectedWorkspaceId ?? "__none__"),
-		enabled: selectedWorkspaceId !== null,
+		enabled: hasResolvedSelectedWorkspace,
 	});
 	const workspaceForge = workspaceForgeQuery.data ?? null;
 	const workspaceForgeProvider = workspaceForge?.provider ?? "unknown";
 	const workspaceForgeQueriesEnabled =
-		selectedWorkspaceId !== null &&
+		hasResolvedSelectedWorkspace &&
 		selectedWorkspaceDetail?.state !== "archived" &&
 		(workspaceForgeProvider === "gitlab" || isIdentityConnected);
 
@@ -853,7 +844,7 @@ function AppShell({
 	const workspaceGitActionStatusQuery = useQuery({
 		...workspaceGitActionStatusQueryOptions(selectedWorkspaceId ?? "__none__"),
 		enabled:
-			selectedWorkspaceId !== null &&
+			hasResolvedSelectedWorkspace &&
 			selectedWorkspaceDetail?.state !== "archived",
 	});
 	const workspaceGitActionStatus = workspaceGitActionStatusQuery.data ?? null;
@@ -868,6 +859,23 @@ function AppShell({
 		setWorkspaceViewMode("conversation");
 		setEditorSession(null);
 	}, []);
+
+	useEffect(() => {
+		if (
+			!selectedWorkspaceId ||
+			!selectedWorkspaceDetailQuery.isError ||
+			selectedWorkspaceDetailQuery.isFetching
+		) {
+			return;
+		}
+
+		clearWorkspaceRuntimeState();
+	}, [
+		clearWorkspaceRuntimeState,
+		selectedWorkspaceDetailQuery.isError,
+		selectedWorkspaceDetailQuery.isFetching,
+		selectedWorkspaceId,
+	]);
 
 	useEffect(() => {
 		selectedWorkspaceIdRef.current = selectedWorkspaceId;
@@ -1401,6 +1409,26 @@ function AppShell({
 		],
 	);
 
+	const handleSelectChat = useCallback(
+		(workspaceId: string, sessionId: string) => {
+			// Record the session as the latest preferred for this workspace
+			// so subsequent workspace re-selections (e.g. via the sidebar
+			// keyboard nav) restore this chat instead of falling back to the
+			// primary session.
+			rememberSessionSelection(workspaceId, sessionId);
+			if (workspaceId === selectedWorkspaceIdRef.current) {
+				if (sessionId !== selectedSessionIdRef.current) {
+					selectedSessionIdRef.current = sessionId;
+					setSelectedSessionId(sessionId);
+					setDisplayedSessionId(sessionId);
+				}
+				return;
+			}
+			handleSelectWorkspace(workspaceId);
+		},
+		[handleSelectWorkspace, rememberSessionSelection],
+	);
+
 	const handleSelectSession = useCallback(
 		(sessionId: string | null) => {
 			if (sessionId === selectedSessionIdRef.current) {
@@ -1817,12 +1845,6 @@ function AppShell({
 					Boolean(selectedWorkspaceId && preferredEditor),
 			},
 			{
-				id: "workspace.new" as const,
-				callback: () =>
-					window.dispatchEvent(new Event("helmor:open-new-workspace")),
-				enabled: isIdentityConnected,
-			},
-			{
 				id: "workspace.addRepository" as const,
 				callback: () =>
 					window.dispatchEvent(new Event("helmor:open-add-repository")),
@@ -2197,13 +2219,29 @@ function AppShell({
 													<div className="min-h-0 flex-1">
 														<WorkspacesSidebarContainer
 															selectedWorkspaceId={selectedWorkspaceId}
-															sendingWorkspaceIds={sendingWorkspaceIds}
-															interactionRequiredWorkspaceIds={
-																interactionRequiredWorkspaceIds
-															}
-															newWorkspaceShortcut={newWorkspaceShortcut}
+															selectedSessionId={selectedSessionId}
 															addRepositoryShortcut={addRepositoryShortcut}
 															onSelectWorkspace={handleSelectWorkspace}
+															onSelectChat={handleSelectChat}
+															footerControls={
+																<SettingsButton
+																	onClick={handleOpenSettings}
+																	shortcut={getShortcut(
+																		appSettings.shortcuts,
+																		"settings.open",
+																	)}
+																/>
+															}
+															accountControl={
+																githubIdentityState.status === "connected" ? (
+																	<GithubStatusMenu
+																		identityState={githubIdentityState}
+																		onDisconnectGithub={() => {
+																			void handleDisconnectGithubIdentity();
+																		}}
+																	/>
+																) : null
+															}
 															pushWorkspaceToast={pushWorkspaceToast}
 														/>
 													</div>
@@ -2237,23 +2275,6 @@ function AppShell({
 																) : null}
 															</TooltipContent>
 														</Tooltip>
-													</div>
-													<div className="flex shrink-0 items-center justify-between px-3 pb-3 pt-1">
-														<SettingsButton
-															onClick={handleOpenSettings}
-															shortcut={getShortcut(
-																appSettings.shortcuts,
-																"settings.open",
-															)}
-														/>
-														{githubIdentityState.status === "connected" ? (
-															<GithubStatusMenu
-																identityState={githubIdentityState}
-																onDisconnectGithub={() => {
-																	void handleDisconnectGithubIdentity();
-																}}
-															/>
-														) : null}
 													</div>
 												</aside>
 											)}

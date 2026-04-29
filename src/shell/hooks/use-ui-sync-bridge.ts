@@ -30,6 +30,9 @@ function handleUiMutation(
 				queryKey: helmorQueryKeys.workspaceGroups,
 			});
 			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.repositoryFolders,
+			});
+			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.archivedWorkspaces,
 			});
 			void queryClient.invalidateQueries({
@@ -42,6 +45,9 @@ function handleUiMutation(
 				queryKey: helmorQueryKeys.workspaceGroups,
 			});
 			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.repositoryFolders,
+			});
+			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.workspaceDetail(event.workspaceId),
 			});
 			void queryClient.invalidateQueries({
@@ -51,6 +57,9 @@ function handleUiMutation(
 		case "sessionListChanged":
 			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.workspaceGroups,
+			});
+			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.repositoryFolders,
 			});
 			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.workspaceDetail(event.workspaceId),
@@ -80,6 +89,9 @@ function handleUiMutation(
 				queryKey: helmorQueryKeys.workspaceGroups,
 			});
 			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.repositoryFolders,
+			});
+			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.workspaceDetail(event.workspaceId),
 			});
 			void queryClient.invalidateQueries({
@@ -107,6 +119,9 @@ function handleUiMutation(
 				queryKey: helmorQueryKeys.workspaceGroups,
 			});
 			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.repositoryFolders,
+			});
+			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.workspaceDetail(event.workspaceId),
 			});
 			void queryClient.invalidateQueries({
@@ -119,6 +134,9 @@ function handleUiMutation(
 		case "repositoryListChanged":
 			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.repositories,
+			});
+			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.repositoryFolders,
 			});
 			return;
 		case "repositoryChanged":
@@ -138,6 +156,9 @@ function handleUiMutation(
 			});
 			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.workspaceGroups,
+			});
+			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.repositoryFolders,
 			});
 			return;
 		case "settingsChanged":

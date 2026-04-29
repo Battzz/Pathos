@@ -1,6 +1,6 @@
 use tauri::AppHandle;
 
-use crate::{db, git_watcher, repos, settings};
+use crate::{db, git_watcher, repos, settings, ui_sync, ui_sync::UiMutationEvent};
 
 use super::common::{run_blocking, CmdResult};
 
@@ -21,19 +21,31 @@ pub async fn get_add_repository_defaults() -> CmdResult<repos::AddRepositoryDefa
 
 #[tauri::command]
 pub async fn add_repository_from_local_path(
+    app: AppHandle,
     folder_path: String,
 ) -> CmdResult<repos::AddRepositoryResponse> {
     let _lock = db::WORKSPACE_FS_MUTATION_LOCK.lock().await;
-    run_blocking(move || repos::add_repository_from_local_path(&folder_path)).await
+    let response =
+        run_blocking(move || repos::add_repository_from_local_path(&folder_path)).await?;
+    if response.created_repository {
+        ui_sync::publish(&app, UiMutationEvent::RepositoryListChanged);
+    }
+    Ok(response)
 }
 
 #[tauri::command]
 pub async fn clone_repository_from_url(
+    app: AppHandle,
     git_url: String,
     clone_directory: String,
 ) -> CmdResult<repos::AddRepositoryResponse> {
     let _lock = db::WORKSPACE_FS_MUTATION_LOCK.lock().await;
-    run_blocking(move || repos::clone_repository_from_url(&git_url, &clone_directory)).await
+    let response =
+        run_blocking(move || repos::clone_repository_from_url(&git_url, &clone_directory)).await?;
+    if response.created_repository {
+        ui_sync::publish(&app, UiMutationEvent::RepositoryListChanged);
+    }
+    Ok(response)
 }
 
 #[tauri::command]

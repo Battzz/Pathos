@@ -127,16 +127,20 @@ export const WorkspaceRowItem = memo(
 			recordSidebarRowRender(row.id);
 		});
 		const isRunScriptRunning = useIsRunScriptRunning(row.id);
-		const actionLabel =
-			row.state === "archived" ? "Restore workspace" : "Archive workspace";
+		const isRestoreAction = row.state === "archived";
+		const isDeleteAction = !isRestoreAction && Boolean(onDeleteWorkspace);
+		const actionLabel = isRestoreAction
+			? "Restore workspace"
+			: isDeleteAction
+				? "Delete workspace"
+				: "Archive workspace";
 		const isArchiving = archivingWorkspaceIds?.has(row.id) ?? false;
 		const isMarkingUnread = markingUnreadWorkspaceId === row.id;
 		const isRestoring = restoringWorkspaceId === row.id;
-		const isRestoreAction = row.state === "archived";
 		const isBusy = isArchiving || isMarkingUnread || isRestoring;
 		const hasActionHandler = isRestoreAction
 			? Boolean(onRestoreWorkspace)
-			: Boolean(onArchiveWorkspace);
+			: Boolean(onDeleteWorkspace || onArchiveWorkspace);
 		// Width of the hover action cluster drives the text fade mask. Single icon
 		// uses the CSS default (transparent 1.2rem, solid 2rem). Two icons span
 		// ~3.25rem from the row's right edge (pr-2.5 + size-5 + gap-0.5 + size-5),
@@ -154,6 +158,8 @@ export const WorkspaceRowItem = memo(
 			<LoaderCircle className="size-3.5 animate-spin" strokeWidth={2.1} />
 		) : isRestoreAction ? (
 			<RotateCcw className="size-3.5" strokeWidth={2.1} />
+		) : isDeleteAction ? (
+			<Trash2 className="size-3.5" strokeWidth={2.1} />
 		) : (
 			<Archive className="size-3.5" strokeWidth={1.9} />
 		);
@@ -266,6 +272,8 @@ export const WorkspaceRowItem = memo(
 										if (workspaceActionsDisabled || isBusy) return;
 										if (isRestoreAction) {
 											onRestoreWorkspace?.(row.id);
+										} else if (isDeleteAction) {
+											onDeleteWorkspace?.(row.id);
 										} else {
 											onArchiveWorkspace?.(row.id);
 										}
@@ -276,7 +284,12 @@ export const WorkspaceRowItem = memo(
 										"size-5 rounded-md p-0 text-muted-foreground",
 										workspaceActionsDisabled
 											? "cursor-not-allowed opacity-60"
-											: "cursor-pointer hover:text-foreground",
+											: cn(
+													"cursor-pointer",
+													isDeleteAction
+														? "hover:text-destructive"
+														: "hover:text-foreground",
+												),
 									)}
 								>
 									{actionIcon}
@@ -393,6 +406,15 @@ export const WorkspaceRowItem = memo(
 						>
 							<RotateCcw className="size-4 shrink-0" strokeWidth={1.6} />
 							<span>Restore</span>
+						</ContextMenuItem>
+					) : onDeleteWorkspace ? (
+						<ContextMenuItem
+							disabled={isBusy || workspaceActionsDisabled}
+							variant="destructive"
+							onClick={() => onDeleteWorkspace(row.id)}
+						>
+							<Trash2 className="size-4 shrink-0" strokeWidth={1.6} />
+							<span>Delete permanently</span>
 						</ContextMenuItem>
 					) : (
 						<ContextMenuItem

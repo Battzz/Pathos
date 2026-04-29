@@ -1,7 +1,7 @@
 //! Workspace-granular import of Conductor data into Helmor.
 //!
 //! Users browse Conductor repos/workspaces, select individual workspaces,
-//! and import both database records and filesystem context files.
+//! and import their chat history into Helmor project chats.
 
 use std::path::{Path, PathBuf};
 
@@ -9,7 +9,7 @@ use anyhow::{bail, Context, Result};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::Serialize;
 
-use crate::{git_ops, helpers, workspace::helpers as ws_helpers};
+use crate::{helpers, workspace::helpers as ws_helpers};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -73,7 +73,15 @@ pub fn list_conductor_repos() -> Result<Vec<ConductorRepo>> {
                 (SELECT count(*) FROM source.workspaces w
                  WHERE w.repository_id = r.id
                    AND w.state = 'ready'
-                   AND w.id IN (SELECT id FROM main.workspaces)) AS already_imported_count
+                   AND EXISTS (
+                       SELECT 1 FROM source.sessions s
+                       WHERE s.workspace_id = w.id
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1 FROM source.sessions s
+                       WHERE s.workspace_id = w.id
+                         AND s.id NOT IN (SELECT id FROM main.sessions)
+                   )) AS already_imported_count
             FROM source.repos r
             WHERE r.hidden = 0 OR r.hidden IS NULL
             ORDER BY r.name COLLATE NOCASE
@@ -122,7 +130,14 @@ pub fn list_conductor_workspaces(repo_id: &str) -> Result<Vec<ConductorWorkspace
                  WHERE m.session_id IN (
                      SELECT s.id FROM source.sessions s WHERE s.workspace_id = w.id
                  )) AS message_count,
-                (CASE WHEN w.id IN (SELECT id FROM main.workspaces) THEN 1 ELSE 0 END) AS already_imported,
+                (CASE WHEN EXISTS (
+                    SELECT 1 FROM source.sessions s
+                    WHERE s.workspace_id = w.id
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM source.sessions s
+                    WHERE s.workspace_id = w.id
+                      AND s.id NOT IN (SELECT id FROM main.sessions)
+                ) THEN 1 ELSE 0 END) AS already_imported,
                 r.root_path
             FROM source.workspaces w
             JOIN source.repos r ON r.id = w.repository_id
@@ -177,8 +192,9 @@ pub fn list_conductor_workspaces(repo_id: &str) -> Result<Vec<ConductorWorkspace
 /// Import selected workspaces from Conductor into Helmor.
 ///
 /// For each workspace:
-/// 1. Copies database records (repo, workspace, sessions, messages)
-/// 2. Copies filesystem context files (notes, todos, plans)
+/// 1. Resolves or imports the repository record
+/// 2. Creates the repo's project workspace when needed
+/// 3. Copies sessions and messages into that project workspace
 pub fn import_conductor_workspaces(workspace_ids: &[String]) -> Result<ImportWorkspacesResult> {
     if workspace_ids.is_empty() {
         return Ok(ImportWorkspacesResult {
@@ -192,19 +208,14 @@ pub fn import_conductor_workspaces(workspace_ids: &[String]) -> Result<ImportWor
     let (helmor_conn, _source_path) = open_with_conductor_attached()?;
 
     let conductor_root = crate::data_dir::conductor_root_path();
-    let helmor_data_dir = crate::data_dir::data_dir()?;
-
     let mut imported_count: i64 = 0;
     let mut skipped_count: i64 = 0;
     let mut errors: Vec<String> = vec![];
 
-    // Phase 1: Import DB records in a transaction.
-    // Git and filesystem operations happen in Phase 2 (after commit).
     helmor_conn
         .execute_batch("BEGIN IMMEDIATE")
         .context("Failed to start transaction")?;
 
-    // Collect workspace metadata for Phase 2
     let mut imported_workspaces: Vec<ImportedWorkspaceMeta> = vec![];
 
     for ws_id in workspace_ids {
@@ -247,32 +258,18 @@ pub fn import_conductor_workspaces(workspace_ids: &[String]) -> Result<ImportWor
 
     helmor_conn.execute("DETACH DATABASE source", []).ok();
 
-    // Phase 2: Git worktree and filesystem copy.
-    // If a workspace cannot be materialized locally, clean up the imported DB
-    // records so the UI does not show a broken "ready" workspace.
+    // Best-effort Claude project file copy. No git worktree is created:
+    // imported sessions are project chats that run from the repository root.
     for meta in &imported_workspaces {
-        if let Err(e) = setup_workspace_filesystem(
-            &meta.workspace_id,
-            &meta.repo_name,
-            &meta.directory_name,
-            &meta.state,
-            meta.branch.as_deref(),
-            meta.repo_root.as_deref(),
-            conductor_root.as_deref(),
-            &helmor_data_dir,
-        ) {
-            if let Err(cleanup_error) = delete_imported_workspace_records(&meta.workspace_id) {
-                errors.push(format!(
-                    "{}: {e} (cleanup failed: {cleanup_error})",
-                    meta.workspace_id
-                ));
-                continue;
-            }
-            // Cleanup succeeded — this workspace is no longer imported, so
-            // `imported_count` must reflect that or the UI will report a
-            // misleading "N imported, M failed" mix.
-            imported_count -= 1;
-            errors.push(format!("{}: {e}", meta.workspace_id));
+        if let (Some(conductor_root), Some(repo_root)) =
+            (conductor_root.as_deref(), meta.repo_root.as_deref())
+        {
+            copy_claude_sessions_for_project(
+                conductor_root,
+                repo_root,
+                &meta.repo_name,
+                &meta.directory_name,
+            );
         }
     }
 
@@ -295,11 +292,8 @@ pub fn conductor_source_available() -> bool {
 
 /// Metadata collected during Phase 1 (DB import) for Phase 2 (filesystem).
 struct ImportedWorkspaceMeta {
-    workspace_id: String,
     repo_name: String,
     directory_name: String,
-    state: String,
-    branch: Option<String>,
     repo_root: Option<PathBuf>,
 }
 
@@ -309,71 +303,15 @@ enum ImportDbResult {
 }
 
 /// Phase 1: Import database records for a single workspace.
-/// No git or filesystem operations — those happen in Phase 2.
+/// No git or worktree operations happen here: source sessions are attached to
+/// the repo's project workspace.
 fn import_workspace_db_records(conn: &Connection, workspace_id: &str) -> Result<ImportDbResult> {
-    // Already imported? Check DB existence AND filesystem completeness.
-    // If DB record exists but the worktree directory is missing, allow
-    // Phase 2 to re-run by returning Imported (not Skipped).
-    let existing: Option<(String, String, String, Option<String>)> = conn
-        .query_row(
-            "SELECT repository_id, directory_name, state, branch FROM main.workspaces WHERE id = ?1",
-            [workspace_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .ok();
-
-    if let Some((repo_id, directory_name, state, branch)) = existing {
-        // DB records exist — check if filesystem setup is complete
-        let fs_complete = if state == "archived" {
-            true // archived workspaces don't need a worktree
-        } else {
-            crate::data_dir::workspace_dir(
-                &conn
-                    .query_row(
-                        "SELECT name FROM main.repos WHERE id = ?1",
-                        [&repo_id],
-                        |r| r.get::<_, String>(0),
-                    )
-                    .unwrap_or_default(),
-                &directory_name,
-            )
-            .map(|p| p.exists())
-            .unwrap_or(false)
-        };
-
-        if fs_complete {
-            return Ok(ImportDbResult::Skipped);
-        }
-
-        // DB exists but filesystem incomplete — return metadata so Phase 2 retries
-        let (repo_name, root_path): (String, Option<String>) = conn
-            .query_row(
-                "SELECT name, root_path FROM main.repos WHERE id = ?1",
-                [&repo_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap_or_else(|_| ("unknown".to_string(), None));
-
-        tracing::info!(
-            workspace_id,
-            "Workspace exists in DB but filesystem incomplete — retrying Phase 2"
-        );
-        return Ok(ImportDbResult::Imported(ImportedWorkspaceMeta {
-            workspace_id: workspace_id.to_string(),
-            repo_name,
-            directory_name,
-            state,
-            branch,
-            repo_root: helpers::non_empty(&root_path).map(PathBuf::from),
-        }));
-    }
-
     // Read workspace info from source
-    let (source_repo_id, directory_name, state, branch): (String, String, String, Option<String>) = conn
+    let (source_repo_id, directory_name): (String, String) = conn
         .query_row(
-            "SELECT repository_id, directory_name, state, branch FROM source.workspaces WHERE id = ?1",
+            "SELECT repository_id, directory_name FROM source.workspaces WHERE id = ?1",
             [workspace_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .with_context(|| format!("Workspace {workspace_id} not found in Conductor"))?;
 
@@ -393,30 +331,32 @@ fn import_workspace_db_records(conn: &Connection, workspace_id: &str) -> Result<
         source_root_path.as_deref(),
     )?;
 
-    // 2. Insert workspace
-    let (ws_main, ws_src) = import_workspace_column_lists(conn)?;
-    conn.execute(
-        &format!(
-            "INSERT OR IGNORE INTO main.workspaces ({ws_main}) SELECT {ws_src} FROM source.workspaces WHERE id = ?1"
-        ),
-        rusqlite::params![workspace_id, canonical_repo.id],
-    )
-    .context("Failed to import workspace")?;
+    let source_session_count = count_source_sessions(conn, workspace_id)?;
+    if source_session_count == 0 {
+        return Ok(ImportDbResult::Skipped);
+    }
+
+    let existing_session_count = count_existing_imported_sessions(conn, workspace_id)?;
+    if existing_session_count >= source_session_count {
+        return Ok(ImportDbResult::Skipped);
+    }
+
+    let project_workspace_id = get_or_create_import_project_workspace(conn, &canonical_repo)?;
 
     // 3. Insert sessions (handles claude_session_id → provider_session_id rename)
-    let (sess_main, sess_src) = import_column_lists(conn, "sessions")?;
+    let (sess_main, sess_src) = import_session_column_lists(conn)?;
     conn.execute(
         &format!(
             "INSERT OR IGNORE INTO main.sessions ({sess_main}) SELECT {sess_src} FROM source.sessions WHERE workspace_id = ?1"
         ),
-        [workspace_id],
+        rusqlite::params![workspace_id, project_workspace_id],
     )
     .context("Failed to import sessions")?;
 
     // 3b. Remap legacy "opus-1m" model ID (CLI no longer accepts it)
     conn.execute(
         "UPDATE main.sessions SET model = 'default' WHERE model = 'opus-1m' AND workspace_id = ?1",
-        [workspace_id],
+        [&project_workspace_id],
     )
     .ok();
 
@@ -433,122 +373,67 @@ fn import_workspace_db_records(conn: &Connection, workspace_id: &str) -> Result<
     .context("Failed to import messages")?;
 
     Ok(ImportDbResult::Imported(ImportedWorkspaceMeta {
-        workspace_id: workspace_id.to_string(),
         repo_name: canonical_repo.name,
         directory_name,
-        state,
-        branch,
         repo_root: helpers::non_empty(&canonical_repo.root_path).map(PathBuf::from),
     }))
 }
 
-/// Phase 2: Set up filesystem for an imported workspace.
-#[allow(clippy::too_many_arguments)]
-fn setup_workspace_filesystem(
-    workspace_id: &str,
-    repo_name: &str,
-    directory_name: &str,
-    state: &str,
-    branch: Option<&str>,
-    repo_root: Option<&Path>,
-    conductor_root: Option<&Path>,
-    helmor_data_dir: &Path,
-) -> Result<()> {
-    if state != "archived" {
-        // Active workspace: create the git worktree.
-        let workspace_dir = crate::data_dir::workspace_dir(repo_name, directory_name)?;
-
-        if !workspace_dir.exists() {
-            let branch_name = branch.with_context(|| {
-                format!("Imported workspace {repo_name}/{directory_name} is missing a branch")
-            })?;
-            let root = repo_root.with_context(|| {
-                format!("Imported workspace {repo_name}/{directory_name} is missing repo root")
-            })?;
-            if !root.is_dir() {
-                bail!(
-                    "Imported workspace {repo_name}/{directory_name} repo root is missing: {}",
-                    root.display()
-                );
-            }
-
-            let source_branch =
-                resolve_source_branch(root, branch_name, conductor_root, repo_name, directory_name)
-                    .with_context(|| {
-                        format!(
-                            "Could not resolve source branch for imported workspace {repo_name}/{directory_name}"
-                        )
-                    })?;
-
-            let import_branch = format!("{source_branch}-copy");
-            setup_imported_worktree(root, &workspace_dir, &import_branch, &source_branch)
-                .with_context(|| {
-                    format!(
-                        "Failed to create worktree for imported workspace {repo_name}/{directory_name}"
-                    )
-                })?;
-
-            // Update branch in DB (best-effort, DB is already committed)
-            match crate::models::db::write_conn() {
-                Ok(conn) => {
-                    if let Err(e) = conn.execute(
-                        "UPDATE workspaces SET branch = ?1 WHERE id = ?2",
-                        rusqlite::params![import_branch, workspace_id],
-                    ) {
-                        tracing::error!(directory_name, "Failed to update branch: {e}");
-                    }
-                }
-                Err(e) => {
-                    tracing::error!(directory_name, "Failed to open DB to update branch: {e}");
-                }
-            }
-        }
-    }
-
-    // Copy Claude Code session files from Conductor's project dir to Helmor's.
-    // Claude Code stores sessions under ~/.claude/projects/{encoded-cwd}/ and
-    // the cwd changed from Conductor's worktree to Helmor's worktree, so
-    // sessions are invisible unless we copy them over.
-    if let Some(root) = conductor_root {
-        copy_claude_sessions_for_workspace(root, helmor_data_dir, repo_name, directory_name);
-    }
-
-    Ok(())
+fn count_source_sessions(conn: &Connection, workspace_id: &str) -> Result<i64> {
+    conn.query_row(
+        "SELECT count(*) FROM source.sessions WHERE workspace_id = ?1",
+        [workspace_id],
+        |row| row.get(0),
+    )
+    .context("Failed to count source sessions")
 }
 
-fn delete_imported_workspace_records(workspace_id: &str) -> Result<()> {
-    let conn = crate::models::db::write_conn()?;
-    conn.execute_batch("BEGIN IMMEDIATE")
-        .context("Failed to start cleanup transaction")?;
+fn count_existing_imported_sessions(conn: &Connection, workspace_id: &str) -> Result<i64> {
+    conn.query_row(
+        "SELECT count(*)
+         FROM main.sessions
+         WHERE id IN (SELECT id FROM source.sessions WHERE workspace_id = ?1)",
+        [workspace_id],
+        |row| row.get(0),
+    )
+    .context("Failed to count existing imported sessions")
+}
 
-    let cleanup_result = (|| -> Result<()> {
-        conn.execute(
-            "DELETE FROM session_messages WHERE session_id IN (SELECT id FROM sessions WHERE workspace_id = ?1)",
-            [workspace_id],
+fn get_or_create_import_project_workspace(
+    conn: &Connection,
+    repo: &CanonicalRepo,
+) -> Result<String> {
+    if let Some(existing) = conn
+        .query_row(
+            "SELECT id FROM main.workspaces
+             WHERE repository_id = ?1 AND kind = 'project'
+             ORDER BY created_at ASC
+             LIMIT 1",
+            [&repo.id],
+            |row| row.get::<_, String>(0),
         )
-        .context("Failed to delete imported messages")?;
-        conn.execute(
-            "DELETE FROM sessions WHERE workspace_id = ?1",
-            [workspace_id],
-        )
-        .context("Failed to delete imported sessions")?;
-        conn.execute("DELETE FROM workspaces WHERE id = ?1", [workspace_id])
-            .context("Failed to delete imported workspace")?;
-        Ok(())
-    })();
-
-    match cleanup_result {
-        Ok(()) => {
-            conn.execute_batch("COMMIT")
-                .context("Failed to commit cleanup transaction")?;
-            crate::models::db::remove_workspace_lock(workspace_id);
-            Ok(())
-        }
-        Err(error) => {
-            conn.execute_batch("ROLLBACK").ok();
-            Err(error)
-        }
+        .optional()
+        .context("Failed to look up project workspace")?
+    {
+        return Ok(existing);
     }
+
+    let project_workspace_id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO main.workspaces (
+             id, repository_id, directory_name, branch, state, status, kind, unread, created_at, updated_at
+         ) VALUES (
+             ?1, ?2, '', ?3, 'ready', 'in-progress', 'project', 0, datetime('now'), datetime('now')
+         )",
+        rusqlite::params![
+            &project_workspace_id,
+            &repo.id,
+            repo.default_branch.as_deref()
+        ],
+    )
+    .context("Failed to create project workspace for imported sessions")?;
+
+    Ok(project_workspace_id)
 }
 
 /// Encode a filesystem path into a Claude Code project directory name.
@@ -557,11 +442,11 @@ fn encode_claude_project_dir(path: &Path) -> String {
     path.display().to_string().replace(['/', '.'], "-")
 }
 
-/// Copy Claude Code session .jsonl files from the Conductor project dir
-/// to the Helmor project dir so that imported sessions can be resumed.
-fn copy_claude_sessions_for_workspace(
+/// Copy Claude Code session files from the Conductor worktree project dir
+/// to the repo-root project dir so imported project chats can be resumed.
+fn copy_claude_sessions_for_project(
     conductor_root: &Path,
-    helmor_data_dir: &Path,
+    repo_root: &Path,
     repo_name: &str,
     directory_name: &str,
 ) {
@@ -579,13 +464,9 @@ fn copy_claude_sessions_for_workspace(
         .join("workspaces")
         .join(repo_name)
         .join(directory_name);
-    let helmor_ws_path = helmor_data_dir
-        .join("workspaces")
-        .join(repo_name)
-        .join(directory_name);
 
     let src_dir = claude_projects.join(encode_claude_project_dir(&conductor_ws_path));
-    let dst_dir = claude_projects.join(encode_claude_project_dir(&helmor_ws_path));
+    let dst_dir = claude_projects.join(encode_claude_project_dir(repo_root));
 
     if !src_dir.is_dir() {
         return;
@@ -625,80 +506,6 @@ fn copy_claude_sessions_for_workspace(
     if copied > 0 {
         tracing::info!(count = copied, src = %src_dir.display(), dst = %dst_dir.display(), "Copied Claude session files");
     }
-}
-
-/// Resolve which branch to use as the source for the imported worktree.
-///
-/// The live Conductor worktree HEAD is the ground truth — the DB branch
-/// can lag behind (Conductor can switch branches without updating the DB).
-/// We prefer the live worktree branch, falling back to the DB branch.
-fn resolve_source_branch(
-    repo_root: &Path,
-    db_branch: &str,
-    conductor_root: Option<&Path>,
-    repo_name: &str,
-    directory_name: &str,
-) -> Option<String> {
-    // Prefer the live Conductor worktree HEAD — it's the ground truth
-    if let Some(root) = conductor_root {
-        let conductor_ws = root.join("workspaces").join(repo_name).join(directory_name);
-
-        if conductor_ws.is_dir() {
-            if let Ok(output) = std::process::Command::new("git")
-                .args([
-                    "-C",
-                    &conductor_ws.display().to_string(),
-                    "rev-parse",
-                    "--abbrev-ref",
-                    "HEAD",
-                ])
-                .output()
-            {
-                let actual = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !actual.is_empty()
-                    && actual != "HEAD"
-                    && git_ops::verify_branch_exists(repo_root, &actual).is_ok()
-                {
-                    if actual != db_branch {
-                        tracing::info!(directory_name, db = db_branch, actual = %actual, "Branch mismatch — using actual");
-                    }
-                    return Some(actual);
-                }
-            }
-        }
-    }
-
-    // Fall back to the DB branch if the live worktree is unavailable
-    if git_ops::verify_branch_exists(repo_root, db_branch).is_ok() {
-        return Some(db_branch.to_string());
-    }
-
-    tracing::error!(directory_name, branch = db_branch, "No valid branch found");
-    None
-}
-
-/// Create a git worktree for an imported active workspace.
-///
-/// Creates `new_branch` (e.g. `foo-copy`) based on the commit that
-/// `source_branch` points to.  The source branch itself is likely still
-/// checked out in a Conductor worktree, so we create a new branch.
-fn setup_imported_worktree(
-    repo_root: &Path,
-    workspace_dir: &Path,
-    new_branch: &str,
-    source_branch: &str,
-) -> Result<()> {
-    if let Some(parent) = workspace_dir.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create {}", parent.display()))?;
-    }
-
-    // Create new branch based on the source branch (a local ref)
-    let start_ref = format!("refs/heads/{source_branch}");
-    git_ops::create_worktree_from_start_point(repo_root, workspace_dir, new_branch, &start_ref)
-        .with_context(|| format!("Failed to create worktree for {new_branch} from {start_ref}"))?;
-
-    Ok(())
 }
 
 /// Open the Helmor DB and attach Conductor DB as `source`.
@@ -805,6 +612,7 @@ struct CanonicalRepo {
     id: String,
     name: String,
     root_path: Option<String>,
+    default_branch: Option<String>,
 }
 
 fn resolve_canonical_repo(
@@ -829,14 +637,7 @@ fn resolve_canonical_repo(
         }
     }
 
-    let (repo_main, repo_src) = import_column_lists(conn, "repos")?;
-    conn.execute(
-        &format!(
-            "INSERT OR IGNORE INTO main.repos ({repo_main}) SELECT {repo_src} FROM source.repos WHERE id = ?1"
-        ),
-        [source_repo_id],
-    )
-    .context("Failed to import repo")?;
+    import_repo_from_source(conn, source_repo_id).context("Failed to import repo")?;
 
     load_main_repo(conn, "id = ?1", [source_repo_id])?.with_context(|| {
         format!(
@@ -854,13 +655,16 @@ where
     P: rusqlite::Params,
 {
     conn.query_row(
-        &format!("SELECT id, name, root_path FROM main.repos WHERE {where_clause} LIMIT 1"),
+        &format!(
+            "SELECT id, name, root_path, default_branch FROM main.repos WHERE {where_clause} LIMIT 1"
+        ),
         params,
         |row| {
             Ok(CanonicalRepo {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 root_path: row.get(2)?,
+                default_branch: row.get(3)?,
             })
         },
     )
@@ -868,11 +672,72 @@ where
     .context("Failed to load canonical repo")
 }
 
-fn import_workspace_column_lists(conn: &Connection) -> Result<(String, String)> {
-    let main_cols = get_table_columns(conn, "workspaces")?;
+fn import_repo_from_source(conn: &Connection, source_repo_id: &str) -> Result<()> {
+    let source_cols: Vec<String> = conn
+        .prepare("PRAGMA source.table_info(repos)")
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| row.get::<_, String>(1))
+                .map(|rows| rows.filter_map(Result::ok).collect())
+        })
+        .unwrap_or_default();
+    let source_set: std::collections::HashSet<&str> =
+        source_cols.iter().map(|s| s.as_str()).collect();
+
+    let expr = |column: &str, default: &str| {
+        if source_set.contains(column) {
+            format!("COALESCE({column}, {default})")
+        } else {
+            default.to_string()
+        }
+    };
+    let nullable = |column: &str| {
+        if source_set.contains(column) {
+            column.to_string()
+        } else {
+            "NULL".to_string()
+        }
+    };
+
+    conn.execute(
+        &format!(
+            "INSERT OR IGNORE INTO main.repos (
+                 id, name, remote_url, default_branch, root_path, hidden, auto_run_setup,
+                 is_git, created_at, updated_at
+             )
+             SELECT
+                 id,
+                 {name},
+                 {remote_url},
+                 {default_branch},
+                 {root_path},
+                 {hidden},
+                 {auto_run_setup},
+                 {is_git},
+                 {created_at},
+                 {updated_at}
+             FROM source.repos
+             WHERE id = ?1",
+            name = nullable("name"),
+            remote_url = nullable("remote_url"),
+            default_branch = expr("default_branch", "'main'"),
+            root_path = nullable("root_path"),
+            hidden = expr("hidden", "0"),
+            auto_run_setup = expr("auto_run_setup", "1"),
+            is_git = expr("is_git", "1"),
+            created_at = expr("created_at", "datetime('now')"),
+            updated_at = expr("updated_at", "datetime('now')"),
+        ),
+        [source_repo_id],
+    )?;
+
+    Ok(())
+}
+
+fn import_session_column_lists(conn: &Connection) -> Result<(String, String)> {
+    let main_cols = get_table_columns(conn, "sessions")?;
 
     let source_cols: Vec<String> = conn
-        .prepare("PRAGMA source.table_info(workspaces)")
+        .prepare("PRAGMA source.table_info(sessions)")
         .and_then(|mut stmt| {
             stmt.query_map([], |row| row.get::<_, String>(1))
                 .map(|rows| rows.filter_map(Result::ok).collect())
@@ -886,9 +751,9 @@ fn import_workspace_column_lists(conn: &Connection) -> Result<(String, String)> 
     let mut source_parts = Vec::new();
 
     for col in &main_cols {
-        if col == "repository_id" {
+        if col == "workspace_id" {
             main_parts.push(col.clone());
-            source_parts.push("?2 AS repository_id".to_string());
+            source_parts.push("?2 AS workspace_id".to_string());
             continue;
         }
 
@@ -912,7 +777,7 @@ fn import_workspace_column_lists(conn: &Connection) -> Result<(String, String)> 
     }
 
     if main_parts.is_empty() {
-        bail!("No compatible columns found for table workspaces");
+        bail!("No compatible columns found for table sessions");
     }
 
     Ok((main_parts.join(", "), source_parts.join(", ")))
@@ -990,7 +855,8 @@ mod tests {
         conn.execute_batch(
             r#"
             INSERT INTO main.repos (id, name) VALUES ('r1', 'my-repo');
-            INSERT INTO main.workspaces (id, repository_id, directory_name) VALUES ('w1', 'r1', 'boston');
+            INSERT INTO main.workspaces (id, repository_id, directory_name, kind, state) VALUES ('p1', 'r1', '', 'project', 'ready');
+            INSERT INTO main.sessions (id, workspace_id, created_at, updated_at) VALUES ('s1', 'p1', datetime('now'), datetime('now'));
 
             ATTACH DATABASE ':memory:' AS source;
             CREATE TABLE source.repos AS SELECT * FROM main.repos WHERE 0;
@@ -1007,21 +873,12 @@ mod tests {
 
         let result = import_workspace_db_records(&conn, "w1").unwrap();
 
-        // Workspace exists in DB but worktree directory is missing,
-        // so it returns Imported to allow Phase 2 retry
-        assert!(
-            matches!(
-                result,
-                ImportDbResult::Imported(_) | ImportDbResult::Skipped
-            ),
-            "Should return Imported (retry) or Skipped"
-        );
+        assert!(matches!(result, ImportDbResult::Skipped));
 
-        // No new sessions should have been inserted (DB records already exist)
         let sess_count: i64 = conn
             .query_row("SELECT count(*) FROM main.sessions", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(sess_count, 0);
+        assert_eq!(sess_count, 1);
     }
 
     #[test]
@@ -1043,6 +900,8 @@ mod tests {
             VALUES ('r-source', 'conductor-helmor', '/tmp/helmor', datetime('now'), datetime('now'));
             INSERT INTO source.workspaces (id, repository_id, directory_name, state, created_at, updated_at)
             VALUES ('w1', 'r-source', 'hyperion', 'ready', datetime('now'), datetime('now'));
+            INSERT INTO source.sessions (id, workspace_id, created_at, updated_at)
+            VALUES ('s1', 'w1', datetime('now'), datetime('now'));
             "#,
         )
         .unwrap();
@@ -1055,16 +914,19 @@ mod tests {
         let repo_count: i64 = conn
             .query_row("SELECT count(*) FROM main.repos", [], |r| r.get(0))
             .unwrap();
-        let workspace_repo_id: String = conn
+        let project_workspace: (String, String) = conn
             .query_row(
-                "SELECT repository_id FROM main.workspaces WHERE id = 'w1'",
+                "SELECT repository_id, kind FROM main.workspaces WHERE repository_id = 'r-main'",
                 [],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
 
         assert_eq!(repo_count, 1);
-        assert_eq!(workspace_repo_id, "r-main");
+        assert_eq!(
+            project_workspace,
+            ("r-main".to_string(), "project".to_string())
+        );
         assert_eq!(meta.repo_name, "helmor");
         assert_eq!(meta.repo_root, Some(PathBuf::from("/tmp/helmor")));
     }
@@ -1219,8 +1081,8 @@ mod tests {
     }
 
     #[test]
-    fn import_conductor_workspaces_cleans_up_failed_active_workspace_imports() {
-        let _env = TestEnv::new("failed-import-cleanup");
+    fn import_conductor_workspaces_imports_sessions_without_worktrees() {
+        let _env = TestEnv::new("import-without-worktrees");
         let fake_home = tempfile::tempdir().unwrap();
         let conductor_db_dir = fake_home
             .path()
@@ -1267,27 +1129,24 @@ mod tests {
             None => env::remove_var("HOME"),
         }
 
-        assert!(!result.success);
-        // After cleanup, the final imported count must be 0 — otherwise the
-        // UI would show "1 imported, 1 failed" even though nothing was kept.
-        assert_eq!(result.imported_count, 0);
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|error| error.contains("Could not resolve source branch")),
-            "expected source branch resolution failure, got {:?}",
-            result.errors
-        );
+        assert!(result.success, "import errors: {:?}", result.errors);
+        assert_eq!(result.imported_count, 1);
         let conn = crate::models::db::write_conn().unwrap();
-        let workspace_count: i64 = conn
+        let old_workspace_count: i64 = conn
             .query_row("SELECT count(*) FROM workspaces WHERE id = 'w1'", [], |r| {
                 r.get(0)
             })
             .unwrap();
-        let session_count: i64 = conn
+        let project_workspace_count: i64 = conn
             .query_row(
-                "SELECT count(*) FROM sessions WHERE workspace_id = 'w1'",
+                "SELECT count(*) FROM workspaces WHERE repository_id = 'r1' AND kind = 'project'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let session_workspace_kind: String = conn
+            .query_row(
+                "SELECT w.kind FROM sessions s JOIN workspaces w ON w.id = s.workspace_id WHERE s.id = 's1'",
                 [],
                 |r| r.get(0),
             )
@@ -1300,8 +1159,9 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(workspace_count, 0);
-        assert_eq!(session_count, 0);
-        assert_eq!(message_count, 0);
+        assert_eq!(old_workspace_count, 0);
+        assert_eq!(project_workspace_count, 1);
+        assert_eq!(session_workspace_kind, "project");
+        assert_eq!(message_count, 1);
     }
 }

@@ -1,11 +1,50 @@
 use anyhow::Context;
+use serde::Serialize;
 
 use crate::{
     agents::{self, ActionKind},
-    db, pipeline, sessions,
+    db, pipeline, sessions, workspace_project,
 };
 
 use super::common::{run_blocking, CmdResult};
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateChatResponse {
+    pub workspace_id: String,
+    pub session_id: String,
+}
+
+/// Create a chat session against a repo. Lazily provisions the repo's
+/// project workspace (kind='project', no worktree) the first time and
+/// then creates an idle session inside it. The frontend should select
+/// `workspaceId` + `sessionId` and route the user to the conversation
+/// panel.
+#[tauri::command]
+pub async fn create_chat_session_in_repo(
+    app: tauri::AppHandle,
+    repo_id: String,
+    permission_mode: Option<String>,
+) -> CmdResult<CreateChatResponse> {
+    let _lock = db::WORKSPACE_FS_MUTATION_LOCK.lock().await;
+    let response = run_blocking(move || {
+        let workspace_id = workspace_project::get_or_create_project_workspace(&repo_id)?;
+        sessions::delete_empty_visible_chat_sessions(&workspace_id)?;
+        let session = sessions::create_session(&workspace_id, None, permission_mode.as_deref())?;
+        Ok::<_, anyhow::Error>(CreateChatResponse {
+            workspace_id,
+            session_id: session.session_id,
+        })
+    })
+    .await?;
+    crate::ui_sync::publish(
+        &app,
+        crate::ui_sync::UiMutationEvent::SessionListChanged {
+            workspace_id: response.workspace_id.clone(),
+        },
+    );
+    Ok(response)
+}
 
 #[tauri::command]
 pub async fn list_workspace_sessions(
@@ -40,6 +79,26 @@ pub async fn create_session(
 #[tauri::command]
 pub async fn rename_session(session_id: String, title: String) -> CmdResult<()> {
     run_blocking(move || sessions::rename_session(&session_id, &title)).await
+}
+
+#[tauri::command]
+pub async fn pin_session(app: tauri::AppHandle, session_id: String) -> CmdResult<()> {
+    let workspace_id = run_blocking(move || sessions::pin_session(&session_id)).await?;
+    crate::ui_sync::publish(
+        &app,
+        crate::ui_sync::UiMutationEvent::SessionListChanged { workspace_id },
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn unpin_session(app: tauri::AppHandle, session_id: String) -> CmdResult<()> {
+    let workspace_id = run_blocking(move || sessions::unpin_session(&session_id)).await?;
+    crate::ui_sync::publish(
+        &app,
+        crate::ui_sync::UiMutationEvent::SessionListChanged { workspace_id },
+    );
+    Ok(())
 }
 
 #[tauri::command]

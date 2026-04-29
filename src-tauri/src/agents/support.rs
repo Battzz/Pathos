@@ -74,24 +74,42 @@ pub(super) fn resolve_working_directory(provided: Option<&str>) -> Result<PathBu
 pub(super) fn resolve_resume_working_directory(session_id: &str) -> Result<Option<PathBuf>> {
     let connection = crate::models::db::read_conn()
         .context("Failed to open DB while resolving resume workspace")?;
-    let workspace_info: Option<(String, String)> = connection
+    let workspace_info: Option<(String, String, String, Option<String>)> = connection
         .query_row(
-            r#"SELECT r.name, w.directory_name
+            r#"SELECT r.name, w.directory_name, COALESCE(w.kind, 'workspace'), r.root_path
                FROM sessions s
                JOIN workspaces w ON w.id = s.workspace_id
                JOIN repos r ON r.id = w.repository_id
                WHERE s.id = ?1"#,
             [session_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
         )
         .optional()
         .context("Failed to load resume workspace info")?;
 
-    workspace_info
-        .map(|(repo_name, directory_name)| {
-            crate::data_dir::workspace_dir(&repo_name, &directory_name)
-        })
-        .transpose()
+    let Some((repo_name, directory_name, kind, root_path)) = workspace_info else {
+        return Ok(None);
+    };
+
+    if kind == "project" {
+        // Project workspaces operate on the imported folder directly —
+        // there's no worktree under the helmor data dir. Fall through to
+        // None when the repo row has no `root_path` (legacy / corrupt
+        // data) so the caller's process cwd remains the fallback.
+        return Ok(root_path.map(PathBuf::from));
+    }
+
+    Ok(Some(crate::data_dir::workspace_dir(
+        &repo_name,
+        &directory_name,
+    )?))
 }
 
 #[cfg(test)]

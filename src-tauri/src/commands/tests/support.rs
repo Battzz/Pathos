@@ -1,5 +1,5 @@
 pub(crate) use crate::data_dir::TEST_ENV_LOCK as TEST_LOCK;
-pub(crate) use crate::{git_ops, helpers, repos, sessions, workspaces};
+pub(crate) use crate::{git_ops, repos, sessions, workspaces};
 pub(crate) use rusqlite::Connection;
 pub(crate) use std::fs;
 pub(crate) use std::path::{Path, PathBuf};
@@ -229,6 +229,7 @@ impl ArchiveTestHarness {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) struct CreateTestHarness {
     _test_dir: TestDataDir,
     pub(crate) root: PathBuf,
@@ -237,6 +238,7 @@ pub(crate) struct CreateTestHarness {
     pub(crate) repo_name: String,
 }
 
+#[allow(dead_code)]
 impl CreateTestHarness {
     pub(crate) fn new() -> Self {
         let test_dir = TestDataDir::new("create");
@@ -553,6 +555,7 @@ fn init_create_git_repo(repo_root: &Path) {
     git_ops::run_git(["-C", root, "fetch", "origin"], None).unwrap();
 }
 
+#[allow(dead_code)]
 fn make_executable_if_script(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
 

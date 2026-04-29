@@ -637,7 +637,7 @@ describe("App global navigation shortcuts", () => {
 		});
 	});
 
-	it("opens the new workspace picker on Command+N", async () => {
+	it("does not bind Command+N to workspace creation", async () => {
 		await renderAppReady();
 
 		fireEvent.keyDown(window, {
@@ -646,7 +646,7 @@ describe("App global navigation shortcuts", () => {
 			metaKey: true,
 		});
 
-		await screen.findByRole("dialog");
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 	});
 
 	it("opens the add repository menu on Command+Shift+N", async () => {
@@ -741,9 +741,7 @@ describe("App global navigation shortcuts", () => {
 		});
 	});
 
-	it("still triggers shortcuts while focus is inside text inputs", async () => {
-		const user = userEvent.setup();
-
+	it("still triggers navigation shortcuts while focus is inside text inputs", async () => {
 		await renderAppReady();
 
 		const composerInput = screen.getByLabelText("Workspace input");
@@ -761,22 +759,7 @@ describe("App global navigation shortcuts", () => {
 			expectSelectedSession("Done session 2");
 		});
 
-		const newWorkspaceButton = screen.getByRole("button", {
-			name: "New workspace",
-		});
-		await user.click(newWorkspaceButton);
-		await screen.findByRole("dialog");
-		const repositoryPicker = await screen.findByRole("listbox", {
-			name: "Suggestions",
-		});
-		// Picker focus is moved on the rAF after `onOpenAutoFocus`. Under load
-		// from prior tests the rAF can land after the synchronous assertion,
-		// so wait for it.
-		await waitFor(() => {
-			expect(repositoryPicker).toHaveFocus();
-		});
-
-		fireEvent.keyDown(repositoryPicker, {
+		fireEvent.keyDown(composerInput, {
 			key: "ArrowDown",
 			code: "ArrowDown",
 			metaKey: true,

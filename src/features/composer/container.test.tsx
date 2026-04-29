@@ -38,6 +38,7 @@ const composerMockState = vi.hoisted(() => ({
 	lastOnRemoveLinkedDirectory: null as RemoveHandler | null,
 	lastAddDirCandidates: [] as readonly unknown[],
 	lastOnPickAddDir: null as PickHandler | null,
+	lastModelSectionIds: [] as string[],
 }));
 
 vi.mock("./index", async () => {
@@ -47,6 +48,7 @@ vi.mock("./index", async () => {
 		WorkspaceComposer: (props: {
 			contextKey: string;
 			selectedModelId: string | null;
+			modelSections?: readonly { id: string }[];
 			fastMode?: boolean;
 			disabled?: boolean;
 			submitDisabled?: boolean;
@@ -70,6 +72,9 @@ vi.mock("./index", async () => {
 				...(props.addDirCandidates ?? []),
 			];
 			composerMockState.lastOnPickAddDir = props.onPickAddDir ?? null;
+			composerMockState.lastModelSectionIds = (props.modelSections ?? []).map(
+				(section) => section.id,
+			);
 			React.useEffect(() => {
 				composerMockState.mounts += 1;
 				return () => {
@@ -200,6 +205,7 @@ describe("WorkspaceComposerContainer", () => {
 		apiMockState.listSlashCommands.mockResolvedValue({
 			commands: [],
 		});
+		composerMockState.lastModelSectionIds = [];
 	});
 
 	afterEach(() => {
@@ -265,6 +271,73 @@ describe("WorkspaceComposerContainer", () => {
 			"session:session-1",
 			"session:session-2",
 		]);
+	});
+
+	it("hides models from the other provider after a session has started", () => {
+		const queryClient = createHelmorQueryClient();
+		queryClient.setQueryData(
+			helmorQueryKeys.agentModelSections,
+			MODEL_SECTIONS,
+		);
+		queryClient.setQueryData(
+			helmorQueryKeys.workspaceDetail("workspace-1"),
+			WORKSPACE_DETAIL,
+		);
+		queryClient.setQueryData(helmorQueryKeys.workspaceSessions("workspace-1"), [
+			...WORKSPACE_SESSIONS,
+			{
+				id: "session-new",
+				workspaceId: "workspace-1",
+				title: "Untitled",
+				agentType: null,
+				status: "idle",
+				model: null,
+				permissionMode: "default",
+				providerSessionId: null,
+				unreadCount: 0,
+				codexThinkingLevel: null,
+				fastMode: false,
+				createdAt: "2026-04-05T00:00:00Z",
+				updatedAt: "2026-04-05T00:00:00Z",
+				lastUserMessageAt: null,
+				isHidden: false,
+				active: false,
+			},
+		]);
+
+		const renderComposer = (displayedSessionId: string) => (
+			<QueryClientProvider client={queryClient}>
+				<WorkspaceComposerContainer
+					displayedWorkspaceId="workspace-1"
+					displayedSessionId={displayedSessionId}
+					disabled={false}
+					sending={false}
+					sendError={null}
+					restoreDraft={null}
+					restoreImages={[]}
+					restoreFiles={[]}
+					restoreNonce={0}
+					modelSelections={{}}
+					effortLevels={{}}
+					permissionModes={{}}
+					fastModes={{}}
+					onSelectModel={vi.fn()}
+					onSelectEffort={vi.fn()}
+					onChangePermissionMode={vi.fn()}
+					onChangeFastMode={vi.fn()}
+					onSubmit={vi.fn()}
+				/>
+			</QueryClientProvider>
+		);
+
+		const { rerender } = render(renderComposer("session-1"));
+		expect(composerMockState.lastModelSectionIds).toEqual(["claude"]);
+
+		rerender(renderComposer("session-2"));
+		expect(composerMockState.lastModelSectionIds).toEqual(["codex"]);
+
+		rerender(renderComposer("session-new"));
+		expect(composerMockState.lastModelSectionIds).toEqual(["claude", "codex"]);
 	});
 
 	it("auto-submits queued CLI prompts with queued model and permission mode", async () => {

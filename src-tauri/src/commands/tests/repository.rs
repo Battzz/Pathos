@@ -1,5 +1,4 @@
 use super::support::*;
-use crate::workspace_state::WorkspaceState;
 
 #[test]
 fn list_repositories_filters_hidden_and_sorts_by_display_order() {
@@ -20,7 +19,7 @@ fn list_repositories_filters_hidden_and_sorts_by_display_order() {
 }
 
 #[test]
-fn add_repository_from_local_path_adds_repo_and_first_workspace() {
+fn add_repository_from_local_path_records_repo_without_creating_workspace() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -36,11 +35,10 @@ fn add_repository_from_local_path_adds_repo_and_first_workspace() {
     let connection = Connection::open(harness.db_path()).unwrap();
     let (repo_count, workspace_count, session_count): (i64, i64, i64) = connection
         .query_row(
-            r#"SELECT (SELECT COUNT(*) FROM repos WHERE root_path = ?1), (SELECT COUNT(*) FROM workspaces WHERE repository_id = ?2), (SELECT COUNT(*) FROM sessions WHERE workspace_id = ?3)"#,
+            r#"SELECT (SELECT COUNT(*) FROM repos WHERE root_path = ?1), (SELECT COUNT(*) FROM workspaces WHERE repository_id = ?2), (SELECT COUNT(*) FROM sessions WHERE workspace_id IN (SELECT id FROM workspaces WHERE repository_id = ?2))"#,
             (
                 normalized_repo_root.as_str(),
                 &response.repository_id,
-                response.created_workspace_id.as_deref().unwrap(),
             ),
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
@@ -52,53 +50,40 @@ fn add_repository_from_local_path_adds_repo_and_first_workspace() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
-    let created_workspace_state: String = connection
-        .query_row(
-            "SELECT state FROM workspaces WHERE id = ?1",
-            [response.selected_workspace_id.as_str()],
-            |row| row.get(0),
-        )
-        .unwrap();
 
     assert!(response.created_repository);
+    assert!(response.is_git);
     assert_eq!(repo_count, 1);
-    assert_eq!(workspace_count, 1);
-    assert_eq!(session_count, 1);
-    assert_eq!(response.created_workspace_state, WorkspaceState::Ready);
-    assert_eq!(created_workspace_state, "ready");
+    assert_eq!(
+        workspace_count, 0,
+        "import must not auto-create a workspace"
+    );
+    assert_eq!(session_count, 0);
     assert_eq!(default_branch, "main");
     assert_eq!(remote, Some("origin".to_string()));
 }
 
 #[test]
-fn add_repository_from_local_path_focuses_existing_workspace_for_duplicate_repo() {
+fn add_repository_from_local_path_returns_existing_repo_for_duplicate_import() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let harness = CreateTestHarness::new();
-    let created = workspaces::create_workspace_from_repo_impl(&harness.repo_id).unwrap();
 
     let response =
         repos::add_repository_from_local_path(harness.source_repo_root.to_str().unwrap()).unwrap();
     let connection = Connection::open(harness.db_path()).unwrap();
-    let (repo_count, workspace_count): (i64, i64) = connection
-        .query_row(
-            "SELECT (SELECT COUNT(*) FROM repos), (SELECT COUNT(*) FROM workspaces)",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
+    let repo_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM repos", [], |row| row.get(0))
         .unwrap();
 
     assert!(!response.created_repository);
-    assert_eq!(response.created_workspace_id, None);
-    assert_eq!(response.selected_workspace_id, created.created_workspace_id);
-    assert_eq!(response.created_workspace_state, WorkspaceState::Ready);
+    assert_eq!(response.repository_id, harness.repo_id);
     assert_eq!(repo_count, 1);
-    assert_eq!(workspace_count, 1);
 }
 
 #[test]
-fn add_repository_from_local_path_rejects_non_git_directory_without_side_effects() {
+fn add_repository_from_local_path_accepts_non_git_folder() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -106,19 +91,23 @@ fn add_repository_from_local_path_rejects_non_git_directory_without_side_effects
     let plain_dir = harness.root.join("not-a-repo");
     fs::create_dir_all(&plain_dir).unwrap();
 
-    let error = repos::add_repository_from_local_path(plain_dir.to_str().unwrap()).unwrap_err();
+    let response = repos::add_repository_from_local_path(plain_dir.to_str().unwrap()).unwrap();
     let connection = Connection::open(harness.db_path()).unwrap();
-    let (repo_count, workspace_count): (i64, i64) = connection
+    let (repo_count, is_git_flag): (i64, i64) = connection
         .query_row(
-            "SELECT (SELECT COUNT(*) FROM repos), (SELECT COUNT(*) FROM workspaces)",
-            [],
+            "SELECT (SELECT COUNT(*) FROM repos), (SELECT is_git FROM repos WHERE id = ?1)",
+            [&response.repository_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
 
-    assert!(error.to_string().contains("Git working tree"));
-    assert_eq!(repo_count, 1);
-    assert_eq!(workspace_count, 0);
+    assert!(response.created_repository);
+    assert!(!response.is_git);
+    assert_eq!(
+        repo_count, 2,
+        "harness has one repo plus the new non-git import"
+    );
+    assert_eq!(is_git_flag, 0);
 }
 
 #[test]
@@ -204,24 +193,7 @@ fn list_repo_remotes_returns_configured_remotes() {
 }
 
 #[test]
-fn create_workspace_rejects_repo_without_remote() {
-    let _guard = TEST_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let harness = CreateTestHarness::new();
-
-    let root = harness.source_repo_root.to_str().unwrap();
-    git_ops::run_git(["-C", root, "remote", "remove", "origin"], None).unwrap();
-
-    let err = workspaces::create_workspace_from_repo_impl(&harness.repo_id).unwrap_err();
-    assert!(
-        err.to_string().contains("no remote"),
-        "Expected 'no remote' error, got: {err}"
-    );
-}
-
-#[test]
-fn create_workspace_uses_configured_remote() {
+fn update_repository_remote_accepts_configured_remote() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -230,12 +202,11 @@ fn create_workspace_uses_configured_remote() {
     let root = harness.source_repo_root.to_str().unwrap();
     git_ops::run_git(["-C", root, "remote", "rename", "origin", "upstream"], None).unwrap();
 
-    let err = workspaces::create_workspace_from_repo_impl(&harness.repo_id).unwrap_err();
-    assert!(err.to_string().contains("no remote"));
-
     repos::update_repository_remote(&harness.repo_id, "upstream").unwrap();
-    let response = workspaces::create_workspace_from_repo_impl(&harness.repo_id).unwrap();
-    assert_eq!(response.created_state, WorkspaceState::Ready);
+    let repo = repos::load_repository_by_id(&harness.repo_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(repo.remote.as_deref(), Some("upstream"));
 }
 
 #[test]
@@ -332,7 +303,14 @@ fn update_repository_remote_reports_orphaned_workspaces() {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let harness = CreateTestHarness::new();
 
-    let ws = workspaces::create_workspace_from_repo_impl(&harness.repo_id).unwrap();
+    let workspace_id = "ws-orphan-check";
+    let conn = Connection::open(harness.db_path()).unwrap();
+    conn.execute(
+        "INSERT INTO workspaces (id, repository_id, directory_name, state, status, intended_target_branch)
+         VALUES (?1, ?2, 'orphan-check', 'ready', 'in-progress', 'main')",
+        rusqlite::params![workspace_id, harness.repo_id],
+    )
+    .unwrap();
 
     let root = harness.source_repo_root.to_str().unwrap();
     git_ops::run_git(["-C", root, "remote", "add", "upstream", root], None).unwrap();
@@ -341,10 +319,9 @@ fn update_repository_remote_reports_orphaned_workspaces() {
     let response = repos::update_repository_remote(&harness.repo_id, "upstream").unwrap();
     assert_eq!(response.orphaned_workspace_count, 0);
 
-    let conn = Connection::open(harness.db_path()).unwrap();
     conn.execute(
         "UPDATE workspaces SET intended_target_branch = 'nonexistent-branch' WHERE id = ?1",
-        [&ws.created_workspace_id],
+        [&workspace_id],
     )
     .unwrap();
 
@@ -359,11 +336,12 @@ fn update_repository_remote_preserves_workspace_target_branches() {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let harness = CreateTestHarness::new();
 
-    let ws = workspaces::create_workspace_from_repo_impl(&harness.repo_id).unwrap();
+    let workspace_id = "ws-target-preserve";
     let conn = Connection::open(harness.db_path()).unwrap();
     conn.execute(
-        "UPDATE workspaces SET intended_target_branch = 'develop' WHERE id = ?1",
-        [&ws.created_workspace_id],
+        "INSERT INTO workspaces (id, repository_id, directory_name, state, status, intended_target_branch)
+         VALUES (?1, ?2, 'target-preserve', 'ready', 'in-progress', 'develop')",
+        rusqlite::params![workspace_id, harness.repo_id],
     )
     .unwrap();
 
@@ -375,7 +353,7 @@ fn update_repository_remote_preserves_workspace_target_branches() {
     let target: String = conn
         .query_row(
             "SELECT intended_target_branch FROM workspaces WHERE id = ?1",
-            [&ws.created_workspace_id],
+            [&workspace_id],
             |row| row.get(0),
         )
         .unwrap();
