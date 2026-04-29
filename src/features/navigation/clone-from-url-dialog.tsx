@@ -149,9 +149,7 @@ export function CloneFromUrlDialog({
 								<span>into</span>
 								<span className="truncate text-foreground/80">{repoName}</span>
 							</span>
-						) : (
-							<span className="text-[11px] font-normal text-muted-foreground"></span>
-						)}
+						) : null}
 					</div>
 					<div className="flex h-8 items-center gap-1.5 rounded-md border border-input/30 bg-input/30 px-2 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
 						<Link2
@@ -197,6 +195,10 @@ export function CloneFromUrlDialog({
 							autoComplete="off"
 							className="min-w-0 flex-1 select-text bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
 						/>
+						<span
+							aria-hidden="true"
+							className="h-4 w-px shrink-0 bg-border/50"
+						/>
 						<button
 							type="button"
 							onClick={() => {
@@ -229,20 +231,20 @@ export function CloneFromUrlDialog({
 					) : null}
 					<Button
 						type="submit"
-						size="xs"
+						size="sm"
 						disabled={!canSubmit}
-						className="w-full justify-center"
+						className="mt-0.5 w-full justify-center"
 					>
 						{isSubmitting ? (
 							<LoaderCircle
-								className="size-3 animate-spin"
+								className="size-3.5 animate-spin"
 								strokeWidth={2}
 								data-icon="inline-start"
 							/>
 						) : (
 							<Download strokeWidth={2} data-icon="inline-start" />
 						)}
-						Clone repository
+						{isSubmitting ? "Cloning…" : "Clone"}
 					</Button>
 				</form>
 			</DialogContent>

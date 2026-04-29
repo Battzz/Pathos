@@ -356,20 +356,20 @@ function CreateBranchForm({
 			</div>
 			<Button
 				type="submit"
-				size="xs"
+				size="sm"
 				disabled={!canSubmit}
-				className="w-full justify-center"
+				className="mt-0.5 w-full justify-center"
 			>
 				{submitting ? (
 					<LoaderCircle
-						className="size-3 animate-spin"
+						className="size-3.5 animate-spin"
 						strokeWidth={2}
 						data-icon="inline-start"
 					/>
 				) : (
 					<GitBranchPlus strokeWidth={2} data-icon="inline-start" />
 				)}
-				Create branch
+				{submitting ? "Creating…" : "Create"}
 			</Button>
 		</form>
 	);
