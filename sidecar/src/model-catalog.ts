@@ -6,15 +6,15 @@ const MODEL_CATALOG: Record<"claude" | "codex", readonly ProviderModelInfo[]> =
 	{
 		claude: [
 			{
-				id: "default",
-				label: "Opus 4.7 1M",
-				cliModel: "default",
+				id: "claude-opus-4-7",
+				label: "Opus 4.7",
+				cliModel: "claude-opus-4-7",
 				effortLevels: ["low", "medium", "high", "xhigh", "max"],
 			},
 			{
-				id: "claude-opus-4-6[1m]",
-				label: "Opus 4.6 1M",
-				cliModel: "claude-opus-4-6[1m]",
+				id: "claude-opus-4-6",
+				label: "Opus 4.6",
+				cliModel: "claude-opus-4-6",
 				effortLevels: ["low", "medium", "high", "max"],
 				supportsFastMode: true,
 			},
@@ -88,7 +88,12 @@ export function modelSupportsFastMode(
 	modelId: string | undefined | null,
 ): boolean {
 	if (!modelId) return false;
+	const normalizedModelId =
+		provider === "claude" && modelId.endsWith("[1m]")
+			? modelId.slice(0, -4)
+			: modelId;
 	return MODEL_CATALOG[provider].some(
-		(model) => model.id === modelId && model.supportsFastMode === true,
+		(model) =>
+			model.id === normalizedModelId && model.supportsFastMode === true,
 	);
 }

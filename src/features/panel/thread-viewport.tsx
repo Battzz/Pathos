@@ -64,11 +64,13 @@ export function resolveConversationRowHeight({
 export function ActiveThreadViewport({
 	hasSession,
 	pane,
+	workspaceLabel = null,
 	missingScriptTypes = [],
 	onInitializeScript,
 }: {
 	hasSession: boolean;
 	pane: PresentedSessionPane;
+	workspaceLabel?: string | null;
 	missingScriptTypes?: WorkspaceScriptType[];
 	onInitializeScript?: (scriptType: WorkspaceScriptType) => void;
 }) {
@@ -121,6 +123,7 @@ export function ActiveThreadViewport({
 					paneWidth={paneWidth}
 					sessionId={pane.sessionId}
 					sending={pane.sending}
+					workspaceLabel={workspaceLabel}
 				/>
 			</div>
 		</div>
@@ -136,6 +139,7 @@ function ChatThread({
 	paneWidth,
 	sessionId,
 	sending,
+	workspaceLabel,
 }: {
 	layoutCacheKey: string;
 	messages: ThreadMessageLike[];
@@ -145,6 +149,7 @@ function ChatThread({
 	paneWidth: number;
 	sessionId: string;
 	sending: boolean;
+	workspaceLabel?: string | null;
 }) {
 	const threadMessages = messages;
 	const { settings } = useSettings();
@@ -241,6 +246,7 @@ function ChatThread({
 				missingScriptTypes={missingScriptTypes}
 				onInitializeScript={onInitializeScript}
 				paneWidth={paneWidth}
+				workspaceLabel={workspaceLabel}
 				pinTailRows={pinTailRows}
 				scrollRef={handleScrollRef}
 				sessionId={sessionId}
@@ -274,8 +280,8 @@ function ConversationViewport({
 	hasSession,
 	itemContent,
 	layoutCacheKey,
-	missingScriptTypes,
-	onInitializeScript,
+	missingScriptTypes: _missingScriptTypes,
+	onInitializeScript: _onInitializeScript,
 	paneWidth,
 	pinTailRows,
 	scrollRef,
@@ -284,6 +290,7 @@ function ConversationViewport({
 	sendingStartTime,
 	stopScroll,
 	usePlainThread,
+	workspaceLabel = null,
 }: {
 	children?: ReactNode;
 	contentRef: React.RefCallback<HTMLElement>;
@@ -302,6 +309,7 @@ function ConversationViewport({
 	sendingStartTime: number;
 	stopScroll: () => void;
 	usePlainThread: boolean;
+	workspaceLabel?: string | null;
 }) {
 	const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null);
 
@@ -321,11 +329,7 @@ function ConversationViewport({
 		: undefined;
 	const EmptyPlaceholder: ThreadViewportSlot = () => (
 		<div className="flex min-h-full flex-1 items-center justify-center px-8">
-			<EmptyState
-				hasSession={hasSession}
-				missingScriptTypes={missingScriptTypes}
-				onInitializeScript={onInitializeScript}
-			/>
+			<EmptyState hasSession={hasSession} workspaceLabel={workspaceLabel} />
 		</div>
 	);
 

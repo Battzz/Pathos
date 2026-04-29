@@ -465,7 +465,7 @@ describe("ClaudeSessionManager.sendMessage", () => {
 
 		expect(bySupports.default).toBeUndefined();
 		expect(bySupports.sonnet).toBeUndefined();
-		expect(bySupports["claude-opus-4-6[1m]"]).toBe(true);
+		expect(bySupports["claude-opus-4-6"]).toBe(true);
 	});
 
 	test("ignores fastMode for models not in the hardcoded catalog", async () => {
@@ -1342,15 +1342,15 @@ describe("ClaudeSessionManager.listModels", () => {
 
 		expect(models).toEqual([
 			{
-				id: "default",
-				label: "Opus 4.7 1M",
-				cliModel: "default",
+				id: "claude-opus-4-7",
+				label: "Opus 4.7",
+				cliModel: "claude-opus-4-7",
 				effortLevels: ["low", "medium", "high", "xhigh", "max"],
 			},
 			{
-				id: "claude-opus-4-6[1m]",
-				label: "Opus 4.6 1M",
-				cliModel: "claude-opus-4-6[1m]",
+				id: "claude-opus-4-6",
+				label: "Opus 4.6",
+				cliModel: "claude-opus-4-6",
 				effortLevels: ["low", "medium", "high", "max"],
 				supportsFastMode: true,
 			},

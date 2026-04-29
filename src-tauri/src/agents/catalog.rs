@@ -57,14 +57,14 @@ fn official_claude_section() -> AgentModelSection {
         status: AgentModelSectionStatus::Ready,
         options: vec![
             claude_model(
-                "default",
-                "Opus 4.7 1M",
+                "claude-opus-4-7",
+                "Opus 4.7",
                 &["low", "medium", "high", "xhigh", "max"],
                 false,
             ),
             claude_model(
-                "claude-opus-4-6[1m]",
-                "Opus 4.6 1M",
+                "claude-opus-4-6",
+                "Opus 4.6",
                 &["low", "medium", "high", "max"],
                 true,
             ),
@@ -210,12 +210,12 @@ mod tests {
                 .iter()
                 .map(|model| model.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["default", "claude-opus-4-6[1m]", "sonnet", "haiku"]
+            vec!["claude-opus-4-7", "claude-opus-4-6", "sonnet", "haiku"]
         );
         assert!(sections[0]
             .options
             .iter()
-            .any(|model| model.id == "claude-opus-4-6[1m]" && model.supports_fast_mode));
+            .any(|model| model.id == "claude-opus-4-6" && model.supports_fast_mode));
 
         assert_eq!(sections[1].id, "codex");
         assert_eq!(sections[1].status, AgentModelSectionStatus::Ready);
@@ -262,22 +262,24 @@ mod tests {
                 .map(|model| model.id.as_str())
                 .collect::<Vec<_>>(),
             vec![
-                "default",
-                "claude-opus-4-6[1m]",
+                "claude-opus-4-7",
+                "claude-opus-4-6",
                 "sonnet",
                 "haiku",
                 "claude-custom|minimax|MiniMax-M2.7",
             ]
         );
+        let custom_model = sections[0]
+            .options
+            .iter()
+            .find(|model| model.id == "claude-custom|minimax|MiniMax-M2.7")
+            .expect("custom Claude model should be appended");
+        assert_eq!(custom_model.provider_key.as_deref(), Some("minimax"));
         assert_eq!(
-            sections[0].options[4].provider_key.as_deref(),
-            Some("minimax")
-        );
-        assert_eq!(
-            sections[0].options[4].effort_levels,
+            custom_model.effort_levels,
             vec!["low", "medium", "high", "xhigh", "max"]
         );
-        assert!(!sections[0].options[4].supports_context_usage);
+        assert!(!custom_model.supports_context_usage);
         assert_eq!(sections[1].id, "codex");
     }
 

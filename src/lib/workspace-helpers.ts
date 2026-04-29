@@ -555,11 +555,17 @@ export function findModelOption(
 	if (!modelId) {
 		return null;
 	}
+	const normalizedModelId =
+		modelId === "default" || modelId === "claude-opus-4-7[1m]"
+			? "claude-opus-4-7"
+			: modelId === "claude-opus-4-6[1m]"
+				? "claude-opus-4-6"
+				: modelId;
 
 	return (
 		modelSections
 			.flatMap((section) => section.options)
-			.find((option) => option.id === modelId) ?? null
+			.find((option) => option.id === normalizedModelId) ?? null
 	);
 }
 

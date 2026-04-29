@@ -117,6 +117,8 @@ type WorkspaceComposerProps = {
 	fastMode?: boolean;
 	showFastModePrelude?: boolean;
 	onChangeFastMode?: (enabled: boolean) => void;
+	claudeContextWindow?: "200k" | "1m";
+	onChangeClaudeContextWindow?: (window: "200k" | "1m") => void;
 	sendError?: string | null;
 	restoreDraft?: string | null;
 	restoreImages?: string[];
@@ -203,6 +205,8 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	fastMode = false,
 	showFastModePrelude = false,
 	onChangeFastMode,
+	claudeContextWindow = "200k",
+	onChangeClaudeContextWindow,
 	sendError,
 	restoreDraft,
 	restoreImages = [],
@@ -252,7 +256,11 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	const consumedInsertRequestIdsRef = useRef<Set<string>>(new Set());
 	const [hasContent, setHasContent] = useState(false);
 	const [isInputFocused, setIsInputFocused] = useState(false);
+	const [effortPickerOpen, setEffortPickerOpen] = useState(false);
 	const [modelPickerOpen, setModelPickerOpen] = useState(false);
+	const [contextPickerOpen, setContextPickerOpen] = useState(false);
+	const [toolbarTooltipSuppressed, setToolbarTooltipSuppressed] =
+		useState(false);
 	useEffect(() => {
 		const handleFocusComposer = () => {
 			if (disabled) return;
@@ -327,6 +335,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 			);
 	}, [toolbarDisabled]);
 	const handleOpenModelSettings = useCallback(() => {
+		setToolbarTooltipSuppressed(true);
 		setModelPickerOpen(false);
 		window.dispatchEvent(
 			new CustomEvent(OPEN_SETTINGS_EVENT, {
@@ -334,8 +343,48 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 			}),
 		);
 	}, []);
+	const handleToolbarTriggerPointerDown = useCallback(() => {
+		setToolbarTooltipSuppressed(true);
+	}, []);
+	const handleToolbarPointerMove = useCallback(() => {
+		if (effortPickerOpen || modelPickerOpen || contextPickerOpen) return;
+		setToolbarTooltipSuppressed(false);
+	}, [contextPickerOpen, effortPickerOpen, modelPickerOpen]);
+	const handleEffortPickerOpenChange = useCallback((open: boolean) => {
+		setToolbarTooltipSuppressed(true);
+		setEffortPickerOpen(open);
+	}, []);
+	const handleModelPickerOpenChange = useCallback((open: boolean) => {
+		setToolbarTooltipSuppressed(true);
+		setModelPickerOpen(open);
+	}, []);
+	const handleContextPickerOpenChange = useCallback((open: boolean) => {
+		setToolbarTooltipSuppressed(true);
+		setContextPickerOpen(open);
+	}, []);
+	const handleSelectEffortOption = useCallback(
+		(level: string) => {
+			setToolbarTooltipSuppressed(true);
+			onSelectEffort(level);
+		},
+		[onSelectEffort],
+	);
+	const handleSelectModelOption = useCallback(
+		(modelId: string) => {
+			setToolbarTooltipSuppressed(true);
+			onSelectModel(modelId);
+		},
+		[onSelectModel],
+	);
+	const handleSelectContextWindow = useCallback(
+		(window: "200k" | "1m") => {
+			setToolbarTooltipSuppressed(true);
+			onChangeClaudeContextWindow?.(window);
+		},
+		[onChangeClaudeContextWindow],
+	);
 	const composerToolbarTriggerClassName =
-		"cursor-pointer rounded-[9px] px-1 py-0.5 text-[13px] font-medium transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50";
+		"cursor-pointer rounded-[9px] px-1 py-0.5 text-[13px] font-medium transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-0";
 	// Shared gate for Send and Steer — the only difference is whether a
 	// stream is currently running. When sending, ⌘Enter / Enter still
 	// fires `handleSubmit`; the use-streaming hook dispatches to the
@@ -679,7 +728,10 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 					) : null}
 
 					<div className="mt-2.5 flex items-end justify-between gap-3">
-						<div className="flex flex-wrap items-center gap-2">
+						<div
+							className="flex flex-wrap items-center gap-2"
+							onPointerMove={handleToolbarPointerMove}
+						>
 							{modelsLoading ? (
 								<ShimmerText className="px-1 py-0.5 text-[13px] text-muted-foreground">
 									Loading models…
@@ -687,11 +739,21 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 							) : (
 								<>
 									{supportsEffort && (
-										<DropdownMenu>
-											<Tooltip>
+										<DropdownMenu
+											open={effortPickerOpen}
+											onOpenChange={handleEffortPickerOpenChange}
+										>
+											<Tooltip
+												open={
+													effortPickerOpen || toolbarTooltipSuppressed
+														? false
+														: undefined
+												}
+											>
 												<TooltipTrigger asChild>
 													<DropdownMenuTrigger
 														disabled={toolbarDisabled}
+														onPointerDown={handleToolbarTriggerPointerDown}
 														aria-label={`Reasoning effort: ${
 															effectiveEffort === "xhigh"
 																? "Extra High"
@@ -739,7 +801,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 														<DropdownMenuItem
 															key={level}
 															disabled={toolbarDisabled}
-															onClick={() => onSelectEffort(level)}
+															onClick={() => handleSelectEffortOption(level)}
 															className={cn(
 																"flex items-center gap-2.5 focus:bg-accent/25",
 																level === effectiveEffort &&
@@ -762,12 +824,19 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 
 									<DropdownMenu
 										open={modelPickerOpen}
-										onOpenChange={setModelPickerOpen}
+										onOpenChange={handleModelPickerOpenChange}
 									>
-										<Tooltip>
+										<Tooltip
+											open={
+												modelPickerOpen || toolbarTooltipSuppressed
+													? false
+													: undefined
+											}
+										>
 											<TooltipTrigger asChild>
 												<DropdownMenuTrigger
 													disabled={toolbarDisabled}
+													onPointerDown={handleToolbarTriggerPointerDown}
 													className={cn(
 														`flex items-center gap-1.5 text-muted-foreground ${composerToolbarTriggerClassName}`,
 														toolbarDisabled &&
@@ -805,7 +874,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 															key={option.id}
 															disabled={toolbarDisabled}
 															onClick={() => {
-																onSelectModel(option.id);
+																handleSelectModelOption(option.id);
 															}}
 															className="flex items-center justify-between gap-3"
 														>
@@ -841,12 +910,87 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 										</DropdownMenuContent>
 									</DropdownMenu>
 
+									{onChangeClaudeContextWindow && (
+										<DropdownMenu
+											open={contextPickerOpen}
+											onOpenChange={handleContextPickerOpenChange}
+										>
+											<Tooltip
+												open={
+													contextPickerOpen || toolbarTooltipSuppressed
+														? false
+														: undefined
+												}
+											>
+												<TooltipTrigger asChild>
+													<DropdownMenuTrigger
+														disabled={toolbarDisabled}
+														onPointerDown={handleToolbarTriggerPointerDown}
+														aria-label={`Claude context window: ${
+															claudeContextWindow === "1m" ? "1M" : "200K"
+														}`}
+														className={cn(
+															`px-1.5 font-mono text-[11px] tabular-nums text-muted-foreground ${composerToolbarTriggerClassName}`,
+															toolbarDisabled &&
+																"cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground",
+														)}
+													>
+														{claudeContextWindow === "1m" ? "1M" : "200K"}
+													</DropdownMenuTrigger>
+												</TooltipTrigger>
+												<TooltipContent side="top" sideOffset={4}>
+													<span>
+														Claude context:{" "}
+														{claudeContextWindow === "1m" ? "1M" : "200K"}
+													</span>
+												</TooltipContent>
+											</Tooltip>
+											<DropdownMenuContent
+												side="top"
+												align="start"
+												sideOffset={4}
+												className="min-w-[9rem]"
+											>
+												<DropdownMenuGroup>
+													<DropdownMenuLabel>Context</DropdownMenuLabel>
+													{(["200k", "1m"] as const).map((window) => (
+														<DropdownMenuItem
+															key={window}
+															disabled={toolbarDisabled}
+															onClick={() => handleSelectContextWindow(window)}
+															className="flex items-center justify-between gap-3"
+														>
+															<span className="font-mono tabular-nums">
+																{window === "1m" ? "1M" : "200K"}
+															</span>
+															{claudeContextWindow === window ? (
+																<Check className="size-3.5" strokeWidth={1.8} />
+															) : null}
+														</DropdownMenuItem>
+													))}
+												</DropdownMenuGroup>
+											</DropdownMenuContent>
+										</DropdownMenu>
+									)}
+
+									{onChangeClaudeContextWindow &&
+									onChangeFastMode &&
+									supportsFastMode ? (
+										<div
+											aria-hidden="true"
+											className="mx-0.5 h-5 w-px rounded-full bg-border/55 shadow-[0_0_8px_color-mix(in_srgb,var(--border)_45%,transparent)]"
+										/>
+									) : null}
+
 									{onChangeFastMode && supportsFastMode && (
-										<Tooltip>
+										<Tooltip
+											open={toolbarTooltipSuppressed ? false : undefined}
+										>
 											<TooltipTrigger asChild>
 												<ComposerButton
 													aria-label="Fast mode"
 													disabled={toolbarDisabled}
+													onPointerDown={handleToolbarTriggerPointerDown}
 													className={cn(
 														"relative",
 														composerToolbarTriggerClassName,
@@ -879,11 +1023,12 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 										</Tooltip>
 									)}
 
-									<Tooltip>
+									<Tooltip open={toolbarTooltipSuppressed ? false : undefined}>
 										<TooltipTrigger asChild>
 											<ComposerButton
 												aria-label="Plan mode"
 												disabled={toolbarDisabled}
+												onPointerDown={handleToolbarTriggerPointerDown}
 												className={cn(
 													`gap-1 px-1.5 text-[11px] ${composerToolbarTriggerClassName}`,
 													permissionMode === "plan"

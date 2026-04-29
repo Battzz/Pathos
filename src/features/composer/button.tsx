@@ -16,7 +16,7 @@ export function ComposerButton({
 			variant="ghost"
 			size="xs"
 			className={cn(
-				"rounded-[9px] text-muted-foreground hover:text-foreground",
+				"rounded-[9px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-0",
 				className,
 			)}
 		>

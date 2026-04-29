@@ -119,6 +119,8 @@ export const WorkspaceConversationContainer = memo(
 		const [composerFastModes, setComposerFastModes] = useState<
 			Record<string, boolean>
 		>({});
+		const [composerClaudeContextWindows, setComposerClaudeContextWindows] =
+			useState<Record<string, "200k" | "1m">>({});
 
 		const composerContextKey = getComposerContextKey(
 			displayedWorkspaceId,
@@ -239,6 +241,16 @@ export const WorkspaceConversationContainer = memo(
 			[],
 		);
 
+		const handleChangeClaudeContextWindow = useCallback(
+			(contextKey: string, window: "200k" | "1m") => {
+				setComposerClaudeContextWindows((current) => ({
+					...current,
+					[contextKey]: window,
+				}));
+			},
+			[],
+		);
+
 		const handleComposerSubmitWrapper = useCallback(
 			(payload: Parameters<typeof handleComposerSubmit>[0]) => {
 				void handleComposerSubmit(payload);
@@ -337,11 +349,13 @@ export const WorkspaceConversationContainer = memo(
 							effortLevels={composerEffortLevels}
 							permissionModes={composerPermissionModes}
 							fastModes={composerFastModes}
+							claudeContextWindows={composerClaudeContextWindows}
 							activeFastPreludes={activeFastPreludes}
 							onSelectModel={handleSelectModel}
 							onSelectEffort={handleSelectEffort}
 							onChangePermissionMode={handleChangePermissionMode}
 							onChangeFastMode={handleChangeFastMode}
+							onChangeClaudeContextWindow={handleChangeClaudeContextWindow}
 							onSwitchSession={onSelectSession}
 							onSubmit={handleComposerSubmitWrapper}
 							onStop={handleStopStream}

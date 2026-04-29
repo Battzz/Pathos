@@ -150,9 +150,7 @@ export function CloneFromUrlDialog({
 								<span className="truncate text-foreground/80">{repoName}</span>
 							</span>
 						) : (
-							<span className="text-[11px] font-normal text-muted-foreground">
-								from URL
-							</span>
+							<span className="text-[11px] font-normal text-muted-foreground"></span>
 						)}
 					</div>
 					<div className="flex h-8 items-center gap-1.5 rounded-md border border-input/30 bg-input/30 px-2 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">

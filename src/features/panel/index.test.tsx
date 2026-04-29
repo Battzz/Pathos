@@ -215,7 +215,7 @@ describe("WorkspacePanel", () => {
 		]);
 	});
 
-	it("wraps the empty session state in a full-size centered container", () => {
+	it("leaves the panel's empty area blank when a session has no messages", () => {
 		const { container } = render(
 			<TooltipProvider delayDuration={0}>
 				<QueryClientProvider client={createHelmorQueryClient()}>
@@ -238,98 +238,14 @@ describe("WorkspacePanel", () => {
 			</TooltipProvider>,
 		);
 
-		const centeredContainer = container.querySelector(
+		// The welcome phrase + composer live in the conversation container,
+		// not the panel — the panel keeps an empty placeholder so the two
+		// don't render the same content twice.
+		const placeholder = container.querySelector(
 			".conversation-scroll-viewport .justify-center",
 		) as HTMLElement | null;
-
-		expect(centeredContainer).not.toBeNull();
-		expect(centeredContainer).toHaveClass(
-			"flex",
-			"min-h-full",
-			"flex-1",
-			"items-center",
-			"justify-center",
-			"px-8",
-		);
-		const heading = within(centeredContainer!).getByText("Nothing here yet");
-		expect(heading.parentElement).toHaveClass(
-			"flex",
-			"max-w-sm",
-			"flex-col",
-			"items-center",
-			"gap-2",
-		);
-	});
-
-	it("renders only the missing workspace script actions in the empty state", () => {
-		render(
-			<TooltipProvider delayDuration={0}>
-				<QueryClientProvider client={createHelmorQueryClient()}>
-					<WorkspacePanel
-						workspace={WORKSPACE}
-						sessions={SESSIONS}
-						selectedSessionId="session-1"
-						sessionPanes={[
-							{
-								sessionId: "session-1",
-								messages: [],
-								sending: false,
-								hasLoaded: true,
-								presentationState: "presented",
-							},
-						]}
-						missingScriptTypes={["setup", "archive"]}
-						onInitializeScript={vi.fn()}
-						sending={false}
-					/>
-				</QueryClientProvider>
-			</TooltipProvider>,
-		);
-
-		expect(
-			screen.getByRole("button", { name: /Create setup script/i }),
-		).toBeInTheDocument();
-		expect(
-			screen.getByRole("button", { name: /Create archive script/i }),
-		).toBeInTheDocument();
-		expect(
-			screen.queryByRole("button", { name: /Create run script/i }),
-		).toBeNull();
-	});
-
-	it("calls the initialize handler when a missing script action is clicked", async () => {
-		const user = userEvent.setup();
-		const onInitializeScript = vi.fn();
-
-		render(
-			<TooltipProvider delayDuration={0}>
-				<QueryClientProvider client={createHelmorQueryClient()}>
-					<WorkspacePanel
-						workspace={WORKSPACE}
-						sessions={SESSIONS}
-						selectedSessionId="session-1"
-						sessionPanes={[
-							{
-								sessionId: "session-1",
-								messages: [],
-								sending: false,
-								hasLoaded: true,
-								presentationState: "presented",
-							},
-						]}
-						missingScriptTypes={["run"]}
-						onInitializeScript={onInitializeScript}
-						sending={false}
-					/>
-				</QueryClientProvider>
-			</TooltipProvider>,
-		);
-
-		await user.click(
-			screen.getByRole("button", { name: /Create run script/i }),
-		);
-
-		expect(onInitializeScript).toHaveBeenCalledWith("run");
+		expect(placeholder).not.toBeNull();
+		expect(placeholder!.textContent).toBe("");
 	});
 
 	it("shows a yellow dot for sessions waiting on user interaction", () => {
