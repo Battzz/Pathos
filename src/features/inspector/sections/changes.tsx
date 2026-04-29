@@ -67,6 +67,7 @@ type ChangesSectionProps = {
 	changeRequest: ChangeRequestInfo | null;
 	/** Cold-fetch indicator owned by App; drives the git-header shimmer. */
 	forgeIsRefreshing?: boolean;
+	fillAvailable?: boolean;
 };
 
 export function ChangesSection({
@@ -84,6 +85,7 @@ export function ChangesSection({
 	commitButtonState,
 	changeRequest,
 	forgeIsRefreshing = false,
+	fillAvailable = false,
 }: ChangesSectionProps) {
 	const queryClient = useQueryClient();
 	const [changesTreeView, setChangesTreeView] = useState(true);
@@ -340,8 +342,11 @@ export function ChangesSection({
 	return (
 		<section
 			aria-label="Inspector section Git"
-			className="flex min-h-0 flex-col overflow-hidden border-b border-border/60 bg-sidebar"
-			style={{ height: `${bodyHeight}px` }}
+			className={cn(
+				"flex min-h-0 flex-col overflow-hidden border-b border-border/60 bg-sidebar",
+				fillAvailable && "flex-1",
+			)}
+			style={fillAvailable ? undefined : { height: `${bodyHeight}px` }}
 		>
 			<GitSectionHeader
 				commitButtonMode={commitButtonMode}

@@ -3,6 +3,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
 	ArrowUpRightIcon,
 	CheckIcon,
+	ChevronDownIcon,
+	ListChecksIcon,
 	LoaderCircleIcon,
 	TriangleIcon,
 } from "lucide-react";
@@ -14,6 +16,11 @@ import {
 } from "@/components/append-context-button";
 import { GithubBrandIcon, GitlabBrandIcon } from "@/components/brand-icon";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type {
 	CommitButtonState,
@@ -95,14 +102,11 @@ const EMPTY_FORGE_ACTION_STATUS: ForgeActionStatus = {
 	message: null,
 };
 
-type ActionsSectionProps = {
+type WorkspaceActionsProps = {
 	workspaceId: string | null;
 	workspaceState?: string | null;
 	repoId?: string | null;
 	workspaceRemote?: string | null;
-	sectionRef?: React.RefObject<HTMLElement | null>;
-	bodyHeight: number;
-	expanded: boolean;
 	onCommitAction?: (mode: WorkspaceCommitButtonMode) => Promise<void>;
 	currentSessionId?: string | null;
 	onQueuePendingPromptForSession?: (request: {
@@ -115,6 +119,12 @@ type ActionsSectionProps = {
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
 	changeRequest: ChangeRequestInfo | null;
+};
+
+type ActionsSectionProps = WorkspaceActionsProps & {
+	sectionRef?: React.RefObject<HTMLElement | null>;
+	bodyHeight: number;
+	expanded: boolean;
 };
 
 function buildSyncResolutionPrompt(
@@ -157,6 +167,93 @@ export function ActionsSection({
 	commitButtonState,
 	changeRequest,
 }: ActionsSectionProps) {
+	const model = useWorkspaceActionsModel({
+		workspaceId,
+		workspaceState,
+		repoId,
+		workspaceRemote,
+		onCommitAction,
+		currentSessionId,
+		onQueuePendingPromptForSession,
+		commitButtonMode,
+		commitButtonState,
+		changeRequest,
+	});
+	const bottomSpacerHeight = expanded
+		? 0
+		: Math.max(0, Math.round(bodyHeight * 0.3));
+
+	return (
+		<section
+			ref={sectionRef}
+			aria-label="Inspector section Actions"
+			className={cn(
+				"flex min-h-0 flex-col overflow-hidden border-b border-border/60 bg-sidebar",
+				expanded && "flex-1",
+			)}
+		>
+			<div className={INSPECTOR_SECTION_HEADER_CLASS}>
+				<span className={INSPECTOR_SECTION_TITLE_CLASS}>Actions</span>
+			</div>
+
+			<ScrollArea
+				aria-label="Actions panel body"
+				className={cn(
+					"min-h-0 bg-muted/18 text-[11.5px]",
+					expanded && "flex-1",
+				)}
+				style={expanded ? undefined : { height: `${bodyHeight}px` }}
+			>
+				<ActionsRows model={model} bottomSpacerHeight={bottomSpacerHeight} />
+			</ScrollArea>
+		</section>
+	);
+}
+
+export function ActionsMenu(props: WorkspaceActionsProps) {
+	const model = useWorkspaceActionsModel(props);
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					type="button"
+					variant="ghost"
+					size="xs"
+					aria-label="Open workspace actions"
+					className="text-muted-foreground hover:text-foreground"
+				>
+					<ListChecksIcon className="size-3.5" strokeWidth={1.8} />
+					<span>Actions</span>
+					<ChevronDownIcon className="size-3" strokeWidth={2} />
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				side="bottom"
+				align="end"
+				sideOffset={4}
+				className="max-h-[min(32rem,calc(100vh-4rem))] w-[22rem] overflow-y-auto p-0"
+			>
+				<div className="bg-muted/18 py-1 text-[11.5px]">
+					<ActionsRows model={model} />
+				</div>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+function useWorkspaceActionsModel({
+	workspaceId,
+	workspaceState,
+	repoId,
+	workspaceRemote,
+	onCommitAction,
+	currentSessionId,
+	onQueuePendingPromptForSession,
+	commitButtonMode,
+	commitButtonState,
+	changeRequest,
+}: WorkspaceActionsProps) {
 	const queryClient = useQueryClient();
 	const [syncPending, setSyncPending] = useState(false);
 	const forgeQuery = useQuery({
@@ -190,9 +287,6 @@ export function ActionsSection({
 	);
 	const sortedDeployments = sortActionItems(forgeStatus.deployments);
 	const sortedChecks = sortActionItems(forgeStatus.checks);
-	const bottomSpacerHeight = expanded
-		? 0
-		: Math.max(0, Math.round(bodyHeight * 0.3));
 	const actionDisabled = commitButtonState === "busy";
 	const queueSyncResolutionPrompt = useCallback(
 		async (result: SyncWorkspaceTargetResponse) => {
@@ -286,146 +380,166 @@ export function ActionsSection({
 		},
 		[workspaceId],
 	);
-	return (
-		<section
-			ref={sectionRef}
-			aria-label="Inspector section Actions"
-			className={cn(
-				"flex min-h-0 flex-col overflow-hidden border-b border-border/60 bg-sidebar",
-				expanded && "flex-1",
-			)}
-		>
-			<div className={INSPECTOR_SECTION_HEADER_CLASS}>
-				<span className={INSPECTOR_SECTION_TITLE_CLASS}>Actions</span>
-			</div>
+	return {
+		actionDisabled,
+		changeRequestName,
+		gitRows,
+		handleInsertCheck,
+		handleSync,
+		providerName,
+		reviewRows,
+		sortedChecks,
+		sortedDeployments,
+		syncPending,
+		onCommitAction,
+		commitButtonMode,
+		commitButtonState,
+	};
+}
 
-			<ScrollArea
-				aria-label="Actions panel body"
-				className={cn(
-					"min-h-0 bg-muted/18 text-[11.5px]",
-					expanded && "flex-1",
-				)}
-				style={expanded ? undefined : { height: `${bodyHeight}px` }}
-			>
-				<div className="px-2.5 pb-1 pt-2">
-					<span className="text-[10.5px] font-medium tracking-wide text-muted-foreground">
-						Git
-					</span>
-				</div>
-				{gitRows.map((item) => {
-					const action = item.action;
-					const isCommitActionBusy =
-						action?.kind === "commit" &&
-						action.mode != null &&
-						commitButtonMode === action.mode &&
-						commitButtonState === "busy";
-					const isSyncActionBusy = action?.kind === "sync" && syncPending;
-					const isActionBusy = isCommitActionBusy || isSyncActionBusy;
-					return (
+type WorkspaceActionsModel = ReturnType<typeof useWorkspaceActionsModel>;
+
+function ActionsRows({
+	model,
+	bottomSpacerHeight = 0,
+}: {
+	model: WorkspaceActionsModel;
+	bottomSpacerHeight?: number;
+}) {
+	const {
+		actionDisabled,
+		gitRows,
+		handleInsertCheck,
+		handleSync,
+		reviewRows,
+		sortedChecks,
+		sortedDeployments,
+		syncPending,
+		onCommitAction,
+		commitButtonMode,
+		commitButtonState,
+	} = model;
+
+	return (
+		<>
+			<div className="px-2.5 pb-1 pt-2">
+				<span className="text-[10.5px] font-medium tracking-wide text-muted-foreground">
+					Git
+				</span>
+			</div>
+			{gitRows.map((item) => {
+				const action = item.action;
+				const isCommitActionBusy =
+					action?.kind === "commit" &&
+					action.mode != null &&
+					commitButtonMode === action.mode &&
+					commitButtonState === "busy";
+				const isSyncActionBusy = action?.kind === "sync" && syncPending;
+				const isActionBusy = isCommitActionBusy || isSyncActionBusy;
+				return (
+					<div
+						key={item.label}
+						className="flex items-center gap-1.5 px-2.5 py-[3px] text-muted-foreground transition-colors hover:bg-accent/60"
+					>
+						<StatusIcon status={item.status} />
+						<span className="truncate">{item.label}</span>
+						{action && (
+							<button
+								type="button"
+								onClick={() => {
+									if (
+										(action.kind === "commit" && actionDisabled) ||
+										(action.kind === "sync" && syncPending)
+									) {
+										return;
+									}
+									if (action.kind === "sync") {
+										void handleSync();
+										return;
+									}
+									void onCommitAction?.(action.mode!);
+								}}
+								className="ml-auto shrink-0 cursor-pointer text-[10.5px] text-primary transition-colors hover:text-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
+								disabled={
+									action.kind === "commit" ? actionDisabled : syncPending
+								}
+								aria-busy={isActionBusy ? true : undefined}
+								aria-label={
+									isActionBusy ? loadingActionLabel(action.label) : undefined
+								}
+							>
+								<span className="inline-flex items-center gap-1">
+									{isActionBusy ? (
+										<LoaderCircleIcon
+											aria-hidden="true"
+											className="size-3 animate-spin text-current opacity-70"
+											strokeWidth={2}
+										/>
+									) : null}
+									{isActionBusy ? null : action.label}
+								</span>
+							</button>
+						)}
+					</div>
+				);
+			})}
+
+			{reviewRows.length > 0 && (
+				<>
+					<div className="px-2.5 pb-1 pt-2.5">
+						<span className="text-[10.5px] font-medium tracking-wide text-muted-foreground">
+							Review
+						</span>
+					</div>
+					{reviewRows.map((item) => (
 						<div
 							key={item.label}
 							className="flex items-center gap-1.5 px-2.5 py-[3px] text-muted-foreground transition-colors hover:bg-accent/60"
 						>
 							<StatusIcon status={item.status} />
 							<span className="truncate">{item.label}</span>
-							{action && (
-								<button
-									type="button"
-									onClick={() => {
-										if (
-											(action.kind === "commit" && actionDisabled) ||
-											(action.kind === "sync" && syncPending)
-										) {
-											return;
-										}
-										if (action.kind === "sync") {
-											void handleSync();
-											return;
-										}
-										void onCommitAction?.(action.mode!);
-									}}
-									className="ml-auto shrink-0 cursor-pointer text-[10.5px] text-primary transition-colors hover:text-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
-									disabled={
-										action.kind === "commit" ? actionDisabled : syncPending
-									}
-									aria-busy={isActionBusy ? true : undefined}
-									aria-label={
-										isActionBusy ? loadingActionLabel(action.label) : undefined
-									}
-								>
-									<span className="inline-flex items-center gap-1">
-										{isActionBusy ? (
-											<LoaderCircleIcon
-												aria-hidden="true"
-												className="size-3 animate-spin text-current opacity-70"
-												strokeWidth={2}
-											/>
-										) : null}
-										{isActionBusy ? null : action.label}
-									</span>
-								</button>
-							)}
 						</div>
-					);
-				})}
+					))}
+				</>
+			)}
 
-				{reviewRows.length > 0 && (
-					<>
-						<div className="px-2.5 pb-1 pt-2.5">
-							<span className="text-[10.5px] font-medium tracking-wide text-muted-foreground">
-								Review
-							</span>
-						</div>
-						{reviewRows.map((item) => (
-							<div
-								key={item.label}
-								className="flex items-center gap-1.5 px-2.5 py-[3px] text-muted-foreground transition-colors hover:bg-accent/60"
-							>
-								<StatusIcon status={item.status} />
-								<span className="truncate">{item.label}</span>
-							</div>
-						))}
-					</>
-				)}
+			{sortedDeployments.length > 0 && (
+				<>
+					<div className="px-2.5 pb-1 pt-2.5">
+						<span className="text-[10.5px] font-medium tracking-wide text-muted-foreground">
+							Deployments
+						</span>
+					</div>
+					{sortedDeployments.map((item) => (
+						<ActionStatusRow key={item.id} item={item} />
+					))}
+				</>
+			)}
 
-				{sortedDeployments.length > 0 && (
-					<>
-						<div className="px-2.5 pb-1 pt-2.5">
-							<span className="text-[10.5px] font-medium tracking-wide text-muted-foreground">
-								Deployments
-							</span>
-						</div>
-						{sortedDeployments.map((item) => (
-							<ActionStatusRow key={item.id} item={item} />
-						))}
-					</>
-				)}
-
-				{sortedChecks.length > 0 && (
-					<>
-						<div className="px-2.5 pb-1 pt-2.5">
-							<span className="text-[10.5px] font-medium tracking-wide text-muted-foreground">
-								Checks
-							</span>
-						</div>
-						{sortedChecks.map((item) => (
-							<ActionStatusRow
-								key={item.id}
-								item={item}
-								onInsertToComposer={handleInsertCheck}
-							/>
-						))}
-					</>
-				)}
-				{bottomSpacerHeight > 0 && (
-					<div
-						aria-hidden="true"
-						className="shrink-0"
-						style={{ height: `${bottomSpacerHeight}px` }}
-					/>
-				)}
-			</ScrollArea>
-		</section>
+			{sortedChecks.length > 0 && (
+				<>
+					<div className="px-2.5 pb-1 pt-2.5">
+						<span className="text-[10.5px] font-medium tracking-wide text-muted-foreground">
+							Checks
+						</span>
+					</div>
+					{sortedChecks.map((item) => (
+						<ActionStatusRow
+							key={item.id}
+							item={item}
+							onInsertToComposer={handleInsertCheck}
+						/>
+					))}
+				</>
+			)}
+			{bottomSpacerHeight > 0 && (
+				<div
+					aria-hidden="true"
+					className="shrink-0"
+					style={{ height: `${bottomSpacerHeight}px` }}
+				/>
+			)}
+		</>
 	);
 }
 

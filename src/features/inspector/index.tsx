@@ -16,7 +16,6 @@ import { useScriptStatus } from "./hooks/use-script-status";
 import { useSetupAutoRun } from "./hooks/use-setup-auto-run";
 import { HorizontalResizeHandle, InspectorTabsSection } from "./layout";
 import type { ScriptStatus } from "./script-store";
-import { ActionsSection } from "./sections/actions";
 import { ChangesSection } from "./sections/changes";
 import { OpenDevServerButton, RunTab } from "./sections/run";
 import { SetupTab } from "./sections/setup";
@@ -65,15 +64,12 @@ export function WorkspaceInspectorSidebar({
 	workspaceId,
 	workspaceRootPath,
 	workspaceTargetBranch,
-	workspaceRemote,
 	workspaceState,
 	repoId,
 	editorMode,
 	activeEditorPath,
 	onOpenEditorFile,
 	onCommitAction,
-	currentSessionId,
-	onQueuePendingPromptForSession,
 	commitButtonMode,
 	commitButtonState,
 	changeRequest,
@@ -81,8 +77,6 @@ export function WorkspaceInspectorSidebar({
 	onOpenSettings,
 }: WorkspaceInspectorSidebarProps) {
 	const {
-		actionsHeight,
-		actionsRef,
 		activeTab,
 		changes,
 		changesHeight,
@@ -90,7 +84,6 @@ export function WorkspaceInspectorSidebar({
 		flashingPaths,
 		handleResizeStart,
 		handleToggleTabs,
-		isActionsResizing,
 		isResizing,
 		isTabsResizing,
 		repoScripts,
@@ -376,32 +369,12 @@ export function WorkspaceInspectorSidebar({
 				commitButtonState={commitButtonState}
 				changeRequest={changeRequest ?? null}
 				forgeIsRefreshing={forgeIsRefreshing}
-			/>
-
-			<HorizontalResizeHandle
-				onMouseDown={handleResizeStart("actions")}
-				isActive={isActionsResizing}
-			/>
-
-			<ActionsSection
-				workspaceId={workspaceId ?? null}
-				workspaceState={workspaceState ?? null}
-				repoId={repoId ?? null}
-				workspaceRemote={workspaceRemote ?? null}
-				sectionRef={actionsRef}
-				bodyHeight={actionsHeight}
-				expanded={!tabsOpen}
-				onCommitAction={onCommitAction}
-				currentSessionId={currentSessionId ?? null}
-				onQueuePendingPromptForSession={onQueuePendingPromptForSession}
-				commitButtonMode={commitButtonMode}
-				commitButtonState={commitButtonState}
-				changeRequest={changeRequest ?? null}
+				fillAvailable={!tabsOpen}
 			/>
 
 			{tabsOpen && (
 				<HorizontalResizeHandle
-					onMouseDown={handleResizeStart("tabs")}
+					onMouseDown={handleResizeStart()}
 					isActive={isTabsResizing}
 				/>
 			)}

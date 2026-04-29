@@ -36,6 +36,7 @@ import { WorkspaceConversationContainer } from "@/features/conversation";
 import { useDockUnreadBadge } from "@/features/dock-badge";
 import { WorkspaceEditorSurface } from "@/features/editor";
 import { WorkspaceInspectorSidebar } from "@/features/inspector";
+import { ActionsMenu } from "@/features/inspector/sections/actions";
 import { WorkspacesSidebarContainer } from "@/features/navigation/container";
 import { AppOnboarding } from "@/features/onboarding";
 import { seedNewSessionInCache } from "@/features/panel/session-cache";
@@ -2427,6 +2428,29 @@ function AppShell({
 													headerActions={
 														selectedWorkspaceId && displayedSessionId ? (
 															<div className="flex items-center gap-1">
+																<ActionsMenu
+																	workspaceId={selectedWorkspaceId}
+																	workspaceState={
+																		selectedWorkspaceDetailQuery.data?.state ??
+																		null
+																	}
+																	repoId={
+																		selectedWorkspaceDetailQuery.data?.repoId ??
+																		null
+																	}
+																	workspaceRemote={
+																		selectedWorkspaceDetailQuery.data?.remote ??
+																		null
+																	}
+																	onCommitAction={handleInspectorCommitAction}
+																	currentSessionId={displayedSessionId}
+																	onQueuePendingPromptForSession={
+																		queuePendingPromptForSession
+																	}
+																	commitButtonMode={commitButtonMode}
+																	commitButtonState={commitButtonState}
+																	changeRequest={workspaceChangeRequest}
+																/>
 																{installedEditors.length > 0 &&
 																preferredEditor ? (
 																	<div className="flex items-center">
@@ -2651,10 +2675,6 @@ function AppShell({
 													activeEditorPath={editorSession?.path ?? null}
 													onOpenEditorFile={handleOpenEditorFile}
 													onCommitAction={handleInspectorCommitAction}
-													currentSessionId={displayedSessionId}
-													onQueuePendingPromptForSession={
-														queuePendingPromptForSession
-													}
 													commitButtonMode={commitButtonMode}
 													commitButtonState={commitButtonState}
 													changeRequest={workspaceChangeRequest}

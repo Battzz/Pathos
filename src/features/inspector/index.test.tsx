@@ -12,6 +12,7 @@ import type { ForgeActionStatus, WorkspaceGitActionStatus } from "@/lib/api";
 import { ComposerInsertProvider } from "@/lib/composer-insert-context";
 import { renderWithProviders } from "@/test/render-with-providers";
 import { WorkspaceInspectorSidebar } from "./index";
+import { ActionsSection } from "./sections/actions";
 
 const apiMocks = vi.hoisted(() => ({
 	listWorkspaceChangesWithContent: vi.fn(),
@@ -74,17 +75,33 @@ function renderInspector(
 	props: Partial<ComponentProps<typeof WorkspaceInspectorSidebar>> = {},
 ) {
 	return renderWithProviders(
-		<WorkspaceInspectorSidebar
-			workspaceId="workspace-1"
-			workspaceRootPath="/tmp/workspace"
-			workspaceBranch="feature/actions"
-			workspaceTargetBranch="main"
-			workspaceRemote="testuser"
-			editorMode={false}
-			onOpenEditorFile={vi.fn()}
-			currentSessionId="session-1"
-			{...props}
-		/>,
+		<>
+			<ActionsSection
+				workspaceId={props.workspaceId ?? "workspace-1"}
+				workspaceState={props.workspaceState}
+				repoId={props.repoId}
+				workspaceRemote={props.workspaceRemote ?? "testuser"}
+				bodyHeight={180}
+				expanded={false}
+				onCommitAction={props.onCommitAction}
+				currentSessionId={props.currentSessionId ?? "session-1"}
+				onQueuePendingPromptForSession={props.onQueuePendingPromptForSession}
+				commitButtonMode={props.commitButtonMode}
+				commitButtonState={props.commitButtonState}
+				changeRequest={props.changeRequest ?? null}
+			/>
+			<WorkspaceInspectorSidebar
+				workspaceId="workspace-1"
+				workspaceRootPath="/tmp/workspace"
+				workspaceBranch="feature/actions"
+				workspaceTargetBranch="main"
+				workspaceRemote="testuser"
+				editorMode={false}
+				onOpenEditorFile={vi.fn()}
+				currentSessionId="session-1"
+				{...props}
+			/>
+		</>,
 	);
 }
 
@@ -846,14 +863,12 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 
 		renderWithProviders(
 			<ComposerInsertProvider value={insertIntoComposer}>
-				<WorkspaceInspectorSidebar
+				<ActionsSection
 					workspaceId="workspace-1"
-					workspaceRootPath="/tmp/workspace"
-					workspaceBranch="feature/actions"
-					workspaceTargetBranch="main"
 					workspaceRemote="origin"
-					editorMode={false}
-					onOpenEditorFile={vi.fn()}
+					bodyHeight={180}
+					expanded={false}
+					changeRequest={null}
 				/>
 			</ComposerInsertProvider>,
 		);
