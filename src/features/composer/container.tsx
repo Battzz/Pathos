@@ -100,47 +100,37 @@ function filterModelSectionsForProvider(
 		.filter((section) => section.options.length > 0);
 }
 
-type ClaudeContextWindow = "200k" | "1m";
-
-function normalizeClaudeFamilyModelId(modelId: string | null): string | null {
-	switch (modelId) {
-		case "default":
-		case "claude-opus-4-7[1m]":
-			return "claude-opus-4-7";
-		case "claude-opus-4-6[1m]":
-			return "claude-opus-4-6";
-		default:
-			return modelId;
-	}
-}
-
-function inferClaudeContextWindow(
-	modelId: string | null | undefined,
-): ClaudeContextWindow {
-	return modelId === "default" || modelId?.endsWith("[1m]") ? "1m" : "200k";
-}
-
-function supportsClaudeContextWindow(model: AgentModelOption | null): boolean {
+function supportsClaudeMillionTokenContext(model: AgentModelOption): boolean {
 	return (
 		model?.provider === "claude" &&
 		(model.id === "claude-opus-4-7" || model.id === "claude-opus-4-6")
 	);
 }
 
-function resolveClaudeContextModel(
-	model: AgentModelOption,
-	window: ClaudeContextWindow,
-): AgentModelOption {
-	if (!supportsClaudeContextWindow(model)) {
-		return model;
-	}
-	const modelId = window === "1m" ? `${model.id}[1m]` : model.id;
-	return {
-		...model,
-		id: modelId,
-		cliModel: modelId,
-		label: `${model.label} ${window === "1m" ? "1M" : "200K"}`,
-	};
+function expandClaudeContextModelSections(
+	sections: AgentModelSection[],
+): AgentModelSection[] {
+	return sections.map((section) => ({
+		...section,
+		options: section.options.flatMap((model, _index, models) => {
+			if (!supportsClaudeMillionTokenContext(model)) {
+				return [model];
+			}
+			const millionTokenId = `${model.id}[1m]`;
+			if (models.some((candidate) => candidate.id === millionTokenId)) {
+				return [model];
+			}
+			return [
+				model,
+				{
+					...model,
+					id: millionTokenId,
+					cliModel: millionTokenId,
+					label: `${model.label} (1M)`,
+				},
+			];
+		}),
+	}));
 }
 
 type WorkspaceComposerContainerProps = {
@@ -165,16 +155,11 @@ type WorkspaceComposerContainerProps = {
 	effortLevels: Record<string, string>;
 	permissionModes: Record<string, string>;
 	fastModes: Record<string, boolean>;
-	claudeContextWindows?: Record<string, "200k" | "1m">;
 	activeFastPreludes?: Record<string, boolean>;
 	onSelectModel: (contextKey: string, modelId: string) => void;
 	onSelectEffort: (contextKey: string, level: string) => void;
 	onChangePermissionMode: (contextKey: string, mode: string) => void;
 	onChangeFastMode: (contextKey: string, enabled: boolean) => void;
-	onChangeClaudeContextWindow?: (
-		contextKey: string,
-		window: "200k" | "1m",
-	) => void;
 	onSwitchSession?: (sessionId: string) => void;
 	onSubmit: (payload: {
 		prompt: string;
@@ -216,7 +201,6 @@ type WorkspaceComposerContainerProps = {
 
 const noopDeferredToolResponse: DeferredToolResponseHandler = () => {};
 const noopElicitationResponse: ElicitationResponseHandler = () => {};
-const noopChangeClaudeContextWindow = () => {};
 
 export const WorkspaceComposerContainer = memo(
 	function WorkspaceComposerContainer({
@@ -241,13 +225,11 @@ export const WorkspaceComposerContainer = memo(
 		effortLevels = {},
 		permissionModes = {},
 		fastModes = {},
-		claudeContextWindows = {},
 		activeFastPreludes = {},
 		onSelectModel,
 		onSelectEffort,
 		onChangePermissionMode,
 		onChangeFastMode,
-		onChangeClaudeContextWindow = noopChangeClaudeContextWindow,
 		onSwitchSession,
 		onSubmit,
 		pendingPromptForSession = null,
@@ -375,7 +357,13 @@ export const WorkspaceComposerContainer = memo(
 			[displayedWorkspaceId, linkedDirectories, linkedDirectoriesMutation],
 		);
 
-		const modelSections = modelSectionsQuery.data ?? EMPTY_MODEL_SECTIONS;
+		const modelSections = useMemo(
+			() =>
+				expandClaudeContextModelSections(
+					modelSectionsQuery.data ?? EMPTY_MODEL_SECTIONS,
+				),
+			[modelSectionsQuery.data],
+		);
 		const modelsLoading =
 			modelSectionsQuery.isLoading &&
 			modelSections.every((s) => s.options.length === 0);
@@ -393,7 +381,7 @@ export const WorkspaceComposerContainer = memo(
 			modelSections,
 			settingsDefaultModelId: settings.defaultModelId,
 		});
-		const selectedModelId = normalizeClaudeFamilyModelId(rawSelectedModelId);
+		const selectedModelId = rawSelectedModelId;
 		const selectedModel = useMemo(
 			() => findModelOption(modelSections, selectedModelId),
 			[modelSections, selectedModelId],
@@ -420,10 +408,7 @@ export const WorkspaceComposerContainer = memo(
 		const pendingModel = useMemo(
 			() =>
 				pendingOverrideActive && pendingPromptForSession?.modelId
-					? findModelOption(
-							modelSections,
-							normalizeClaudeFamilyModelId(pendingPromptForSession.modelId),
-						)
+					? findModelOption(modelSections, pendingPromptForSession.modelId)
 					: null,
 			[
 				displayedSessionId,
@@ -434,15 +419,6 @@ export const WorkspaceComposerContainer = memo(
 		);
 		const effectiveModel = pendingModel ?? selectedModel;
 		const effectiveSelectedModelId = effectiveModel?.id ?? selectedModelId;
-		const claudeContextWindow =
-			claudeContextWindows[composerContextKey] ??
-			inferClaudeContextWindow(
-				pendingOverrideActive
-					? (pendingPromptForSession?.modelId ?? effectiveSelectedModelId)
-					: (rawSelectedModelId ??
-							currentSession?.model ??
-							effectiveSelectedModelId),
-			);
 		const provider =
 			effectiveModel?.provider ?? currentSession?.agentType ?? "claude";
 		const activeSessionProvider = isAgentProvider(currentSession?.agentType)
@@ -686,16 +662,12 @@ export const WorkspaceComposerContainer = memo(
 						? "steer"
 						: "queue"
 					: undefined;
-				const submitModel = resolveClaudeContextModel(
-					effectiveModel,
-					claudeContextWindow,
-				);
 				onSubmit({
 					prompt,
 					imagePaths,
 					filePaths,
 					customTags,
-					model: submitModel,
+					model: effectiveModel,
 					workingDirectory,
 					effortLevel,
 					permissionMode:
@@ -706,7 +678,6 @@ export const WorkspaceComposerContainer = memo(
 			},
 			[
 				effectiveModel,
-				claudeContextWindow,
 				onSubmit,
 				workingDirectory,
 				effortLevel,
@@ -751,17 +722,12 @@ export const WorkspaceComposerContainer = memo(
 			}
 			dispatchedPromptKeyRef.current = dispatchKey;
 
-			const submitModel = resolveClaudeContextModel(
-				effectiveModel,
-				claudeContextWindow,
-			);
-
 			onSubmit({
 				prompt: pendingPromptForSession.prompt,
 				imagePaths: [],
 				filePaths: [],
 				customTags: [],
-				model: submitModel,
+				model: effectiveModel,
 				workingDirectory,
 				effortLevel,
 				permissionMode: effectivePermissionMode,
@@ -772,7 +738,6 @@ export const WorkspaceComposerContainer = memo(
 		}, [
 			displayedSessionId,
 			effectiveModel,
-			claudeContextWindow,
 			effectivePermissionMode,
 			effortLevel,
 			fastMode,
@@ -810,13 +775,6 @@ export const WorkspaceComposerContainer = memo(
 				onChangeFastMode(composerContextKey, enabled);
 			},
 			[onChangeFastMode, composerContextKey],
-		);
-
-		const handleChangeClaudeContextWindowInner = useCallback(
-			(window: ClaudeContextWindow) => {
-				onChangeClaudeContextWindow(composerContextKey, window);
-			},
-			[onChangeClaudeContextWindow, composerContextKey],
 		);
 
 		const autoCloseHelpText =
@@ -932,12 +890,6 @@ export const WorkspaceComposerContainer = memo(
 						showFastModePrelude={showFastModePrelude}
 						onChangeFastMode={
 							supportsFastMode ? handleChangeFastModeInner : undefined
-						}
-						claudeContextWindow={claudeContextWindow}
-						onChangeClaudeContextWindow={
-							supportsClaudeContextWindow(effectiveModel)
-								? handleChangeClaudeContextWindowInner
-								: undefined
 						}
 						sendError={sendError}
 						restoreDraft={restoreDraft}

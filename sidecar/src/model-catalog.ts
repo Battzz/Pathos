@@ -12,9 +12,22 @@ const MODEL_CATALOG: Record<"claude" | "codex", readonly ProviderModelInfo[]> =
 				effortLevels: ["low", "medium", "high", "xhigh", "max"],
 			},
 			{
+				id: "claude-opus-4-7[1m]",
+				label: "Opus 4.7 (1M)",
+				cliModel: "claude-opus-4-7[1m]",
+				effortLevels: ["low", "medium", "high", "xhigh", "max"],
+			},
+			{
 				id: "claude-opus-4-6",
 				label: "Opus 4.6",
 				cliModel: "claude-opus-4-6",
+				effortLevels: ["low", "medium", "high", "max"],
+				supportsFastMode: true,
+			},
+			{
+				id: "claude-opus-4-6[1m]",
+				label: "Opus 4.6 (1M)",
+				cliModel: "claude-opus-4-6[1m]",
 				effortLevels: ["low", "medium", "high", "max"],
 				supportsFastMode: true,
 			},

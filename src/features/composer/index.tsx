@@ -24,6 +24,9 @@ import {
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ShimmerText } from "@/components/ui/shimmer-text";
@@ -117,8 +120,6 @@ type WorkspaceComposerProps = {
 	fastMode?: boolean;
 	showFastModePrelude?: boolean;
 	onChangeFastMode?: (enabled: boolean) => void;
-	claudeContextWindow?: "200k" | "1m";
-	onChangeClaudeContextWindow?: (window: "200k" | "1m") => void;
 	sendError?: string | null;
 	restoreDraft?: string | null;
 	restoreImages?: string[];
@@ -205,8 +206,6 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	fastMode = false,
 	showFastModePrelude = false,
 	onChangeFastMode,
-	claudeContextWindow = "200k",
-	onChangeClaudeContextWindow,
 	sendError,
 	restoreDraft,
 	restoreImages = [],
@@ -258,7 +257,6 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	const [isInputFocused, setIsInputFocused] = useState(false);
 	const [effortPickerOpen, setEffortPickerOpen] = useState(false);
 	const [modelPickerOpen, setModelPickerOpen] = useState(false);
-	const [contextPickerOpen, setContextPickerOpen] = useState(false);
 	const [toolbarTooltipSuppressed, setToolbarTooltipSuppressed] =
 		useState(false);
 	useEffect(() => {
@@ -347,9 +345,9 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 		setToolbarTooltipSuppressed(true);
 	}, []);
 	const handleToolbarPointerMove = useCallback(() => {
-		if (effortPickerOpen || modelPickerOpen || contextPickerOpen) return;
+		if (effortPickerOpen || modelPickerOpen) return;
 		setToolbarTooltipSuppressed(false);
-	}, [contextPickerOpen, effortPickerOpen, modelPickerOpen]);
+	}, [effortPickerOpen, modelPickerOpen]);
 	const handleEffortPickerOpenChange = useCallback((open: boolean) => {
 		setToolbarTooltipSuppressed(true);
 		setEffortPickerOpen(open);
@@ -357,10 +355,6 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	const handleModelPickerOpenChange = useCallback((open: boolean) => {
 		setToolbarTooltipSuppressed(true);
 		setModelPickerOpen(open);
-	}, []);
-	const handleContextPickerOpenChange = useCallback((open: boolean) => {
-		setToolbarTooltipSuppressed(true);
-		setContextPickerOpen(open);
 	}, []);
 	const handleSelectEffortOption = useCallback(
 		(level: string) => {
@@ -375,13 +369,6 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 			onSelectModel(modelId);
 		},
 		[onSelectModel],
-	);
-	const handleSelectContextWindow = useCallback(
-		(window: "200k" | "1m") => {
-			setToolbarTooltipSuppressed(true);
-			onChangeClaudeContextWindow?.(window);
-		},
-		[onChangeClaudeContextWindow],
 	);
 	const composerToolbarTriggerClassName =
 		"cursor-pointer rounded-[9px] px-1 py-0.5 text-[13px] font-medium transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-0";
@@ -863,124 +850,85 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 											side="top"
 											align="start"
 											sideOffset={4}
-											className="min-w-[17rem]"
+											className="min-w-[13rem]"
 										>
-											{modelSections.map((section, index) => (
-												<DropdownMenuGroup key={section.id}>
-													{index > 0 ? <DropdownMenuSeparator /> : null}
-													<DropdownMenuLabel>{section.label}</DropdownMenuLabel>
-													{section.options.map((option) => (
-														<DropdownMenuItem
-															key={option.id}
-															disabled={toolbarDisabled}
-															onClick={() => {
-																handleSelectModelOption(option.id);
-															}}
-															className="flex items-center justify-between gap-3"
-														>
-															<div className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-3">
-																<span className="flex size-4 items-center justify-center text-muted-foreground">
-																	<ModelIcon
-																		model={option}
-																		className="size-4"
-																	/>
-																</span>
-																<span className="truncate font-mono tabular-nums">
-																	{option.label}
-																</span>
-															</div>
-														</DropdownMenuItem>
-													))}
-													{section.id === "claude" &&
-													!hasConfiguredClaudeProviderModels ? (
-														<DropdownMenuItem
-															onClick={handleOpenModelSettings}
-															className="flex items-center gap-3"
-														>
-															<span className="flex size-4 items-center justify-center text-muted-foreground">
-																<Plus className="size-4" strokeWidth={1.8} />
-															</span>
-															<span className="font-mono tabular-nums">
-																Add custom model...
-															</span>
-														</DropdownMenuItem>
-													) : null}
-												</DropdownMenuGroup>
+											<DropdownMenuLabel>Provider</DropdownMenuLabel>
+											{modelSections.map((section) => (
+												<DropdownMenuSub key={section.id}>
+													<DropdownMenuSubTrigger
+														disabled={
+															toolbarDisabled || section.options.length === 0
+														}
+														className="gap-3"
+													>
+														<span className="flex size-4 items-center justify-center text-muted-foreground">
+															<ModelIcon
+																model={section.options[0] ?? null}
+																className="size-4"
+															/>
+														</span>
+														<span className="min-w-0 truncate">
+															{section.label}
+														</span>
+													</DropdownMenuSubTrigger>
+													<DropdownMenuSubContent
+														alignOffset={-24}
+														collisionPadding={12}
+														sideOffset={6}
+														className="mb-3 min-w-[17rem]"
+													>
+														<DropdownMenuLabel>
+															{section.label}
+														</DropdownMenuLabel>
+														<DropdownMenuGroup>
+															{section.options.map((option) => (
+																<DropdownMenuItem
+																	key={option.id}
+																	disabled={toolbarDisabled}
+																	onClick={() => {
+																		handleSelectModelOption(option.id);
+																	}}
+																	className="flex items-center justify-between gap-3"
+																>
+																	<div className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-3">
+																		<span className="flex size-4 items-center justify-center text-muted-foreground">
+																			<ModelIcon
+																				model={option}
+																				className="size-4"
+																			/>
+																		</span>
+																		<span className="truncate font-mono tabular-nums">
+																			{option.label}
+																		</span>
+																	</div>
+																</DropdownMenuItem>
+															))}
+															{section.id === "claude" &&
+															!hasConfiguredClaudeProviderModels ? (
+																<>
+																	<DropdownMenuSeparator />
+																	<DropdownMenuItem
+																		onClick={handleOpenModelSettings}
+																		className="flex items-center gap-3"
+																	>
+																		<span className="flex size-4 items-center justify-center text-muted-foreground">
+																			<Plus
+																				className="size-4"
+																				strokeWidth={1.8}
+																			/>
+																		</span>
+																		<span className="font-mono tabular-nums">
+																			Add custom model...
+																		</span>
+																	</DropdownMenuItem>
+																</>
+															) : null}
+														</DropdownMenuGroup>
+													</DropdownMenuSubContent>
+												</DropdownMenuSub>
 											))}
 										</DropdownMenuContent>
 									</DropdownMenu>
-
-									{onChangeClaudeContextWindow && (
-										<DropdownMenu
-											open={contextPickerOpen}
-											onOpenChange={handleContextPickerOpenChange}
-										>
-											<Tooltip
-												open={
-													contextPickerOpen || toolbarTooltipSuppressed
-														? false
-														: undefined
-												}
-											>
-												<TooltipTrigger asChild>
-													<DropdownMenuTrigger
-														disabled={toolbarDisabled}
-														onPointerDown={handleToolbarTriggerPointerDown}
-														aria-label={`Claude context window: ${
-															claudeContextWindow === "1m" ? "1M" : "200K"
-														}`}
-														className={cn(
-															`px-1.5 font-mono text-[11px] tabular-nums text-muted-foreground ${composerToolbarTriggerClassName}`,
-															toolbarDisabled &&
-																"cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground",
-														)}
-													>
-														{claudeContextWindow === "1m" ? "1M" : "200K"}
-													</DropdownMenuTrigger>
-												</TooltipTrigger>
-												<TooltipContent side="top" sideOffset={4}>
-													<span>
-														Claude context:{" "}
-														{claudeContextWindow === "1m" ? "1M" : "200K"}
-													</span>
-												</TooltipContent>
-											</Tooltip>
-											<DropdownMenuContent
-												side="top"
-												align="start"
-												sideOffset={4}
-												className="min-w-[9rem]"
-											>
-												<DropdownMenuGroup>
-													<DropdownMenuLabel>Context</DropdownMenuLabel>
-													{(["200k", "1m"] as const).map((window) => (
-														<DropdownMenuItem
-															key={window}
-															disabled={toolbarDisabled}
-															onClick={() => handleSelectContextWindow(window)}
-															className="flex items-center justify-between gap-3"
-														>
-															<span className="font-mono tabular-nums">
-																{window === "1m" ? "1M" : "200K"}
-															</span>
-															{claudeContextWindow === window ? (
-																<Check className="size-3.5" strokeWidth={1.8} />
-															) : null}
-														</DropdownMenuItem>
-													))}
-												</DropdownMenuGroup>
-											</DropdownMenuContent>
-										</DropdownMenu>
-									)}
-
-									{onChangeClaudeContextWindow &&
-									onChangeFastMode &&
-									supportsFastMode ? (
-										<div
-											aria-hidden="true"
-											className="mx-0.5 h-5 w-px rounded-full bg-border/55 shadow-[0_0_8px_color-mix(in_srgb,var(--border)_45%,transparent)]"
-										/>
-									) : null}
 
 									{onChangeFastMode && supportsFastMode && (
 										<Tooltip

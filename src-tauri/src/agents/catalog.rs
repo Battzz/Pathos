@@ -63,8 +63,20 @@ fn official_claude_section() -> AgentModelSection {
                 false,
             ),
             claude_model(
+                "claude-opus-4-7[1m]",
+                "Opus 4.7 (1M)",
+                &["low", "medium", "high", "xhigh", "max"],
+                false,
+            ),
+            claude_model(
                 "claude-opus-4-6",
                 "Opus 4.6",
+                &["low", "medium", "high", "max"],
+                true,
+            ),
+            claude_model(
+                "claude-opus-4-6[1m]",
+                "Opus 4.6 (1M)",
                 &["low", "medium", "high", "max"],
                 true,
             ),
@@ -210,7 +222,14 @@ mod tests {
                 .iter()
                 .map(|model| model.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["claude-opus-4-7", "claude-opus-4-6", "sonnet", "haiku"]
+            vec![
+                "claude-opus-4-7",
+                "claude-opus-4-7[1m]",
+                "claude-opus-4-6",
+                "claude-opus-4-6[1m]",
+                "sonnet",
+                "haiku"
+            ]
         );
         assert!(sections[0]
             .options
@@ -263,7 +282,9 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 "claude-opus-4-7",
+                "claude-opus-4-7[1m]",
                 "claude-opus-4-6",
+                "claude-opus-4-6[1m]",
                 "sonnet",
                 "haiku",
                 "claude-custom|minimax|MiniMax-M2.7",

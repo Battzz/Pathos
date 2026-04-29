@@ -8,10 +8,8 @@ import {
 	ChevronDown,
 	CircleAlertIcon,
 	FolderOpen,
-	PanelLeftClose,
-	PanelLeftOpen,
-	PanelRightClose,
-	PanelRightOpen,
+	PanelLeftIcon,
+	PanelRightIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -2278,9 +2276,9 @@ function AppShell({
 																	size="icon-xs"
 																	className="text-muted-foreground hover:text-foreground"
 																>
-																	<PanelLeftClose
+																	<PanelLeftIcon
 																		className="size-4"
-																		strokeWidth={1.8}
+																		strokeWidth={1.6}
 																	/>
 																</Button>
 															</TooltipTrigger>
@@ -2423,9 +2421,9 @@ function AppShell({
 																				size="icon-xs"
 																				className="text-muted-foreground hover:text-foreground"
 																			>
-																				<PanelLeftOpen
+																				<PanelLeftIcon
 																					className="size-4"
-																					strokeWidth={1.8}
+																					strokeWidth={1.6}
 																				/>
 																			</Button>
 																		</TooltipTrigger>
@@ -2613,17 +2611,10 @@ function AppShell({
 																						className="size-1 rounded-full bg-muted-foreground/45"
 																					/>
 																				) : null}
-																				{inspectorCollapsed ? (
-																					<PanelRightOpen
-																						className="size-4 shrink-0"
-																						strokeWidth={1.8}
-																					/>
-																				) : (
-																					<PanelRightClose
-																						className="size-4 shrink-0"
-																						strokeWidth={1.8}
-																					/>
-																				)}
+																				<PanelRightIcon
+																					className="size-4 shrink-0"
+																					strokeWidth={1.6}
+																				/>
 																			</span>
 																		</Button>
 																	</TooltipTrigger>

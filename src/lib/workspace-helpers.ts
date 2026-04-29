@@ -555,6 +555,13 @@ export function findModelOption(
 	if (!modelId) {
 		return null;
 	}
+	const exactMatch =
+		modelSections
+			.flatMap((section) => section.options)
+			.find((option) => option.id === modelId) ?? null;
+	if (exactMatch) {
+		return exactMatch;
+	}
 	const normalizedModelId =
 		modelId === "default" || modelId === "claude-opus-4-7[1m]"
 			? "claude-opus-4-7"
