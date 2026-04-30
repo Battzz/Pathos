@@ -35,6 +35,10 @@ import { useDockUnreadBadge } from "@/features/dock-badge";
 import { WorkspaceEditorSurface } from "@/features/editor";
 import { WorkspaceInspectorSidebar } from "@/features/inspector";
 import { DiffStatsBadge } from "@/features/inspector/diff-stats-badge";
+import {
+	RunHeaderButton,
+	SetupHeaderButton,
+} from "@/features/inspector/header-buttons";
 import { ActionsMenu } from "@/features/inspector/sections/actions";
 import { WorkspacesSidebarContainer } from "@/features/navigation/container";
 import { AppOnboarding } from "@/features/onboarding";
@@ -2293,7 +2297,7 @@ function AppShell({
 															pushWorkspaceToast={pushWorkspaceToast}
 														/>
 													</div>
-													<div className="absolute right-[12px] top-[11px] z-20 flex items-center gap-[2px]">
+													<div className="absolute right-[12px] top-[6px] z-20 flex items-center gap-[2px]">
 														<AppUpdateButton status={appUpdateStatus} />
 														<Tooltip>
 															<TooltipTrigger asChild>
@@ -2475,6 +2479,20 @@ function AppShell({
 													headerActions={
 														selectedWorkspaceId && displayedSessionId ? (
 															<div className="flex items-center gap-1">
+																<SetupHeaderButton
+																	workspaceId={selectedWorkspaceId}
+																	repoId={
+																		selectedWorkspaceDetailQuery.data?.repoId ??
+																		null
+																	}
+																/>
+																<RunHeaderButton
+																	workspaceId={selectedWorkspaceId}
+																	repoId={
+																		selectedWorkspaceDetailQuery.data?.repoId ??
+																		null
+																	}
+																/>
 																<ActionsMenu
 																	workspaceId={selectedWorkspaceId}
 																	workspaceState={

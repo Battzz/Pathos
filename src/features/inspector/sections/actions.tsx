@@ -22,6 +22,11 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type {
 	CommitButtonState,
 	WorkspaceCommitButtonMode,
@@ -216,19 +221,30 @@ export function ActionsMenu(props: WorkspaceActionsProps) {
 
 	return (
 		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<Button
-					type="button"
-					variant="ghost"
-					size="xs"
-					aria-label="Open workspace actions"
-					className="text-muted-foreground hover:text-foreground"
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<DropdownMenuTrigger asChild>
+						<Button
+							type="button"
+							variant="ghost"
+							size="xs"
+							aria-label="Open workspace actions"
+							className="text-muted-foreground hover:text-foreground"
+						>
+							<ListChecksIcon className="size-3.5" strokeWidth={1.8} />
+							<span>Actions</span>
+							<ChevronDownIcon className="size-3" strokeWidth={2} />
+						</Button>
+					</DropdownMenuTrigger>
+				</TooltipTrigger>
+				<TooltipContent
+					side="bottom"
+					sideOffset={4}
+					className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
 				>
-					<ListChecksIcon className="size-3.5" strokeWidth={1.8} />
 					<span>Actions</span>
-					<ChevronDownIcon className="size-3" strokeWidth={2} />
-				</Button>
-			</DropdownMenuTrigger>
+				</TooltipContent>
+			</Tooltip>
 			<DropdownMenuContent
 				side="bottom"
 				align="end"

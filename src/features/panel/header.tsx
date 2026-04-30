@@ -72,7 +72,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 		<header className="relative z-20">
 			<div
 				aria-label="Workspace header"
-				className="flex h-9 translate-y-[5px] items-center justify-between gap-3 px-[18px]"
+				className="flex h-9 items-center justify-between gap-3 pl-[18px] pr-1.5"
 				data-tauri-drag-region
 			>
 				<div className="relative z-0 flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-[12.5px]">

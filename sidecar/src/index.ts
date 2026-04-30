@@ -15,6 +15,7 @@ import { ClaudeSessionManager } from "./claude-session-manager.js";
 import { CodexAppServerManager } from "./codex-app-server-manager.js";
 import { createSidecarEmitter } from "./emitter.js";
 import { errorDetails, logger } from "./logger.js";
+import { createProtocolWriter, isBrokenPipeError } from "./protocol-writer.js";
 import {
 	errorMessage,
 	optionalString,
@@ -42,9 +43,25 @@ const managers: Record<Provider, SessionManager> = {
 	codex: codexManager,
 };
 
-const emitter = createSidecarEmitter((event) => {
-	process.stdout.write(`${JSON.stringify(event)}\n`);
-});
+let protocolPipeClosed = false;
+let protocolPipeShutdownStarted = false;
+
+function shutdownAfterProtocolPipeClosed(err: unknown): void {
+	protocolPipeClosed = true;
+	if (protocolPipeShutdownStarted) return;
+	protocolPipeShutdownStarted = true;
+	logger.info(
+		"stdout protocol pipe closed — sidecar exiting",
+		errorDetails(err),
+	);
+	void Promise.allSettled(
+		Object.values(managers).map((m) => m.shutdown()),
+	).finally(() => process.exit(0));
+}
+
+const emitter = createSidecarEmitter(
+	createProtocolWriter(process.stdout, shutdownAfterProtocolPipeClosed),
+);
 
 // ---------------------------------------------------------------------------
 // Heartbeat — emit a lightweight keepalive every 15s for every in-flight
@@ -81,6 +98,10 @@ setInterval(() => {
 // ---------------------------------------------------------------------------
 
 process.on("uncaughtException", (err) => {
+	if (protocolPipeClosed && isBrokenPipeError(err)) {
+		shutdownAfterProtocolPipeClosed(err);
+		return;
+	}
 	logger.error("uncaughtException", errorDetails(err));
 	try {
 		emitter.error(null, "Internal sidecar error", true);

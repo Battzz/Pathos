@@ -1,11 +1,4 @@
-import {
-	ChevronDown,
-	Play,
-	Plus,
-	SquareTerminal,
-	Wrench,
-	X,
-} from "lucide-react";
+import { ChevronDown, Plus, SquareTerminal, X } from "lucide-react";
 import {
 	createContext,
 	useCallback,
@@ -26,8 +19,6 @@ import { getShortcut } from "@/features/shortcuts/registry";
 import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
-import type { ScriptIconState } from "./hooks/use-script-status";
-import { ScriptStatusIcon } from "./script-status-icon";
 import {
 	getTerminalDisplayTitle,
 	type TerminalInstance,
@@ -110,8 +101,6 @@ type InspectorTabsSectionProps = {
 	 * "Open dev server" shortcut while the Run script is live.
 	 */
 	tabActions?: React.ReactNode;
-	setupScriptState: ScriptIconState;
-	runScriptState: ScriptIconState;
 	/**
 	 * Live list of terminal sub-tabs for the current workspace. Each instance
 	 * becomes a tab in the unified row, identified by `instance.id` as the
@@ -140,8 +129,6 @@ export function InspectorTabsSection({
 	activeTab,
 	onTabChange,
 	tabActions,
-	setupScriptState,
-	runScriptState,
 	terminalInstances,
 	onAddTerminal,
 	onCloseTerminal,
@@ -511,74 +498,6 @@ export function InspectorTabsSection({
 								aria-orientation="horizontal"
 								className="scrollbar-none flex h-full min-w-0 flex-1 self-stretch items-stretch gap-0 overflow-x-auto overflow-y-hidden"
 							>
-								<button
-									type="button"
-									role="tab"
-									id="inspector-tab-setup"
-									aria-controls="inspector-panel-setup"
-									aria-selected={activeTab === "setup"}
-									tabIndex={activeTab === "setup" ? 0 : -1}
-									className={cn(
-										INSPECTOR_TAB_BUTTON_CLASS,
-										"shrink-0",
-										activeTab === "setup" && "text-foreground",
-									)}
-									onClick={() => handleTabClick("setup")}
-								>
-									{setupScriptState === "running" ||
-									setupScriptState === "success" ||
-									setupScriptState === "failure" ? (
-										<ScriptStatusIcon state={setupScriptState} />
-									) : (
-										<Wrench
-											aria-hidden="true"
-											className="size-3 shrink-0"
-											strokeWidth={1.8}
-										/>
-									)}
-									Setup
-									<span
-										aria-hidden="true"
-										className={cn(
-											"pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-foreground opacity-0 transition-opacity",
-											activeTab === "setup" && "opacity-100",
-										)}
-									/>
-								</button>
-								<button
-									type="button"
-									role="tab"
-									id="inspector-tab-run"
-									aria-controls="inspector-panel-run"
-									aria-selected={activeTab === "run"}
-									tabIndex={activeTab === "run" ? 0 : -1}
-									className={cn(
-										INSPECTOR_TAB_BUTTON_CLASS,
-										"shrink-0",
-										activeTab === "run" && "text-foreground",
-									)}
-									onClick={() => handleTabClick("run")}
-								>
-									{runScriptState === "running" ||
-									runScriptState === "success" ||
-									runScriptState === "failure" ? (
-										<ScriptStatusIcon state={runScriptState} />
-									) : (
-										<Play
-											aria-hidden="true"
-											className="size-3 shrink-0"
-											strokeWidth={1.8}
-										/>
-									)}
-									Run
-									<span
-										aria-hidden="true"
-										className={cn(
-											"pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-foreground opacity-0 transition-opacity",
-											activeTab === "run" && "opacity-100",
-										)}
-									/>
-								</button>
 								{terminalInstances.length === 0 ? (
 									// Placeholder tab so the Terminal entry point is always
 									// discoverable, even on a fresh workspace with no live

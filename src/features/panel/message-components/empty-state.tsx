@@ -22,16 +22,6 @@ function pickTagline(label: string): string {
 	return TAGLINES[Math.abs(hash) % TAGLINES.length] ?? TAGLINES[0]!;
 }
 
-function Eyebrow({ label }: { label: string }) {
-	return (
-		<div className="flex items-center gap-2.5 font-mono text-[10px] font-medium uppercase tracking-[0.24em] text-muted-foreground/55">
-			<span aria-hidden className="block h-px w-7 bg-border/70" />
-			<span>{label}</span>
-			<span aria-hidden className="block h-px w-7 bg-border/70" />
-		</div>
-	);
-}
-
 function Atmosphere({ variant = "dots" }: { variant?: "dots" | "net" }) {
 	if (variant === "net") {
 		return (
@@ -227,20 +217,10 @@ export function EmptyState({
 
 			<div className="flex flex-col items-center gap-6">
 				<div
-					className="opacity-0"
-					style={{
-						animation: "empty-rise 720ms ease-out forwards",
-						animationDelay: "0ms",
-					}}
-				>
-					<Eyebrow label="Ready" />
-				</div>
-
-				<div
 					className="relative opacity-0"
 					style={{
 						animation: "empty-rise 760ms ease-out forwards",
-						animationDelay: "80ms",
+						animationDelay: "0ms",
 					}}
 				>
 					<div
@@ -254,7 +234,7 @@ export function EmptyState({
 					className="flex flex-col items-center gap-3 opacity-0"
 					style={{
 						animation: "empty-rise 720ms ease-out forwards",
-						animationDelay: "180ms",
+						animationDelay: "100ms",
 					}}
 				>
 					<h2

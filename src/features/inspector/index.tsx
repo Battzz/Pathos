@@ -12,7 +12,6 @@ import type { DiffOpenOptions } from "@/lib/editor-session";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { useWorkspaceInspectorSidebar } from "./hooks/use-inspector";
-import { useScriptStatus } from "./hooks/use-script-status";
 import { useSetupAutoRun } from "./hooks/use-setup-auto-run";
 import { HorizontalResizeHandle, InspectorTabsSection } from "./layout";
 import type { ScriptStatus } from "./script-store";
@@ -117,20 +116,6 @@ export function WorkspaceInspectorSidebar({
 
 	const runTabActions =
 		runStatus === "running" ? <OpenDevServerButton urls={runUrls} /> : null;
-
-	// Per-tab status for the small indicator rendered next to each tab label.
-	// Subscribes at the sidebar level so the icons stay live even when the
-	// tab body itself is collapsed / not mounted.
-	const setupScriptState = useScriptStatus(
-		workspaceId ?? null,
-		"setup",
-		!!repoScripts?.setupScript?.trim(),
-	);
-	const runScriptState = useScriptStatus(
-		workspaceId ?? null,
-		"run",
-		!!repoScripts?.runScript?.trim(),
-	);
 
 	// Live list of Terminal sub-tabs for the current workspace, observed at
 	// the sidebar level so each terminal can be rendered as its own tab in
@@ -378,8 +363,6 @@ export function WorkspaceInspectorSidebar({
 				activeTab={activeTab}
 				onTabChange={setActiveTab}
 				tabActions={runTabActions}
-				setupScriptState={setupScriptState}
-				runScriptState={runScriptState}
 				terminalInstances={terminalInstances}
 				onAddTerminal={handleAddTerminal}
 				onCloseTerminal={handleCloseTerminal}

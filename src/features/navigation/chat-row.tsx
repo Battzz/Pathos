@@ -1,5 +1,5 @@
 import { MessageSquare, Pin, PinOff, Trash2 } from "lucide-react";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { AsciiLoader } from "@/components/ascii-loader";
 import { ClaudeIcon, OpenAIIcon } from "@/components/icons";
 import {
@@ -52,6 +52,29 @@ export const ChatRow = memo(function ChatRow({
 	const activityTime = useChatActivityTime(chat);
 	const sendingSessionIds = useSendingSessionIds();
 	const isSending = sendingSessionIds.has(chat.sessionId);
+	const [checkPhase, setCheckPhase] = useState<"visible" | "fading" | null>(
+		null,
+	);
+	const prevSendingRef = useRef(isSending);
+
+	useEffect(() => {
+		const wasSending = prevSendingRef.current;
+		prevSendingRef.current = isSending;
+		if (!wasSending || isSending || selected) return;
+		setCheckPhase("visible");
+		const fadeTimer = window.setTimeout(() => setCheckPhase("fading"), 2000);
+		const clearTimer = window.setTimeout(() => setCheckPhase(null), 2600);
+		return () => {
+			window.clearTimeout(fadeTimer);
+			window.clearTimeout(clearTimer);
+		};
+	}, [isSending, selected]);
+
+	useEffect(() => {
+		if (selected) setCheckPhase(null);
+	}, [selected]);
+
+	const showCheck = checkPhase !== null && !selected && !isSending;
 	const ProviderIcon =
 		chat.agentType === "claude"
 			? ClaudeIcon
@@ -85,6 +108,24 @@ export const ChatRow = memo(function ChatRow({
 									onTogglePin && "group-hover/chat:opacity-0",
 								)}
 							/>
+						) : showCheck ? (
+							<svg
+								aria-label="Run complete"
+								role="img"
+								viewBox="0 0 12 12"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth={1.5}
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								className={cn(
+									"size-3.5 shrink-0 text-emerald-500 transition-opacity duration-500",
+									checkPhase === "fading" && "opacity-0",
+									onTogglePin && "group-hover/chat:opacity-0",
+								)}
+							>
+								<path d="M2.5 6.25 L5 8.5 L9.5 3.75" />
+							</svg>
 						) : (
 							<ProviderIcon
 								aria-label={providerLabel}
