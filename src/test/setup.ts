@@ -9,6 +9,31 @@ import { vi } from "vitest";
 // is unchanged.
 configure({ asyncUtilTimeout: 3000 });
 
+function ensureTestLocalStorage() {
+	const values = new Map<string, string>();
+	const memoryStorage: Storage = {
+		get length() {
+			return values.size;
+		},
+		clear: () => values.clear(),
+		getItem: (key) => values.get(key) ?? null,
+		key: (index) => Array.from(values.keys())[index] ?? null,
+		removeItem: (key) => {
+			values.delete(key);
+		},
+		setItem: (key, value) => {
+			values.set(key, value);
+		},
+	};
+
+	Object.defineProperty(window, "localStorage", {
+		configurable: true,
+		value: memoryStorage,
+	});
+}
+
+ensureTestLocalStorage();
+
 // React 19.2's dev build schedules passive-effect work through
 // `setImmediate`, and its callback reads `window.event` (react-dom's
 // `schedulerEvent = window.event;` at react-dom-client.development.js L17920).
@@ -25,9 +50,9 @@ configure({ asyncUtilTimeout: 3000 });
 // as before.
 if (
 	typeof process !== "undefined" &&
-	!process.env.HELMOR_REACT_SCHEDULER_FILTER_INSTALLED
+	!process.env.PATHOS_REACT_SCHEDULER_FILTER_INSTALLED
 ) {
-	process.env.HELMOR_REACT_SCHEDULER_FILTER_INSTALLED = "1";
+	process.env.PATHOS_REACT_SCHEDULER_FILTER_INSTALLED = "1";
 	const isBenignReactSchedulerTeardown = (error: unknown) =>
 		error instanceof ReferenceError &&
 		/window is not defined/.test(error.message) &&
@@ -102,6 +127,12 @@ vi.mock("@tauri-apps/api/webview", () => ({
 	})),
 }));
 
+vi.mock("@tauri-apps/plugin-notification", () => ({
+	isPermissionGranted: vi.fn(async () => false),
+	requestPermission: vi.fn(async () => "denied"),
+	sendNotification: vi.fn(),
+}));
+
 // `src/lib/api.ts` always calls `invoke` from `@tauri-apps/api/core` now —
 // there is no browser-mode fallback layer anymore. jsdom has no Tauri runtime,
 // so without this mock every test that triggers a real API function (via
@@ -151,6 +182,18 @@ vi.mock("@tauri-apps/api/core", () => ({
 				return [];
 			case "list_repositories":
 				return [];
+			case "list_repository_folders":
+				return [];
+			case "list_workspace_groups":
+				return [
+					{ id: "done", label: "Done", tone: "done", rows: [] },
+					{ id: "review", label: "In review", tone: "review", rows: [] },
+					{ id: "progress", label: "In progress", tone: "progress", rows: [] },
+					{ id: "backlog", label: "Backlog", tone: "backlog", rows: [] },
+					{ id: "canceled", label: "Canceled", tone: "canceled", rows: [] },
+				];
+			case "list_archived_workspaces":
+				return [];
 			case "list_agent_model_sections":
 				return [];
 			case "get_add_repository_defaults":
@@ -164,13 +207,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 					buildMode: "development",
 					installState: "missing",
 				};
-			case "get_helmor_skills_status":
+			case "get_pathos_skills_status":
 				return {
 					installed: false,
 					claude: false,
 					codex: false,
 					command:
-						"npx --yes skills add dohooo/helmor/.codex/skills/helmor-cli -g -s helmor-cli -y --copy -a claude-code -a codex",
+						"npx --yes skills add dohooo/pathos/.codex/skills/pathos-cli -g -s pathos-cli -y --copy -a claude-code -a codex",
 				};
 			case "get_app_update_status":
 				return {

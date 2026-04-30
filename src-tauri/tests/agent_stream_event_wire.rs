@@ -10,9 +10,9 @@
 //! through `cargo insta review` and the matching frontend type in
 //! `src/lib/api.ts` must be updated in the same PR.
 
-use helmor_lib::agents::AgentStreamEvent;
-use helmor_lib::pipeline::types::ThreadMessageLike;
 use insta::assert_yaml_snapshot;
+use pathos_lib::agents::AgentStreamEvent;
+use pathos_lib::pipeline::types::ThreadMessageLike;
 use serde_json::{json, Value};
 
 fn to_value(event: AgentStreamEvent) -> Value {
@@ -49,7 +49,7 @@ fn wire_format_done() {
         model_id: "opus-1m".into(),
         resolved_model: "claude-opus-4-20250514".into(),
         session_id: Some("provider-session-1".into()),
-        working_directory: "/tmp/helmor".into(),
+        working_directory: "/tmp/pathos".into(),
         persisted: true,
     }));
 }
@@ -61,7 +61,7 @@ fn wire_format_aborted() {
         model_id: "opus-1m".into(),
         resolved_model: "claude-opus-4-20250514".into(),
         session_id: Some("provider-session-1".into()),
-        working_directory: "/tmp/helmor".into(),
+        working_directory: "/tmp/pathos".into(),
         persisted: true,
         reason: "user_requested".into(),
     }));
@@ -85,7 +85,7 @@ fn wire_format_deferred_tool_use() {
         model_id: "opus-1m".into(),
         resolved_model: "claude-opus-4-20250514".into(),
         session_id: Some("provider-session-1".into()),
-        working_directory: "/tmp/helmor".into(),
+        working_directory: "/tmp/pathos".into(),
         permission_mode: Some("default".into()),
         tool_use_id: "tool-1".into(),
         tool_name: "AskUserQuestion".into(),
@@ -100,7 +100,7 @@ fn wire_format_elicitation_request() {
         model_id: "opus-1m".into(),
         resolved_model: "claude-opus-4-20250514".into(),
         session_id: Some("provider-session-1".into()),
-        working_directory: "/tmp/helmor".into(),
+        working_directory: "/tmp/pathos".into(),
         elicitation_id: Some("elicitation-1".into()),
         server_name: "design-server".into(),
         message: "Need structured input".into(),

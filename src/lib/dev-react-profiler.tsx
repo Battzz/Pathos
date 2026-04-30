@@ -1,5 +1,5 @@
 /**
- * React Profiler aggregator for Helmor.
+ * React Profiler aggregator for Pathos.
  *
  * Wraps the per-render data that React's <Profiler> emits into a long-lived
  * in-memory summary keyed by Profiler `id`. The summary is the source of
@@ -14,19 +14,19 @@
  *
  * Usage:
  *
- *   import { HelmorProfiler } from "@/lib/dev-react-profiler";
+ *   import { PathosProfiler } from "@/lib/dev-react-profiler";
  *
- *   <HelmorProfiler id="WorkspacePanel">
+ *   <PathosProfiler id="WorkspacePanel">
  *     <WorkspacePanel ... />
- *   </HelmorProfiler>
+ *   </PathosProfiler>
  *
- * When the flag is off, <HelmorProfiler> is a passthrough: it returns
+ * When the flag is off, <PathosProfiler> is a passthrough: it returns
  * `children` directly with zero React.Profiler overhead.
  *
  * Programmatic readback:
  *
- *   window.__HELMOR_PROFILER__.summary()  // sorted by total mount+update ms
- *   window.__HELMOR_PROFILER__.clear()    // reset between scenarios
+ *   window.__PATHOS_PROFILER__.summary()  // sorted by total mount+update ms
+ *   window.__PATHOS_PROFILER__.clear()    // reset between scenarios
  */
 
 import { Profiler, type ProfilerOnRenderCallback, type ReactNode } from "react";
@@ -98,7 +98,7 @@ const onRender: ProfilerOnRenderCallback = (
 
 declare global {
 	interface Window {
-		__HELMOR_PROFILER__?: {
+		__PATHOS_PROFILER__?: {
 			enabled: () => boolean;
 			summary: () => ProfilerAggregate[];
 			clear: () => void;
@@ -117,7 +117,7 @@ export function clearProfilerSummary(): void {
 }
 
 if (typeof window !== "undefined" && isEnabled()) {
-	window.__HELMOR_PROFILER__ = {
+	window.__PATHOS_PROFILER__ = {
 		enabled: () => true,
 		summary: getProfilerSummary,
 		clear: clearProfilerSummary,
@@ -128,7 +128,7 @@ if (typeof window !== "undefined" && isEnabled()) {
  * Conditional <Profiler> wrapper. When `?profile=1` is off this returns
  * `children` directly with zero overhead.
  */
-export function HelmorProfiler({
+export function PathosProfiler({
 	id,
 	children,
 }: {

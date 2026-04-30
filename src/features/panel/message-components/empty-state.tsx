@@ -1,6 +1,6 @@
 import { Asterisk, FolderPlus, Globe } from "lucide-react";
-import { HelmorLogoAnimated } from "@/components/helmor-logo-animated";
 import { ClaudeIcon, OpenAIIcon } from "@/components/icons";
+import { PathosLogoAnimated } from "@/components/pathos-logo-animated";
 
 const TAGLINES = [
 	"Cooking up something tasty",
@@ -108,7 +108,7 @@ export function EmptyState({
 	if (workspaceState === "initializing") {
 		return (
 			<div className="flex flex-col items-center gap-3 text-center">
-				<HelmorLogoAnimated size={28} className="opacity-85" />
+				<PathosLogoAnimated size={28} className="opacity-85" />
 				<p className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground/65">
 					Preparing workspace
 					<span className="ml-1 inline-block animate-pulse">…</span>
@@ -144,7 +144,7 @@ export function EmptyState({
 							aria-hidden
 							className="absolute inset-0 -z-10 scale-[1.8] rounded-full bg-foreground/[0.04] blur-2xl dark:bg-foreground/[0.08]"
 						/>
-						<HelmorLogoAnimated size={52} />
+						<PathosLogoAnimated size={52} />
 					</div>
 
 					<div
@@ -154,10 +154,13 @@ export function EmptyState({
 							animationDelay: "180ms",
 						}}
 					>
-						<h2 className="text-balance text-[30px] font-medium leading-[1.08] tracking-[-0.028em] text-foreground/95">
+						<h2
+							aria-label="Bring a project into Pathos"
+							className="text-balance text-[30px] font-medium leading-[1.08] tracking-[-0.028em] text-foreground/95"
+						>
 							Bring a project
 							<span className="ml-2 font-light text-foreground/55">
-								into Helmor
+								into Pathos
 							</span>
 						</h2>
 						<p className="max-w-[340px] text-[13px] leading-[1.6] text-muted-foreground/80">
@@ -262,7 +265,10 @@ export function EmptyState({
 						animationDelay: "180ms",
 					}}
 				>
-					<h2 className="text-balance text-[28px] font-medium leading-[1.1] tracking-[-0.025em] text-foreground/90">
+					<h2
+						aria-label={`Chat with ${chatTarget}`}
+						className="text-balance text-[28px] font-medium leading-[1.1] tracking-[-0.025em] text-foreground/90"
+					>
 						<span className="font-light text-foreground/55">Chat with </span>
 						<span className="text-foreground/95">{chatTarget}</span>
 					</h2>

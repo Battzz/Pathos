@@ -47,7 +47,7 @@ const DEFAULT_GC_TIME = 30 * 60_000;
 const SESSION_GC_TIME = 60 * 60_000;
 const PERSIST_GC_TIME = 24 * 60 * 60_000; // 24h — persisted entries live this long
 
-export const helmorQueryKeys = {
+export const pathosQueryKeys = {
 	workspaceGroups: ["workspaceGroups"] as const,
 	repositoryFolders: ["repositoryFolders"] as const,
 	archivedWorkspaces: ["archivedWorkspaces"] as const,
@@ -114,7 +114,7 @@ export const helmorQueryKeys = {
 		["workspaceCandidateDirectories", excludeWorkspaceId ?? ""] as const,
 };
 
-export function createHelmorQueryClient() {
+export function createPathosQueryClient() {
 	// Replace React Query's default focus listener (browser visibilitychange)
 	// with Tauri's native window focus/blur events. This is the official
 	// pattern for non-browser environments (cf. React Native AppState in
@@ -170,7 +170,7 @@ const loggingLocalStorage: Storage = {
 		} catch (error) {
 			const sizeKb = (v.length / 1024).toFixed(1);
 			console.error(
-				`[helmor] localStorage.setItem failed for "${k}" (${sizeKb} KB)`,
+				`[pathos] localStorage.setItem failed for "${k}" (${sizeKb} KB)`,
 				error,
 			);
 			throw error;
@@ -178,14 +178,14 @@ const loggingLocalStorage: Storage = {
 	},
 };
 
-export const helmorQueryPersister = createAsyncStoragePersister({
+export const pathosQueryPersister = createAsyncStoragePersister({
 	storage: loggingLocalStorage,
-	key: "helmor-query-cache",
+	key: "pathos-query-cache",
 });
 
 export function workspaceGroupsQueryOptions() {
 	return queryOptions({
-		queryKey: helmorQueryKeys.workspaceGroups,
+		queryKey: pathosQueryKeys.workspaceGroups,
 		queryFn: loadWorkspaceGroups,
 		initialData: DEFAULT_WORKSPACE_GROUPS,
 		initialDataUpdatedAt: 0,
@@ -195,7 +195,7 @@ export function workspaceGroupsQueryOptions() {
 
 export function repositoryFoldersQueryOptions() {
 	return queryOptions({
-		queryKey: helmorQueryKeys.repositoryFolders,
+		queryKey: pathosQueryKeys.repositoryFolders,
 		queryFn: listRepositoryFolders,
 		initialData: [],
 		initialDataUpdatedAt: 0,
@@ -205,7 +205,7 @@ export function repositoryFoldersQueryOptions() {
 
 export function archivedWorkspacesQueryOptions() {
 	return queryOptions({
-		queryKey: helmorQueryKeys.archivedWorkspaces,
+		queryKey: pathosQueryKeys.archivedWorkspaces,
 		queryFn: loadArchivedWorkspaces,
 		initialData: [],
 		initialDataUpdatedAt: 0,
@@ -215,7 +215,7 @@ export function archivedWorkspacesQueryOptions() {
 
 export function repositoriesQueryOptions() {
 	return queryOptions({
-		queryKey: helmorQueryKeys.repositories,
+		queryKey: pathosQueryKeys.repositories,
 		queryFn: listRepositories,
 		initialData: [],
 		initialDataUpdatedAt: 0,
@@ -225,7 +225,7 @@ export function repositoriesQueryOptions() {
 
 export function agentModelSectionsQueryOptions() {
 	return queryOptions({
-		queryKey: helmorQueryKeys.agentModelSections,
+		queryKey: pathosQueryKeys.agentModelSections,
 		queryFn: loadAgentModelSections,
 		staleTime: Infinity,
 		refetchOnWindowFocus: false,
@@ -235,7 +235,7 @@ export function agentModelSectionsQueryOptions() {
 
 export function workspaceDetailQueryOptions(workspaceId: string) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
+		queryKey: pathosQueryKeys.workspaceDetail(workspaceId),
 		queryFn: () => loadWorkspaceDetail(workspaceId),
 		staleTime: 0,
 	});
@@ -243,7 +243,7 @@ export function workspaceDetailQueryOptions(workspaceId: string) {
 
 export function workspaceForgeQueryOptions(workspaceId: string) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.workspaceForge(workspaceId),
+		queryKey: pathosQueryKeys.workspaceForge(workspaceId),
 		queryFn: () => getWorkspaceForge(workspaceId),
 		staleTime: 30_000,
 		refetchOnWindowFocus: "always",
@@ -256,7 +256,7 @@ export function forgeCliStatusQueryOptions(
 	host: string,
 ) {
 	return queryOptions<ForgeCliStatus>({
-		queryKey: helmorQueryKeys.forgeCliStatus(provider, host),
+		queryKey: pathosQueryKeys.forgeCliStatus(provider, host),
 		queryFn: () => getForgeCliStatus(provider, host),
 		staleTime: 30_000,
 		refetchOnWindowFocus: "always",
@@ -275,7 +275,7 @@ export function workspaceSessionsQueryOptions(
 	overrides: { staleTime?: number } = {},
 ) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
+		queryKey: pathosQueryKeys.workspaceSessions(workspaceId),
 		queryFn: () => loadWorkspaceSessions(workspaceId),
 		staleTime: overrides.staleTime ?? 0,
 	});
@@ -285,7 +285,7 @@ export function workspaceSessionsQueryOptions(
  *  invalidates → observer refetches from DB. Same pattern as rate limits. */
 export function sessionContextUsageQueryOptions(sessionId: string) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.sessionContextUsage(sessionId),
+		queryKey: pathosQueryKeys.sessionContextUsage(sessionId),
 		queryFn: () => getSessionContextUsage(sessionId),
 		staleTime: 0,
 	});
@@ -298,7 +298,7 @@ const RATE_LIMITS_STALE_TIME = 2 * 60_000;
 // hit the cached body, so we can be eager here.
 export function codexRateLimitsQueryOptions(enabled: boolean) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.codexRateLimits,
+		queryKey: pathosQueryKeys.codexRateLimits,
 		queryFn: getCodexRateLimits,
 		staleTime: RATE_LIMITS_STALE_TIME,
 		refetchInterval: enabled ? RATE_LIMITS_STALE_TIME : false,
@@ -308,7 +308,7 @@ export function codexRateLimitsQueryOptions(enabled: boolean) {
 }
 export function claudeRateLimitsQueryOptions(enabled: boolean) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.claudeRateLimits,
+		queryKey: pathosQueryKeys.claudeRateLimits,
 		queryFn: getClaudeRateLimits,
 		staleTime: RATE_LIMITS_STALE_TIME,
 		refetchInterval: enabled ? RATE_LIMITS_STALE_TIME : false,
@@ -329,7 +329,7 @@ export function claudeRichContextUsageQueryOptions(params: {
 	enabled: boolean;
 }) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.claudeRichContextUsage(
+		queryKey: pathosQueryKeys.claudeRichContextUsage(
 			params.sessionId,
 			params.providerSessionId,
 			params.model,
@@ -350,7 +350,7 @@ export function claudeRichContextUsageQueryOptions(params: {
 /** `/add-dir` linked directories, workspace-scoped. */
 export function workspaceLinkedDirectoriesQueryOptions(workspaceId: string) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.workspaceLinkedDirectories(workspaceId),
+		queryKey: pathosQueryKeys.workspaceLinkedDirectories(workspaceId),
 		queryFn: () => listWorkspaceLinkedDirectories(workspaceId),
 		staleTime: 0,
 	});
@@ -365,7 +365,7 @@ export function workspaceCandidateDirectoriesQueryOptions(
 	excludeWorkspaceId: string | null,
 ) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.workspaceCandidateDirectories(excludeWorkspaceId),
+		queryKey: pathosQueryKeys.workspaceCandidateDirectories(excludeWorkspaceId),
 		queryFn: () => listWorkspaceCandidateDirectories({ excludeWorkspaceId }),
 		staleTime: 0,
 	});
@@ -374,7 +374,7 @@ export function workspaceCandidateDirectoriesQueryOptions(
 /** Pipeline-rendered thread messages — ready for direct rendering. */
 export function sessionThreadMessagesQueryOptions(sessionId: string) {
 	return queryOptions({
-		queryKey: [...helmorQueryKeys.sessionMessages(sessionId), "thread"],
+		queryKey: [...pathosQueryKeys.sessionMessages(sessionId), "thread"],
 		queryFn: () => loadSessionThreadMessages(sessionId),
 		gcTime: SESSION_GC_TIME,
 		staleTime: SESSION_STALE_TIME,
@@ -388,7 +388,7 @@ export function slashCommandsQueryOptions(
 	workspaceId: string | null,
 ) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.slashCommands(
+		queryKey: pathosQueryKeys.slashCommands(
 			provider,
 			workingDirectory,
 			workspaceId,
@@ -411,7 +411,7 @@ export function slashCommandsQueryOptions(
 
 export function autoCloseActionKindsQueryOptions() {
 	return queryOptions({
-		queryKey: helmorQueryKeys.autoCloseActionKinds,
+		queryKey: pathosQueryKeys.autoCloseActionKinds,
 		queryFn: loadAutoCloseActionKinds,
 		initialData: [] as ActionKind[],
 		initialDataUpdatedAt: 0,
@@ -421,7 +421,7 @@ export function autoCloseActionKindsQueryOptions() {
 
 export function autoCloseOptInAskedQueryOptions() {
 	return queryOptions({
-		queryKey: helmorQueryKeys.autoCloseOptInAsked,
+		queryKey: pathosQueryKeys.autoCloseOptInAsked,
 		queryFn: loadAutoCloseOptInAsked,
 		initialData: [] as ActionKind[],
 		initialDataUpdatedAt: 0,
@@ -439,7 +439,7 @@ export function autoCloseOptInAskedQueryOptions() {
  */
 export function detectedEditorsQueryOptions() {
 	return queryOptions({
-		queryKey: helmorQueryKeys.detectedEditors,
+		queryKey: pathosQueryKeys.detectedEditors,
 		queryFn: detectInstalledEditors,
 		initialData: [] as DetectedEditor[],
 		initialDataUpdatedAt: 0,
@@ -516,7 +516,7 @@ export function workspaceChangeRequestQueryOptions(
 ) {
 	const placeholder = changeRequestPlaceholder(seed);
 	return queryOptions({
-		queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId),
+		queryKey: pathosQueryKeys.workspaceChangeRequest(workspaceId),
 		queryFn: () => refreshWorkspaceChangeRequest(workspaceId),
 		staleTime: 30_000,
 		gcTime: DEFAULT_GC_TIME,
@@ -531,7 +531,7 @@ export function workspaceChangeRequestQueryOptions(
 
 export function workspaceGitActionStatusQueryOptions(workspaceId: string) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.workspaceGitActionStatus(workspaceId),
+		queryKey: pathosQueryKeys.workspaceGitActionStatus(workspaceId),
 		queryFn: () => loadWorkspaceGitActionStatus(workspaceId),
 		staleTime: CHANGES_STALE_TIME,
 		gcTime: DEFAULT_GC_TIME,
@@ -543,7 +543,7 @@ export function workspaceGitActionStatusQueryOptions(workspaceId: string) {
 
 export function workspaceForgeActionStatusQueryOptions(workspaceId: string) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.workspaceForgeActionStatus(workspaceId),
+		queryKey: pathosQueryKeys.workspaceForgeActionStatus(workspaceId),
 		queryFn: () => loadWorkspaceForgeActionStatus(workspaceId),
 		staleTime: 30_000,
 		gcTime: DEFAULT_GC_TIME,
@@ -564,7 +564,7 @@ export function workspaceForgeRefetchInterval(
 
 export function workspaceChangesQueryOptions(workspaceRootPath: string) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.workspaceChanges(workspaceRootPath),
+		queryKey: pathosQueryKeys.workspaceChanges(workspaceRootPath),
 		queryFn: () => listWorkspaceChangesWithContent(workspaceRootPath),
 		staleTime: CHANGES_STALE_TIME,
 		refetchOnWindowFocus: true,
@@ -581,7 +581,7 @@ export function workspaceChangesQueryOptions(workspaceRootPath: string) {
  */
 export function workspaceFilesQueryOptions(workspaceRootPath: string) {
 	return queryOptions({
-		queryKey: helmorQueryKeys.workspaceFiles(workspaceRootPath),
+		queryKey: pathosQueryKeys.workspaceFiles(workspaceRootPath),
 		queryFn: () => listWorkspaceFiles(workspaceRootPath),
 		staleTime: 60_000,
 		gcTime: DEFAULT_GC_TIME,

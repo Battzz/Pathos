@@ -624,7 +624,7 @@ pub fn get_workspace_linked_directories(workspace_id: &str) -> Result<Vec<String
 
 /// One entry in the `/add-dir` picker's "known workspaces" list. Mirrors
 /// the sidebar row's display fields so the popup looks and reads the
-/// same as Helmor's workspace list (repo icon + humanized title +
+/// same as Pathos's workspace list (repo icon + humanized title +
 /// branch). `absolute_path` is the only non-display field — it's what
 /// we persist into `linked_directory_paths` on selection.
 #[derive(Debug, Clone, Serialize)]
@@ -781,12 +781,12 @@ mod candidate_directories_tests {
         let _guard = crate::data_dir::TEST_ENV_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        std::env::set_var("HELMOR_DATA_DIR", dir.path());
+        std::env::set_var("PATHOS_DATA_DIR", dir.path());
         crate::data_dir::ensure_directory_structure().unwrap();
         let conn = rusqlite::Connection::open(crate::data_dir::db_path().unwrap()).unwrap();
         crate::schema::ensure_schema(&conn).unwrap();
         f(&conn);
-        std::env::remove_var("HELMOR_DATA_DIR");
+        std::env::remove_var("PATHOS_DATA_DIR");
     }
 
     fn seed_repo(conn: &rusqlite::Connection, id: &str, name: &str) {
@@ -950,7 +950,7 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
 
     // For `Project` workspaces, the agent operates on the repo's actual
     // root path (no worktree). For `Workspace`-kind workspaces, use the
-    // branched worktree directory under the helmor data dir. Archived
+    // branched worktree directory under the pathos data dir. Archived
     // workspaces (whose worktree is gone) and missing project paths
     // return None so the frontend knows agent messaging is unavailable.
     let resolved_root_path = crate::workspace_project::resolve_workspace_root_path(&record)
@@ -1076,7 +1076,7 @@ pub fn purge_orphaned_workspaces() -> Result<usize> {
 }
 
 /// Repair project chat containers that older orphan cleanup incorrectly
-/// archived. Project workspaces do not own a Helmor-managed worktree, so
+/// archived. Project workspaces do not own a Pathos-managed worktree, so
 /// they are valid as long as the imported repository root still exists.
 pub fn reactivate_archived_project_workspaces() -> Result<usize> {
     let connection = db::read_conn()?;

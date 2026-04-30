@@ -92,7 +92,7 @@ pub fn get_or_create_project_workspace(repo_id: &str) -> Result<String> {
 }
 
 /// Whether the given workspace kind operates on a branched worktree
-/// (i.e. has a directory under the helmor data dir). `Project`
+/// (i.e. has a directory under the pathos data dir). `Project`
 /// workspaces operate on the repo root and skip the worktree machinery.
 pub const fn has_worktree(kind: WorkspaceKind) -> bool {
     matches!(kind, WorkspaceKind::Workspace)

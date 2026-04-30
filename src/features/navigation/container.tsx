@@ -1,7 +1,7 @@
 import { memo, type ReactNode, useEffect } from "react";
 import {
-	HELMOR_CLONE_PROJECT_EVENT,
-	HELMOR_OPEN_PROJECT_EVENT,
+	PATHOS_CLONE_PROJECT_EVENT,
+	PATHOS_OPEN_PROJECT_EVENT,
 } from "@/lib/project-action-events";
 import { useFolderSidebarController } from "./hooks/use-controller";
 import { WorkspacesSidebar } from "./index";
@@ -66,12 +66,12 @@ export const WorkspacesSidebarContainer = memo(
 				handleOpenCloneDialog();
 			};
 
-			window.addEventListener(HELMOR_OPEN_PROJECT_EVENT, openProject);
-			window.addEventListener(HELMOR_CLONE_PROJECT_EVENT, cloneProject);
+			window.addEventListener(PATHOS_OPEN_PROJECT_EVENT, openProject);
+			window.addEventListener(PATHOS_CLONE_PROJECT_EVENT, cloneProject);
 
 			return () => {
-				window.removeEventListener(HELMOR_OPEN_PROJECT_EVENT, openProject);
-				window.removeEventListener(HELMOR_CLONE_PROJECT_EVENT, cloneProject);
+				window.removeEventListener(PATHOS_OPEN_PROJECT_EVENT, openProject);
+				window.removeEventListener(PATHOS_CLONE_PROJECT_EVENT, cloneProject);
 			};
 		}, [handleAddRepository, handleOpenCloneDialog]);
 

@@ -5,7 +5,7 @@ import type {
 	WorkspaceDetail,
 	WorkspaceSessionSummary,
 } from "@/lib/api";
-import { HelmorProfiler } from "@/lib/dev-react-profiler";
+import { PathosProfiler } from "@/lib/dev-react-profiler";
 import type { WorkspaceScriptType } from "@/lib/workspace-script-actions";
 import { WorkspacePanelHeader } from "./header";
 import { EmptyState, preloadStreamdown } from "./message-components";
@@ -131,7 +131,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 	}, []);
 
 	return (
-		<HelmorProfiler id="WorkspacePanel">
+		<PathosProfiler id="WorkspacePanel">
 			<div
 				data-focus-scope="chat"
 				className="flex min-h-0 flex-1 flex-col bg-transparent"
@@ -176,6 +176,6 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 					)}
 				</div>
 			</div>
-		</HelmorProfiler>
+		</PathosProfiler>
 	);
 });

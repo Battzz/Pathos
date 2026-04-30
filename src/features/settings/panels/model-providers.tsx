@@ -32,7 +32,7 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { helmorQueryKeys } from "@/lib/query-client";
+import { pathosQueryKeys } from "@/lib/query-client";
 import type { ClaudeCustomProviderSettings } from "@/lib/settings";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
@@ -77,7 +77,7 @@ export function ClaudeCustomProvidersPanel() {
 			}),
 		).then(() =>
 			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.agentModelSections,
+				queryKey: pathosQueryKeys.agentModelSections,
 			}),
 		);
 	}

@@ -2,7 +2,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { createHelmorQueryClient, helmorQueryKeys } from "@/lib/query-client";
+import { createPathosQueryClient, pathosQueryKeys } from "@/lib/query-client";
 import { DEFAULT_SETTINGS, SettingsContext } from "@/lib/settings";
 
 const apiMockState = vi.hoisted(() => ({
@@ -132,8 +132,8 @@ const WORKSPACE_DETAIL = {
 	id: "workspace-1",
 	title: "Workspace 1",
 	repoId: "repo-1",
-	repoName: "helmor",
-	directoryName: "helmor",
+	repoName: "pathos",
+	directoryName: "pathos",
 	state: "ready",
 	hasUnread: false,
 	workspaceUnread: 0,
@@ -151,7 +151,7 @@ const WORKSPACE_DETAIL = {
 	archiveCommit: null,
 	sessionCount: 2,
 	messageCount: 2,
-	rootPath: "/tmp/helmor",
+	rootPath: "/tmp/pathos",
 };
 
 const WORKSPACE_SESSIONS = [
@@ -214,17 +214,17 @@ describe("WorkspaceComposerContainer", () => {
 	});
 
 	it("does not remount the composer when switching displayed sessions", () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		queryClient.setQueryData(
-			helmorQueryKeys.agentModelSections,
+			pathosQueryKeys.agentModelSections,
 			MODEL_SECTIONS,
 		);
 		queryClient.setQueryData(
-			helmorQueryKeys.workspaceDetail("workspace-1"),
+			pathosQueryKeys.workspaceDetail("workspace-1"),
 			WORKSPACE_DETAIL,
 		);
 		queryClient.setQueryData(
-			helmorQueryKeys.workspaceSessions("workspace-1"),
+			pathosQueryKeys.workspaceSessions("workspace-1"),
 			WORKSPACE_SESSIONS,
 		);
 
@@ -274,16 +274,16 @@ describe("WorkspaceComposerContainer", () => {
 	});
 
 	it("hides models from the other provider after a session has started", () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		queryClient.setQueryData(
-			helmorQueryKeys.agentModelSections,
+			pathosQueryKeys.agentModelSections,
 			MODEL_SECTIONS,
 		);
 		queryClient.setQueryData(
-			helmorQueryKeys.workspaceDetail("workspace-1"),
+			pathosQueryKeys.workspaceDetail("workspace-1"),
 			WORKSPACE_DETAIL,
 		);
-		queryClient.setQueryData(helmorQueryKeys.workspaceSessions("workspace-1"), [
+		queryClient.setQueryData(pathosQueryKeys.workspaceSessions("workspace-1"), [
 			...WORKSPACE_SESSIONS,
 			{
 				id: "session-new",
@@ -341,17 +341,17 @@ describe("WorkspaceComposerContainer", () => {
 	});
 
 	it("auto-submits queued CLI prompts with queued model and permission mode", async () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		queryClient.setQueryData(
-			helmorQueryKeys.agentModelSections,
+			pathosQueryKeys.agentModelSections,
 			MODEL_SECTIONS,
 		);
 		queryClient.setQueryData(
-			helmorQueryKeys.workspaceDetail("workspace-1"),
+			pathosQueryKeys.workspaceDetail("workspace-1"),
 			WORKSPACE_DETAIL,
 		);
 		queryClient.setQueryData(
-			helmorQueryKeys.workspaceSessions("workspace-1"),
+			pathosQueryKeys.workspaceSessions("workspace-1"),
 			WORKSPACE_SESSIONS,
 		);
 
@@ -405,17 +405,17 @@ describe("WorkspaceComposerContainer", () => {
 	});
 
 	it("loads slash commands when the composer mounts", async () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		queryClient.setQueryData(
-			helmorQueryKeys.agentModelSections,
+			pathosQueryKeys.agentModelSections,
 			MODEL_SECTIONS,
 		);
 		queryClient.setQueryData(
-			helmorQueryKeys.workspaceDetail("workspace-1"),
+			pathosQueryKeys.workspaceDetail("workspace-1"),
 			WORKSPACE_DETAIL,
 		);
 		queryClient.setQueryData(
-			helmorQueryKeys.workspaceSessions("workspace-1"),
+			pathosQueryKeys.workspaceSessions("workspace-1"),
 			WORKSPACE_SESSIONS,
 		);
 
@@ -447,7 +447,7 @@ describe("WorkspaceComposerContainer", () => {
 		await waitFor(() =>
 			expect(apiMockState.listSlashCommands).toHaveBeenCalledWith({
 				provider: "claude",
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				repoId: "repo-1",
 				workspaceId: "workspace-1",
 			}),
@@ -455,16 +455,16 @@ describe("WorkspaceComposerContainer", () => {
 	});
 
 	it("uses the default fast mode setting for new sessions", () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		queryClient.setQueryData(
-			helmorQueryKeys.agentModelSections,
+			pathosQueryKeys.agentModelSections,
 			MODEL_SECTIONS,
 		);
 		queryClient.setQueryData(
-			helmorQueryKeys.workspaceDetail("workspace-1"),
+			pathosQueryKeys.workspaceDetail("workspace-1"),
 			WORKSPACE_DETAIL,
 		);
-		queryClient.setQueryData(helmorQueryKeys.workspaceSessions("workspace-1"), [
+		queryClient.setQueryData(pathosQueryKeys.workspaceSessions("workspace-1"), [
 			...WORKSPACE_SESSIONS,
 			{
 				id: "session-new",
@@ -535,17 +535,17 @@ describe("WorkspaceComposerContainer", () => {
 	// window the editor + toolbar stay fully live and only the send action
 	// is blocked, so users can type-ahead without a visible 60% dim.
 	const renderContainerForState = (workspaceState: string) => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		queryClient.setQueryData(
-			helmorQueryKeys.agentModelSections,
+			pathosQueryKeys.agentModelSections,
 			MODEL_SECTIONS,
 		);
-		queryClient.setQueryData(helmorQueryKeys.workspaceDetail("workspace-1"), {
+		queryClient.setQueryData(pathosQueryKeys.workspaceDetail("workspace-1"), {
 			...WORKSPACE_DETAIL,
 			state: workspaceState,
 		});
 		queryClient.setQueryData(
-			helmorQueryKeys.workspaceSessions("workspace-1"),
+			pathosQueryKeys.workspaceSessions("workspace-1"),
 			WORKSPACE_SESSIONS,
 		);
 
@@ -602,17 +602,17 @@ describe("WorkspaceComposerContainer", () => {
 	});
 
 	it("renders queued follow-ups as an overlay above the composer", () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		queryClient.setQueryData(
-			helmorQueryKeys.agentModelSections,
+			pathosQueryKeys.agentModelSections,
 			MODEL_SECTIONS,
 		);
 		queryClient.setQueryData(
-			helmorQueryKeys.workspaceDetail("workspace-1"),
+			pathosQueryKeys.workspaceDetail("workspace-1"),
 			WORKSPACE_DETAIL,
 		);
 		queryClient.setQueryData(
-			helmorQueryKeys.workspaceSessions("workspace-1"),
+			pathosQueryKeys.workspaceSessions("workspace-1"),
 			WORKSPACE_SESSIONS,
 		);
 
@@ -657,7 +657,7 @@ describe("WorkspaceComposerContainer", () => {
 											...MODEL_SECTIONS[0].options[0].effortLevels,
 										],
 									},
-									workingDirectory: "/tmp/helmor",
+									workingDirectory: "/tmp/pathos",
 									effortLevel: "medium",
 									permissionMode: "default",
 									fastMode: false,
@@ -687,17 +687,17 @@ describe("WorkspaceComposerContainer", () => {
 			// so the background refetch (`staleTime: 0`) doesn't overwrite
 			// the seeded value with the default setup.ts mock.
 			apiMockState.listWorkspaceLinkedDirectories.mockResolvedValue(linked);
-			const queryClient = createHelmorQueryClient();
+			const queryClient = createPathosQueryClient();
 			queryClient.setQueryData(
-				helmorQueryKeys.agentModelSections,
+				pathosQueryKeys.agentModelSections,
 				MODEL_SECTIONS,
 			);
 			queryClient.setQueryData(
-				helmorQueryKeys.workspaceDetail("workspace-1"),
+				pathosQueryKeys.workspaceDetail("workspace-1"),
 				WORKSPACE_DETAIL,
 			);
 			queryClient.setQueryData(
-				helmorQueryKeys.workspaceSessions("workspace-1"),
+				pathosQueryKeys.workspaceSessions("workspace-1"),
 				WORKSPACE_SESSIONS,
 			);
 			return render(

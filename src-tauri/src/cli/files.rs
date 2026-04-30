@@ -1,4 +1,4 @@
-//! `helmor files` — list, read, write, stage, discard workspace files.
+//! `pathos files` — list, read, write, stage, discard workspace files.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};

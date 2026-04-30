@@ -683,7 +683,7 @@ fn update_branch_in_db(
 fn load_watchable_workspaces() -> Result<Vec<WatchableWorkspace>> {
     let connection = db::read_conn()?;
     // Filter out project workspaces — they don't have a separate worktree
-    // under the helmor data dir; the imported folder owns its own git
+    // under the pathos data dir; the imported folder owns its own git
     // metadata changes and does not need a watcher of its own.
     let mut stmt = connection.prepare(
         "SELECT w.id, r.name, w.directory_name, w.branch, w.state,
@@ -737,7 +737,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         git(dir.path(), &["init"]);
         git(dir.path(), &["checkout", "-b", "main"]);
-        git(dir.path(), &["config", "user.email", "test@helmor.dev"]);
+        git(dir.path(), &["config", "user.email", "test@pathos.dev"]);
         git(dir.path(), &["config", "user.name", "Test"]);
         git(dir.path(), &["config", "commit.gpgsign", "false"]);
         std::fs::write(dir.path().join("f.txt"), "init\n").unwrap();

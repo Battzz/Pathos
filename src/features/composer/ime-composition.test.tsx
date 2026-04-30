@@ -33,8 +33,9 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { AgentModelSection } from "@/lib/api";
-import { createHelmorQueryClient } from "@/lib/query-client";
+import { createPathosQueryClient } from "@/lib/query-client";
 
 vi.mock("@tauri-apps/api/core", () => ({
 	invoke: vi.fn(),
@@ -81,46 +82,48 @@ const MODEL_SECTIONS = [
 ] satisfies AgentModelSection[];
 
 function renderComposer({ onSubmit }: { onSubmit: () => void }) {
-	const queryClient = createHelmorQueryClient();
+	const queryClient = createPathosQueryClient();
 	return render(
-		<QueryClientProvider client={queryClient}>
-			<WorkspaceComposer
-				contextKey="session:ime-test"
-				onSubmit={onSubmit}
-				disabled={false}
-				submitDisabled={false}
-				sending={false}
-				selectedModelId="opus-1m"
-				modelSections={MODEL_SECTIONS}
-				onSelectModel={vi.fn()}
-				provider="claude"
-				effortLevel="high"
-				onSelectEffort={vi.fn()}
-				permissionMode="acceptEdits"
-				onChangePermissionMode={vi.fn()}
-				restoreImages={[]}
-				restoreFiles={[]}
-				restoreCustomTags={[]}
-				pendingInsertRequests={[
-					{
-						id: "ime-insert-1",
-						workspaceId: "workspace-1",
-						sessionId: "session:ime-test",
-						behavior: "append",
-						createdAt: 0,
-						items: [
-							{
-								kind: "custom-tag",
-								key: "ime-tag-1",
-								label: "中文消息",
-								submitText: "你好，请帮我修复这个 bug。",
-							},
-						],
-					},
-				]}
-				onPendingInsertRequestsConsumed={vi.fn()}
-			/>
-		</QueryClientProvider>,
+		<TooltipProvider delayDuration={0}>
+			<QueryClientProvider client={queryClient}>
+				<WorkspaceComposer
+					contextKey="session:ime-test"
+					onSubmit={onSubmit}
+					disabled={false}
+					submitDisabled={false}
+					sending={false}
+					selectedModelId="opus-1m"
+					modelSections={MODEL_SECTIONS}
+					onSelectModel={vi.fn()}
+					provider="claude"
+					effortLevel="high"
+					onSelectEffort={vi.fn()}
+					permissionMode="acceptEdits"
+					onChangePermissionMode={vi.fn()}
+					restoreImages={[]}
+					restoreFiles={[]}
+					restoreCustomTags={[]}
+					pendingInsertRequests={[
+						{
+							id: "ime-insert-1",
+							workspaceId: "workspace-1",
+							sessionId: "session:ime-test",
+							behavior: "append",
+							createdAt: 0,
+							items: [
+								{
+									kind: "custom-tag",
+									key: "ime-tag-1",
+									label: "中文消息",
+									submitText: "你好，请帮我修复这个 bug。",
+								},
+							],
+						},
+					]}
+					onPendingInsertRequestsConsumed={vi.fn()}
+				/>
+			</QueryClientProvider>
+		</TooltipProvider>,
 	);
 }
 

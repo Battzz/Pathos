@@ -256,7 +256,7 @@ export function WorkspaceInspectorSidebar({
 			handleToggleTabs();
 		} else {
 			// 4. Pull focus into the existing, already-mounted xterm.
-			window.dispatchEvent(new Event("helmor:focus-active-terminal"));
+			window.dispatchEvent(new Event("pathos:focus-active-terminal"));
 		}
 	}, [
 		terminalInstances,

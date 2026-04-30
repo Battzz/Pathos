@@ -27,7 +27,7 @@ function showDownloadedUpdateToast(
 ) {
 	toast("Update ready to install", {
 		id: toastIdForUpdate(status) ?? undefined,
-		description: `Helmor ${status.update.version} has been downloaded.`,
+		description: `Pathos ${status.update.version} has been downloaded.`,
 		action: createElement(
 			"button",
 			{

@@ -123,9 +123,9 @@ export function TerminalInstancePanel({
 	useEffect(() => {
 		if (!isActive) return;
 		const handler = () => termRef.current?.focus();
-		window.addEventListener("helmor:focus-active-terminal", handler);
+		window.addEventListener("pathos:focus-active-terminal", handler);
 		return () =>
-			window.removeEventListener("helmor:focus-active-terminal", handler);
+			window.removeEventListener("pathos:focus-active-terminal", handler);
 	}, [isActive]);
 
 	const handleData = useCallback(

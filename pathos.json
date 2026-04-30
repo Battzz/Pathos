@@ -1,0 +1,6 @@
+{
+	"scripts": {
+		"setup": "cp \"$PATHOS_ROOT_PATH/.env.local\" \"$PATHOS_WORKSPACE_PATH/.env.local\"\ncp -r \"$PATHOS_ROOT_PATH/sidecar/dist\" \"$PATHOS_WORKSPACE_PATH/sidecar/dist\"\nbun install",
+		"run": "bun run dev:analyze"
+	}
+}

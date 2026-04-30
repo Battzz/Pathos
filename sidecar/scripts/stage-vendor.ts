@@ -115,7 +115,7 @@ function infoForArch(arch: DarwinArch): TargetInfo {
 function detectTarget(): TargetInfo {
 	if (process.platform !== "darwin") {
 		throw new Error(
-			`[stage-vendor] Helmor only builds on macOS; host platform is ${process.platform}`,
+			`[stage-vendor] Pathos only builds on macOS; host platform is ${process.platform}`,
 		);
 	}
 

@@ -50,7 +50,7 @@ import type { DiffOpenOptions, InspectorFileItem } from "@/lib/editor-session";
 import { extractError, isRecoverableByPurge } from "@/lib/errors";
 import {
 	detectedEditorsQueryOptions,
-	helmorQueryKeys,
+	pathosQueryKeys,
 } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 import { showWorkspaceBrokenToast } from "@/lib/workspace-broken-toast";
@@ -192,11 +192,11 @@ export function ChangesSection({
 			return;
 		}
 		queryClient.invalidateQueries({
-			queryKey: helmorQueryKeys.workspaceChanges(workspaceRootPath),
+			queryKey: pathosQueryKeys.workspaceChanges(workspaceRootPath),
 		});
 		if (workspaceId) {
 			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceGitActionStatus(workspaceId),
+				queryKey: pathosQueryKeys.workspaceGitActionStatus(workspaceId),
 			});
 		}
 	}, [queryClient, workspaceId, workspaceRootPath]);

@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "helmor",
+      "name": "pathos",
       "dependencies": {
         "@chenglou/pretext": "0.0.4",
         "@fontsource-variable/geist": "^5.2.8",
@@ -100,7 +100,7 @@
       },
     },
     "apps/marketing": {
-      "name": "@helmor/marketing",
+      "name": "@pathos/marketing",
       "version": "0.0.0",
       "dependencies": {
         "next": "^15.5.0",
@@ -638,7 +638,7 @@
 
     "@hapi/topo": ["@hapi/topo@3.1.6", "", { "dependencies": { "@hapi/hoek": "^8.3.0" } }, "sha512-tAag0jEcjwH+P2quUfipd7liWCNX2F8NvYjQp2wtInsZxnMlypdw0FtAOLxtvvkO+GSRRbmNi8m/5y42PQJYCQ=="],
 
-    "@helmor/marketing": ["@helmor/marketing@workspace:apps/marketing"],
+    "@pathos/marketing": ["@pathos/marketing@workspace:apps/marketing"],
 
     "@hono/node-server": ["@hono/node-server@1.19.14", "", { "peerDependencies": { "hono": "^4" } }, "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw=="],
 

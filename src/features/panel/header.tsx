@@ -19,7 +19,7 @@ import {
 	type WorkspaceDetail,
 } from "@/lib/api";
 import { extractError } from "@/lib/errors";
-import { helmorQueryKeys } from "@/lib/query-client";
+import { pathosQueryKeys } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 import {
 	getWorkspaceBranchTone,
@@ -90,10 +90,10 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 									.then(() => {
 										onWorkspaceChanged?.();
 										void queryClient.invalidateQueries({
-											queryKey: helmorQueryKeys.workspaceDetail(workspace.id),
+											queryKey: pathosQueryKeys.workspaceDetail(workspace.id),
 										});
 										void queryClient.invalidateQueries({
-											queryKey: helmorQueryKeys.repositoryFolders,
+											queryKey: pathosQueryKeys.repositoryFolders,
 										});
 									})
 									.catch((error: unknown) => {
@@ -134,7 +134,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 								if (branch === workspace.branch) {
 									return;
 								}
-								const detailKey = helmorQueryKeys.workspaceDetail(workspace.id);
+								const detailKey = pathosQueryKeys.workspaceDetail(workspace.id);
 								const previous =
 									queryClient.getQueryData<WorkspaceDetail | null>(detailKey);
 								if (previous) {
@@ -167,7 +167,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 							onCreate={async (branch) => {
 								try {
 									await createWorkspaceBranch(workspace.id, branch);
-									const detailKey = helmorQueryKeys.workspaceDetail(
+									const detailKey = pathosQueryKeys.workspaceDetail(
 										workspace.id,
 									);
 									const previous =
@@ -291,7 +291,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 										if (branch === workspace.intendedTargetBranch) {
 											return;
 										}
-										const detailKey = helmorQueryKeys.workspaceDetail(
+										const detailKey = pathosQueryKeys.workspaceDetail(
 											workspace.id,
 										);
 										const previousDetail =
@@ -311,7 +311,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 										// Invalidate changes so diff section shows loading.
 										if (workspace.rootPath) {
 											void queryClient.invalidateQueries({
-												queryKey: helmorQueryKeys.workspaceChanges(
+												queryKey: pathosQueryKeys.workspaceChanges(
 													workspace.rootPath,
 												),
 											});
@@ -322,13 +322,13 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 												onWorkspaceChanged?.();
 												// Recompute sync status vs. new target now; don't wait for 10s poll.
 												void queryClient.invalidateQueries({
-													queryKey: helmorQueryKeys.workspaceGitActionStatus(
+													queryKey: pathosQueryKeys.workspaceGitActionStatus(
 														workspace.id,
 													),
 												});
 												if (workspace.rootPath) {
 													void queryClient.invalidateQueries({
-														queryKey: helmorQueryKeys.workspaceChanges(
+														queryKey: pathosQueryKeys.workspaceChanges(
 															workspace.rootPath,
 														),
 													});

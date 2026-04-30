@@ -37,11 +37,11 @@ export interface ListSlashCommandsParams {
 /**
  * Ad-hoc context-usage query for the hover popover. `providerSessionId`
  * is the SDK's own session id (what `resume:` takes) — used when no live
- * `Query` is held for this helmor session. `model` is the composer's
+ * `Query` is held for this pathos session. `model` is the composer's
  * current model id; `cwd` lets the transient query load project settings.
  */
 export interface GetContextUsageParams {
-	readonly helmorSessionId: string;
+	readonly pathosSessionId: string;
 	readonly providerSessionId: string | null;
 	readonly model: string;
 	readonly cwd: string | undefined;

@@ -16,7 +16,7 @@ import {
 	type WorkspaceSessionSummary,
 } from "@/lib/api";
 import {
-	helmorQueryKeys,
+	pathosQueryKeys,
 	repositoryFoldersQueryOptions,
 	sessionThreadMessagesQueryOptions,
 	workspaceDetailQueryOptions,
@@ -24,7 +24,7 @@ import {
 } from "@/lib/query-client";
 import { describeUnknownError } from "@/lib/workspace-helpers";
 
-const STORAGE_KEY = "helmor:sidebar:folder-collapse-v1";
+const STORAGE_KEY = "pathos:sidebar:folder-collapse-v1";
 
 type CollapseState = Record<string, boolean>;
 
@@ -75,7 +75,7 @@ function seedCreatedChatQueries({
 	};
 
 	queryClient.setQueryData(
-		helmorQueryKeys.workspaceSessions(workspaceId),
+		pathosQueryKeys.workspaceSessions(workspaceId),
 		(current: WorkspaceSessionSummary[] | undefined) => {
 			if ((current ?? []).some((existing) => existing.id === sessionId)) {
 				return current;
@@ -92,7 +92,7 @@ function seedCreatedChatQueries({
 	);
 
 	queryClient.setQueryData<WorkspaceDetail | null>(
-		helmorQueryKeys.workspaceDetail(workspaceId),
+		pathosQueryKeys.workspaceDetail(workspaceId),
 		(current) => {
 			const base =
 				current ??
@@ -135,7 +135,7 @@ function seedCreatedChatQueries({
 	);
 
 	queryClient.setQueryData(
-		[...helmorQueryKeys.sessionMessages(sessionId), "thread"],
+		[...pathosQueryKeys.sessionMessages(sessionId), "thread"],
 		[],
 	);
 }
@@ -236,13 +236,13 @@ export function useFolderSidebarController({
 
 	const refetchFolders = useCallback(() => {
 		void queryClient.invalidateQueries({
-			queryKey: helmorQueryKeys.repositoryFolders,
+			queryKey: pathosQueryKeys.repositoryFolders,
 		});
 		void queryClient.invalidateQueries({
-			queryKey: helmorQueryKeys.repositories,
+			queryKey: pathosQueryKeys.repositories,
 		});
 		void queryClient.invalidateQueries({
-			queryKey: helmorQueryKeys.workspaceGroups,
+			queryKey: pathosQueryKeys.workspaceGroups,
 		});
 	}, [queryClient]);
 
@@ -370,10 +370,10 @@ export function useFolderSidebarController({
 			refetchFolders();
 			if (workspaceId) {
 				void queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
+					queryKey: pathosQueryKeys.workspaceDetail(workspaceId),
 				});
 				void queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
+					queryKey: pathosQueryKeys.workspaceSessions(workspaceId),
 				});
 			}
 		},

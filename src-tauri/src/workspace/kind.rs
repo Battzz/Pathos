@@ -6,7 +6,7 @@
 //!   their first chat in that repo. Sessions in a project workspace
 //!   render as "chats" in the sidebar. The agent operates on the
 //!   imported folder directly — there is no separate worktree.
-//! - `workspace`: a branched git worktree under the helmor data dir.
+//! - `workspace`: a branched git worktree under the pathos data dir.
 //!   Only available for git-backed repos. Renders as a "workspace"
 //!   row in the sidebar with branch / PR sync / archive affordances.
 

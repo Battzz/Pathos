@@ -1,4 +1,4 @@
-//! `helmor conductor` — migrate from Helmor v1 (Conductor).
+//! `pathos conductor` — migrate from Pathos v1 (Conductor).
 
 use anyhow::Result;
 

@@ -191,11 +191,11 @@ pub(crate) fn run_archive_hook_inner(
         .arg(shell_flag)
         .arg(&script)
         .current_dir(workspace_dir)
-        .env("HELMOR_ROOT_PATH", repo_root.display().to_string())
-        .env("HELMOR_WORKSPACE_PATH", workspace_dir.display().to_string())
-        .env("HELMOR_WORKSPACE_NAME", &record.directory_name)
+        .env("PATHOS_ROOT_PATH", repo_root.display().to_string())
+        .env("PATHOS_WORKSPACE_PATH", workspace_dir.display().to_string())
+        .env("PATHOS_WORKSPACE_NAME", &record.directory_name)
         .env(
-            "HELMOR_DEFAULT_BRANCH",
+            "PATHOS_DEFAULT_BRANCH",
             record.default_branch.as_deref().unwrap_or("main"),
         )
         .status();

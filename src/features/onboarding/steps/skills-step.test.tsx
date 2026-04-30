@@ -10,9 +10,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
 	getCliStatus: vi.fn(),
-	getHelmorSkillsStatus: vi.fn(),
+	getPathosSkillsStatus: vi.fn(),
 	installCli: vi.fn(),
-	installHelmorSkills: vi.fn(),
+	installPathosSkills: vi.fn(),
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -20,9 +20,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
 	return {
 		...actual,
 		getCliStatus: apiMocks.getCliStatus,
-		getHelmorSkillsStatus: apiMocks.getHelmorSkillsStatus,
+		getPathosSkillsStatus: apiMocks.getPathosSkillsStatus,
 		installCli: apiMocks.installCli,
-		installHelmorSkills: apiMocks.installHelmorSkills,
+		installPathosSkills: apiMocks.installPathosSkills,
 	};
 });
 
@@ -35,15 +35,15 @@ import { SkillsStep } from "./skills-step";
 describe("SkillsStep", () => {
 	beforeEach(() => {
 		apiMocks.getCliStatus.mockReset();
-		apiMocks.getHelmorSkillsStatus.mockReset();
+		apiMocks.getPathosSkillsStatus.mockReset();
 		apiMocks.installCli.mockReset();
-		apiMocks.installHelmorSkills.mockReset();
-		apiMocks.getHelmorSkillsStatus.mockResolvedValue({
+		apiMocks.installPathosSkills.mockReset();
+		apiMocks.getPathosSkillsStatus.mockResolvedValue({
 			installed: false,
 			claude: false,
 			codex: false,
 			command:
-				"npx --yes skills add dohooo/helmor/.codex/skills/helmor-cli -g -s helmor-cli -y --copy -a claude-code -a codex",
+				"npx --yes skills add dohooo/pathos/.codex/skills/pathos-cli -g -s pathos-cli -y --copy -a claude-code -a codex",
 		});
 	});
 
@@ -52,10 +52,10 @@ describe("SkillsStep", () => {
 		vi.clearAllMocks();
 	});
 
-	it("shows Ready when the Helmor CLI is already installed", async () => {
+	it("shows Ready when the Pathos CLI is already installed", async () => {
 		apiMocks.getCliStatus.mockResolvedValue({
 			installed: true,
-			installPath: "/usr/local/bin/helmor-dev",
+			installPath: "/usr/local/bin/pathos-dev",
 			buildMode: "development",
 			installState: "managed",
 		});
@@ -69,7 +69,7 @@ describe("SkillsStep", () => {
 			/>,
 		);
 
-		const cliItem = screen.getByRole("group", { name: "Helmor CLI" });
+		const cliItem = screen.getByRole("group", { name: "Pathos CLI" });
 
 		await waitFor(() => {
 			expect(within(cliItem).getByText("Ready")).toBeInTheDocument();
@@ -80,7 +80,7 @@ describe("SkillsStep", () => {
 		expect(apiMocks.installCli).not.toHaveBeenCalled();
 	});
 
-	it("installs the Helmor CLI from the setup item", async () => {
+	it("installs the Pathos CLI from the setup item", async () => {
 		const user = userEvent.setup();
 		apiMocks.getCliStatus.mockResolvedValue({
 			installed: false,
@@ -90,7 +90,7 @@ describe("SkillsStep", () => {
 		});
 		apiMocks.installCli.mockResolvedValue({
 			installed: true,
-			installPath: "/usr/local/bin/helmor-dev",
+			installPath: "/usr/local/bin/pathos-dev",
 			buildMode: "development",
 			installState: "managed",
 		});
@@ -104,7 +104,7 @@ describe("SkillsStep", () => {
 			/>,
 		);
 
-		const cliItem = screen.getByRole("group", { name: "Helmor CLI" });
+		const cliItem = screen.getByRole("group", { name: "Pathos CLI" });
 
 		await user.click(within(cliItem).getByRole("button", { name: "Set up" }));
 
@@ -117,20 +117,20 @@ describe("SkillsStep", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("installs Helmor skills from the setup item", async () => {
+	it("installs Pathos skills from the setup item", async () => {
 		const user = userEvent.setup();
 		apiMocks.getCliStatus.mockResolvedValue({
 			installed: true,
-			installPath: "/usr/local/bin/helmor-dev",
+			installPath: "/usr/local/bin/pathos-dev",
 			buildMode: "development",
 			installState: "managed",
 		});
-		apiMocks.installHelmorSkills.mockResolvedValue({
+		apiMocks.installPathosSkills.mockResolvedValue({
 			installed: true,
 			claude: true,
 			codex: false,
 			command:
-				"npx --yes skills add dohooo/helmor/.codex/skills/helmor-cli -g -s helmor-cli -y --copy -a claude-code",
+				"npx --yes skills add dohooo/pathos/.codex/skills/pathos-cli -g -s pathos-cli -y --copy -a claude-code",
 		});
 
 		render(
@@ -143,7 +143,7 @@ describe("SkillsStep", () => {
 		);
 
 		const skillsItem = screen.getByRole("group", {
-			name: "Helmor Skills (Beta)",
+			name: "Pathos Skills (Beta)",
 		});
 
 		await user.click(
@@ -151,7 +151,7 @@ describe("SkillsStep", () => {
 		);
 
 		await waitFor(() => {
-			expect(apiMocks.installHelmorSkills).toHaveBeenCalledTimes(1);
+			expect(apiMocks.installPathosSkills).toHaveBeenCalledTimes(1);
 		});
 		expect(within(skillsItem).getByText("Ready")).toBeInTheDocument();
 	});
@@ -160,12 +160,12 @@ describe("SkillsStep", () => {
 		const user = userEvent.setup();
 		apiMocks.getCliStatus.mockResolvedValue({
 			installed: true,
-			installPath: "/usr/local/bin/helmor-dev",
+			installPath: "/usr/local/bin/pathos-dev",
 			buildMode: "development",
 			installState: "managed",
 		});
-		apiMocks.installHelmorSkills.mockRejectedValue(
-			new Error("Helmor skills setup failed with a long stack trace."),
+		apiMocks.installPathosSkills.mockRejectedValue(
+			new Error("Pathos skills setup failed with a long stack trace."),
 		);
 
 		render(
@@ -178,7 +178,7 @@ describe("SkillsStep", () => {
 		);
 
 		const skillsItem = screen.getByRole("group", {
-			name: "Helmor Skills (Beta)",
+			name: "Pathos Skills (Beta)",
 		});
 
 		await user.click(

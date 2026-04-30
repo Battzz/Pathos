@@ -12,7 +12,7 @@ import type {
 } from "@/lib/api";
 import { createSession, loadRepoScripts } from "@/lib/api";
 import {
-	helmorQueryKeys,
+	pathosQueryKeys,
 	sessionThreadMessagesQueryOptions,
 	workspaceDetailQueryOptions,
 	workspaceSessionsQueryOptions,
@@ -153,7 +153,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 
 				const now = new Date().toISOString();
 				queryClient.setQueryData(
-					helmorQueryKeys.workspaceDetail(displayedWorkspaceId),
+					pathosQueryKeys.workspaceDetail(displayedWorkspaceId),
 					(current: WorkspaceDetail | null | undefined) => {
 						if (!current) {
 							return current;
@@ -170,7 +170,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 					},
 				);
 				queryClient.setQueryData(
-					helmorQueryKeys.workspaceSessions(displayedWorkspaceId),
+					pathosQueryKeys.workspaceSessions(displayedWorkspaceId),
 					(current: WorkspaceSessionSummary[] | undefined) => {
 						if ((current ?? []).some((session) => session.id === sessionId)) {
 							return current;
@@ -201,16 +201,16 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 					},
 				);
 				queryClient.setQueryData(
-					[...helmorQueryKeys.sessionMessages(sessionId), "thread"],
+					[...pathosQueryKeys.sessionMessages(sessionId), "thread"],
 					[],
 				);
 
 				await Promise.all([
 					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceDetail(displayedWorkspaceId),
+						queryKey: pathosQueryKeys.workspaceDetail(displayedWorkspaceId),
 					}),
 					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceSessions(displayedWorkspaceId),
+						queryKey: pathosQueryKeys.workspaceSessions(displayedWorkspaceId),
 					}),
 				]);
 			})
@@ -286,7 +286,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 		enabled: Boolean(threadSessionId),
 	});
 	const repoScriptsQuery = useQuery({
-		queryKey: helmorQueryKeys.repoScripts(
+		queryKey: pathosQueryKeys.repoScripts(
 			workspace?.repoId ?? "__none__",
 			displayedWorkspaceId,
 		),
@@ -299,7 +299,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 	const sessionDisplayProviders = useMemo<Record<string, AgentProvider>>(() => {
 		const modelSections =
 			queryClient.getQueryData<AgentModelSection[]>(
-				helmorQueryKeys.agentModelSections,
+				pathosQueryKeys.agentModelSections,
 			) ?? [];
 		return Object.fromEntries(
 			sessions
@@ -392,13 +392,13 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 
 		await Promise.all([
 			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceDetail(displayedWorkspaceId),
+				queryKey: pathosQueryKeys.workspaceDetail(displayedWorkspaceId),
 			}),
 			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceSessions(displayedWorkspaceId),
+				queryKey: pathosQueryKeys.workspaceSessions(displayedWorkspaceId),
 			}),
 			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceGroups,
+				queryKey: pathosQueryKeys.workspaceGroups,
 			}),
 		]);
 	}, [displayedWorkspaceId, queryClient]);
@@ -412,7 +412,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 		if (threadSessionId) {
 			await queryClient.invalidateQueries({
 				queryKey: [
-					...helmorQueryKeys.sessionMessages(threadSessionId),
+					...pathosQueryKeys.sessionMessages(threadSessionId),
 					"thread",
 				],
 			});
@@ -431,14 +431,14 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			}
 
 			queryClient.setQueryData(
-				helmorQueryKeys.workspaceSessions(displayedWorkspaceId),
+				pathosQueryKeys.workspaceSessions(displayedWorkspaceId),
 				(current: typeof sessions | undefined) =>
 					(current ?? []).map((session) =>
 						session.id === sessionId ? { ...session, title } : session,
 					),
 			);
 			queryClient.setQueryData(
-				helmorQueryKeys.workspaceDetail(displayedWorkspaceId),
+				pathosQueryKeys.workspaceDetail(displayedWorkspaceId),
 				(current: typeof workspace | undefined) => {
 					if (!current || current.activeSessionId !== sessionId) {
 						return current;

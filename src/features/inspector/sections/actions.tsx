@@ -42,7 +42,7 @@ import {
 } from "@/lib/api";
 import { buildComposerPreviewPayload } from "@/lib/composer-insert";
 import {
-	helmorQueryKeys,
+	pathosQueryKeys,
 	workspaceForgeActionStatusQueryOptions,
 	workspaceForgeQueryOptions,
 	workspaceGitActionStatusQueryOptions,
@@ -350,19 +350,19 @@ function useWorkspaceActionsModel({
 		} finally {
 			await Promise.all([
 				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceGitActionStatus(workspaceId),
+					queryKey: pathosQueryKeys.workspaceGitActionStatus(workspaceId),
 				}),
 				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId),
+					queryKey: pathosQueryKeys.workspaceChangeRequest(workspaceId),
 				}),
 				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceForgeActionStatus(workspaceId),
+					queryKey: pathosQueryKeys.workspaceForgeActionStatus(workspaceId),
 				}),
 				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
+					queryKey: pathosQueryKeys.workspaceDetail(workspaceId),
 				}),
 				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceGroups,
+					queryKey: pathosQueryKeys.workspaceGroups,
 				}),
 				queryClient.invalidateQueries({ queryKey: ["workspaceChanges"] }),
 			]);

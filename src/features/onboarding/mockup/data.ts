@@ -213,19 +213,19 @@ export const mockConversation: {
 				{
 					type: "tool",
 					name: "Bash",
-					detail: "helmor session new helmor  # DB",
+					detail: "pathos session new pathos  # DB",
 					cliSplitTarget: true,
 				},
 				{
 					type: "tool",
 					name: "Bash",
-					detail: "helmor session new helmor  # backend",
+					detail: "pathos session new pathos  # backend",
 					cliSplitTarget: true,
 				},
 				{
 					type: "tool",
 					name: "Bash",
-					detail: "helmor session new helmor  # frontend",
+					detail: "pathos session new pathos  # frontend",
 					cliSplitTarget: true,
 				},
 				{

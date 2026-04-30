@@ -1,4 +1,4 @@
-//! `helmor repo` — repository management.
+//! `pathos repo` — repository management.
 
 use anyhow::Result;
 

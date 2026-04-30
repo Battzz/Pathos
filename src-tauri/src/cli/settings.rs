@@ -1,4 +1,4 @@
-//! `helmor settings` — read/write entries in the `settings` table.
+//! `pathos settings` — read/write entries in the `settings` table.
 
 use std::collections::BTreeMap;
 

@@ -1,6 +1,6 @@
 {
-	"name": "@helmor/marketing",
-	"description": "Helmor marketing site.",
+	"name": "@pathos/marketing",
+	"description": "Pathos marketing site.",
 	"private": true,
 	"version": "0.0.0",
 	"type": "module",

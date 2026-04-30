@@ -19,7 +19,7 @@ pub struct WorkspaceRecord {
     pub directory_name: String,
     /// `Project`: this workspace IS the imported folder; sessions in it
     /// render as "chats" and the agent operates on `root_path` directly.
-    /// `Workspace`: a branched git worktree under the helmor data dir.
+    /// `Workspace`: a branched git worktree under the pathos data dir.
     pub kind: WorkspaceKind,
     pub state: WorkspaceState,
     pub has_unread: bool,

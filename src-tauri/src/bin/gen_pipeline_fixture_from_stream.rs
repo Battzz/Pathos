@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use helmor_lib::pipeline::types::HistoricalRecord;
-use helmor_lib::pipeline::MessagePipeline;
+use pathos_lib::pipeline::types::HistoricalRecord;
+use pathos_lib::pipeline::MessagePipeline;
 use serde::Serialize;
 use serde_json::Value;
 

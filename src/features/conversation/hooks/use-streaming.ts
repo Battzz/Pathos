@@ -37,7 +37,7 @@ import type { ComposerCustomTag } from "@/lib/composer-insert";
 import { extractError, isRecoverableByPurge } from "@/lib/errors";
 import {
 	agentModelSectionsQueryOptions,
-	helmorQueryKeys,
+	pathosQueryKeys,
 	sessionThreadMessagesQueryOptions,
 } from "@/lib/query-client";
 import { resolveGeneralPreferencePrefix } from "@/lib/repo-preferences-prompts";
@@ -210,7 +210,7 @@ export function useConversationStreaming({
 	const seedSessionTitle = useCallback(
 		(sessionId: string, workspaceId: string | null, title: string) => {
 			queryClient.setQueryData(
-				helmorQueryKeys.workspaceSessions(workspaceId ?? "__none__"),
+				pathosQueryKeys.workspaceSessions(workspaceId ?? "__none__"),
 				(current: Array<Record<string, unknown>> | undefined) =>
 					(current ?? []).map((session) =>
 						session.id === sessionId ? { ...session, title } : session,
@@ -218,7 +218,7 @@ export function useConversationStreaming({
 			);
 			if (workspaceId) {
 				queryClient.setQueryData(
-					helmorQueryKeys.workspaceDetail(workspaceId),
+					pathosQueryKeys.workspaceDetail(workspaceId),
 					(current: Record<string, unknown> | undefined) => {
 						if (!current || current.activeSessionId !== sessionId) {
 							return current;
@@ -230,7 +230,7 @@ export function useConversationStreaming({
 					},
 				);
 				queryClient.setQueryData(
-					helmorQueryKeys.workspaceGroups,
+					pathosQueryKeys.workspaceGroups,
 					(current: Array<Record<string, unknown>> | undefined) =>
 						(current ?? []).map((group) => ({
 							...group,
@@ -247,7 +247,7 @@ export function useConversationStreaming({
 						})),
 				);
 				queryClient.setQueryData<RepositoryFolder[] | undefined>(
-					helmorQueryKeys.repositoryFolders,
+					pathosQueryKeys.repositoryFolders,
 					(current) =>
 						current?.map((folder) => ({
 							...folder,
@@ -297,7 +297,7 @@ export function useConversationStreaming({
 			}
 
 			queryClient.setQueryData(
-				helmorQueryKeys.workspaceSessions(workspaceId),
+				pathosQueryKeys.workspaceSessions(workspaceId),
 				(current: Array<Record<string, unknown>> | undefined) =>
 					(current ?? []).map((candidate) =>
 						candidate.id === sessionId
@@ -310,7 +310,7 @@ export function useConversationStreaming({
 					),
 			);
 			queryClient.setQueryData(
-				helmorQueryKeys.workspaceDetail(workspaceId),
+				pathosQueryKeys.workspaceDetail(workspaceId),
 				(current: Record<string, unknown> | undefined) => {
 					if (!current || current.activeSessionId !== sessionId) {
 						return current;
@@ -325,7 +325,7 @@ export function useConversationStreaming({
 
 			let inserted = false;
 			queryClient.setQueryData<RepositoryFolder[] | undefined>(
-				helmorQueryKeys.repositoryFolders,
+				pathosQueryKeys.repositoryFolders,
 				(current) =>
 					current?.map((folder) => {
 						const belongsToFolder =
@@ -394,7 +394,7 @@ export function useConversationStreaming({
 	const removeOptimisticProjectChat = useCallback(
 		(sessionId: string) => {
 			queryClient.setQueryData<RepositoryFolder[] | undefined>(
-				helmorQueryKeys.repositoryFolders,
+				pathosQueryKeys.repositoryFolders,
 				(current) =>
 					current?.map((folder) => ({
 						...folder,
@@ -655,7 +655,7 @@ export function useConversationStreaming({
 				return next;
 			});
 			respondToPermissionRequest(permissionId, behavior, options).catch((err) =>
-				console.error("[helmor] permission response:", err),
+				console.error("[pathos] permission response:", err),
 			);
 		},
 		[composerContextKey],
@@ -694,17 +694,17 @@ export function useConversationStreaming({
 		async (workspaceId: string | null, sessionId: string | null) => {
 			const invalidations: Promise<unknown>[] = [
 				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceGroups,
+					queryKey: pathosQueryKeys.workspaceGroups,
 				}),
 			];
 
 			if (workspaceId) {
 				invalidations.push(
 					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
+						queryKey: pathosQueryKeys.workspaceDetail(workspaceId),
 					}),
 					queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceSessions(workspaceId),
+						queryKey: pathosQueryKeys.workspaceSessions(workspaceId),
 					}),
 				);
 			}
@@ -712,7 +712,7 @@ export function useConversationStreaming({
 			if (sessionId) {
 				invalidations.push(
 					queryClient.invalidateQueries({
-						queryKey: [...helmorQueryKeys.sessionMessages(sessionId), "thread"],
+						queryKey: [...pathosQueryKeys.sessionMessages(sessionId), "thread"],
 					}),
 				);
 			}
@@ -950,7 +950,7 @@ export function useConversationStreaming({
 						prompt: "",
 						resumeOnly: true,
 						sessionId: deferred.providerSessionId,
-						helmorSessionId: displayedSessionId,
+						pathosSessionId: displayedSessionId,
 						workingDirectory: deferred.workingDirectory,
 						permissionMode: deferred.permissionMode,
 					},
@@ -1333,7 +1333,7 @@ export function useConversationStreaming({
 			const currentThread = readSessionThread(queryClient, cacheSessionId);
 			const currentSessions = targetWorkspaceId
 				? queryClient.getQueryData<Array<Record<string, unknown>>>(
-						helmorQueryKeys.workspaceSessions(targetWorkspaceId),
+						pathosQueryKeys.workspaceSessions(targetWorkspaceId),
 					)
 				: undefined;
 			const currentSession = currentSessions?.find(
@@ -1428,18 +1428,18 @@ export function useConversationStreaming({
 						if (result?.title || result?.branchRenamed) {
 							void Promise.all([
 								queryClient.invalidateQueries({
-									queryKey: helmorQueryKeys.workspaceGroups,
+									queryKey: pathosQueryKeys.workspaceGroups,
 								}),
 								targetWorkspaceId
 									? queryClient.invalidateQueries({
 											queryKey:
-												helmorQueryKeys.workspaceSessions(targetWorkspaceId),
+												pathosQueryKeys.workspaceSessions(targetWorkspaceId),
 										})
 									: undefined,
 								targetWorkspaceId
 									? queryClient.invalidateQueries({
 											queryKey:
-												helmorQueryKeys.workspaceDetail(targetWorkspaceId),
+												pathosQueryKeys.workspaceDetail(targetWorkspaceId),
 										})
 									: undefined,
 							]);
@@ -1502,7 +1502,7 @@ export function useConversationStreaming({
 						prompt: trimmedPrompt,
 						promptPrefix,
 						sessionId: providerSessionId,
-						helmorSessionId: targetSessionId,
+						pathosSessionId: targetSessionId,
 						workingDirectory,
 						effortLevel,
 						permissionMode,

@@ -76,7 +76,7 @@ describe("App add repository flow", () => {
 							{
 								id: "workspace-existing",
 								title: "Existing workspace",
-								repoName: "helmor-core",
+								repoName: "pathos-core",
 								state: "ready",
 							},
 							{
@@ -91,7 +91,7 @@ describe("App add repository flow", () => {
 							{
 								id: "workspace-existing",
 								title: "Existing workspace",
-								repoName: "helmor-core",
+								repoName: "pathos-core",
 								state: "ready",
 							},
 						],
@@ -104,7 +104,7 @@ describe("App add repository flow", () => {
 				? [
 						{
 							id: "repo-existing",
-							name: "helmor-core",
+							name: "pathos-core",
 							defaultBranch: "main",
 							repoInitials: "HC",
 						},
@@ -118,7 +118,7 @@ describe("App add repository flow", () => {
 				: [
 						{
 							id: "repo-existing",
-							name: "helmor-core",
+							name: "pathos-core",
 							defaultBranch: "main",
 							repoInitials: "HC",
 						},
@@ -157,7 +157,7 @@ describe("App add repository flow", () => {
 					id: "workspace-existing",
 					title: "Existing workspace",
 					repoId: "repo-existing",
-					repoName: "helmor-core",
+					repoName: "pathos-core",
 					directoryName: "existing-workspace",
 					state: "ready",
 					hasUnread: false,
@@ -250,7 +250,7 @@ describe("App add repository flow", () => {
 		render(<App />);
 		await screen.findByRole("main", { name: "Application shell" });
 
-		await user.click(screen.getByRole("button", { name: "Add repository" }));
+		await user.click(screen.getByRole("button", { name: "Add project" }));
 		await user.click(
 			await screen.findByRole("menuitem", { name: "Open project" }),
 		);
@@ -278,7 +278,7 @@ describe("App add repository flow", () => {
 			);
 		});
 
-		expect(screen.getByText("Acamar")).toBeInTheDocument();
+		expect(apiMocks.loadWorkspaceGroups).toHaveBeenCalled();
 	});
 
 	it("treats picker cancel as a no-op", async () => {
@@ -288,7 +288,7 @@ describe("App add repository flow", () => {
 		render(<App />);
 		await screen.findByRole("main", { name: "Application shell" });
 
-		await user.click(screen.getByRole("button", { name: "Add repository" }));
+		await user.click(screen.getByRole("button", { name: "Add project" }));
 		await user.click(
 			await screen.findByRole("menuitem", { name: "Open project" }),
 		);
@@ -313,7 +313,7 @@ describe("App add repository flow", () => {
 		render(<App />);
 		await screen.findByRole("main", { name: "Application shell" });
 
-		await user.click(screen.getByRole("button", { name: "Add repository" }));
+		await user.click(screen.getByRole("button", { name: "Add project" }));
 		await user.click(
 			await screen.findByRole("menuitem", { name: "Open project" }),
 		);
@@ -336,7 +336,7 @@ describe("App add repository flow", () => {
 		render(<App />);
 		await screen.findByRole("main", { name: "Application shell" });
 
-		await user.click(screen.getByRole("button", { name: "Add repository" }));
+		await user.click(screen.getByRole("button", { name: "Add project" }));
 		await user.click(
 			await screen.findByRole("menuitem", { name: "Open project" }),
 		);

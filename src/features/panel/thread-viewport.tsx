@@ -15,7 +15,7 @@ import { useStickToBottom } from "use-stick-to-bottom";
 import { AsciiLoader } from "@/components/ascii-loader";
 import { Button } from "@/components/ui/button";
 import type { ThreadMessageLike } from "@/lib/api";
-import { HelmorProfiler } from "@/lib/dev-react-profiler";
+import { PathosProfiler } from "@/lib/dev-react-profiler";
 import { estimateThreadRowHeights } from "@/lib/message-layout-estimator";
 import { measureSync } from "@/lib/perf-marks";
 import { hasUnresolvedPlanReview } from "@/lib/plan-review";
@@ -250,7 +250,7 @@ function ChatThread({
 	);
 
 	return (
-		<HelmorProfiler id="ChatThread">
+		<PathosProfiler id="ChatThread">
 			<ConversationViewport
 				contentRef={contentRef}
 				data={threadMessages}
@@ -286,7 +286,7 @@ function ChatThread({
 					<ArrowDown className="size-4" strokeWidth={2} />
 				</Button>
 			</ConversationViewport>
-		</HelmorProfiler>
+		</PathosProfiler>
 	);
 }
 

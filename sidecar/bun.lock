@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@helmor/sidecar",
+      "name": "@pathos/sidecar",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "0.2.111",
         "@anthropic-ai/claude-code": "2.1.111",

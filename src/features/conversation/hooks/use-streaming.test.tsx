@@ -9,7 +9,7 @@ import type {
 	ThreadMessageLike,
 	ToolCallPart,
 } from "@/lib/api";
-import { helmorQueryKeys } from "@/lib/query-client";
+import { pathosQueryKeys } from "@/lib/query-client";
 import { sessionThreadCacheKey } from "@/lib/session-thread-cache";
 import type {
 	QueuedSubmitContext,
@@ -73,7 +73,7 @@ function createDeferredTool(): PendingDeferredTool {
 		modelId: "opus-1m",
 		resolvedModel: "opus-1m",
 		providerSessionId: "provider-session-1",
-		workingDirectory: "/tmp/helmor",
+		workingDirectory: "/tmp/pathos",
 		permissionMode: "default",
 		toolUseId: "tool-1",
 		toolName: "AskUserQuestion",
@@ -89,7 +89,7 @@ function createPendingElicitation(): PendingElicitation {
 		modelId: "opus-1m",
 		resolvedModel: "opus-1m",
 		providerSessionId: "provider-session-1",
-		workingDirectory: "/tmp/helmor",
+		workingDirectory: "/tmp/pathos",
 		elicitationId: "elicitation-1",
 		serverName: "design-server",
 		message: "Need structured input",
@@ -235,7 +235,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -292,7 +292,7 @@ describe("useConversationStreaming", () => {
 		expect(getLastInteractionSnapshot(interactionSnapshots)).toEqual(new Map());
 	});
 
-	it("uses the Helmor session id when stopping a resumed deferred stream", async () => {
+	it("uses the Pathos session id when stopping a resumed deferred stream", async () => {
 		apiMocks.startAgentMessageStream.mockImplementation(
 			async (_payload: unknown, _onEvent: (event: unknown) => void) => {
 				return undefined;
@@ -327,7 +327,7 @@ describe("useConversationStreaming", () => {
 				modelId: "opus-1m",
 				resumeOnly: true,
 				sessionId: "provider-session-1",
-				helmorSessionId: "session-1",
+				pathosSessionId: "session-1",
 			}),
 			expect.any(Function),
 		);
@@ -375,7 +375,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "plan",
 				fastMode: false,
@@ -414,7 +414,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "plan",
 				fastMode: false,
@@ -434,7 +434,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "bypassPermissions",
 				fastMode: false,
@@ -478,7 +478,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -495,7 +495,7 @@ describe("useConversationStreaming", () => {
 				filePaths: ["src/foo.ts"],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -519,7 +519,7 @@ describe("useConversationStreaming", () => {
 		apiMocks.startAgentMessageStream.mockImplementation(async () => {});
 
 		const { Wrapper, queryClient } = createWrapper();
-		queryClient.setQueryData(helmorQueryKeys.workspaceSessions("workspace-1"), [
+		queryClient.setQueryData(pathosQueryKeys.workspaceSessions("workspace-1"), [
 			{
 				id: "session-1",
 				title: "Untitled",
@@ -602,7 +602,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -619,7 +619,7 @@ describe("useConversationStreaming", () => {
 				filePaths: ["src/foo.ts"],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -642,7 +642,7 @@ describe("useConversationStreaming", () => {
 		apiMocks.startAgentMessageStream.mockImplementation(async () => {});
 
 		const { Wrapper, queryClient } = createWrapper();
-		queryClient.setQueryData(helmorQueryKeys.workspaceSessions("workspace-1"), [
+		queryClient.setQueryData(pathosQueryKeys.workspaceSessions("workspace-1"), [
 			{
 				id: "session-1",
 				workspaceId: "workspace-1",
@@ -663,18 +663,18 @@ describe("useConversationStreaming", () => {
 				active: true,
 			},
 		]);
-		queryClient.setQueryData(helmorQueryKeys.workspaceDetail("workspace-1"), {
+		queryClient.setQueryData(pathosQueryKeys.workspaceDetail("workspace-1"), {
 			id: "workspace-1",
 			title: "Workspace 1",
 			repoId: "repo-1",
-			repoName: "helmor",
+			repoName: "pathos",
 			repoIconSrc: null,
 			repoInitials: "HE",
 			remote: "origin",
 			remoteUrl: null,
 			defaultBranch: "main",
-			rootPath: "/tmp/helmor",
-			directoryName: "helmor",
+			rootPath: "/tmp/pathos",
+			directoryName: "pathos",
 			state: "ready",
 			hasUnread: false,
 			workspaceUnread: 0,
@@ -693,7 +693,7 @@ describe("useConversationStreaming", () => {
 			sessionCount: 1,
 			messageCount: 0,
 		});
-		queryClient.setQueryData(helmorQueryKeys.workspaceGroups, [
+		queryClient.setQueryData(pathosQueryKeys.workspaceGroups, [
 			{
 				id: "progress",
 				label: "In progress",
@@ -702,7 +702,7 @@ describe("useConversationStreaming", () => {
 					{
 						id: "workspace-1",
 						title: "Workspace 1",
-						repoName: "helmor",
+						repoName: "pathos",
 						repoInitials: "HE",
 						state: "ready",
 						hasUnread: false,
@@ -721,13 +721,13 @@ describe("useConversationStreaming", () => {
 				],
 			},
 		]);
-		queryClient.setQueryData(helmorQueryKeys.repositoryFolders, [
+		queryClient.setQueryData(pathosQueryKeys.repositoryFolders, [
 			{
 				repoId: "repo-1",
-				repoName: "helmor",
+				repoName: "pathos",
 				repoIconSrc: null,
 				repoInitials: "HE",
-				rootPath: "/tmp/helmor",
+				rootPath: "/tmp/pathos",
 				defaultBranch: "main",
 				isGit: true,
 				chats: [
@@ -768,7 +768,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -786,17 +786,17 @@ describe("useConversationStreaming", () => {
 		);
 		expect(
 			queryClient.getQueryData<Array<{ title: string }>>(
-				helmorQueryKeys.workspaceSessions("workspace-1"),
+				pathosQueryKeys.workspaceSessions("workspace-1"),
 			)?.[0]?.title,
 		).toBe("Investigate reconnect failures af...");
 		expect(
 			queryClient.getQueryData<
 				Array<{ rows: Array<{ activeSessionTitle: string }> }>
-			>(helmorQueryKeys.workspaceGroups)?.[0]?.rows[0]?.activeSessionTitle,
+			>(pathosQueryKeys.workspaceGroups)?.[0]?.rows[0]?.activeSessionTitle,
 		).toBe("Investigate reconnect failures af...");
 		expect(
 			queryClient.getQueryData<Array<{ chats: Array<{ title: string }> }>>(
-				helmorQueryKeys.repositoryFolders,
+				pathosQueryKeys.repositoryFolders,
 			)?.[0]?.chats[0]?.title,
 		).toBe("Investigate reconnect failures af...");
 	});
@@ -805,7 +805,7 @@ describe("useConversationStreaming", () => {
 		apiMocks.startAgentMessageStream.mockImplementation(async () => {});
 
 		const { Wrapper, queryClient } = createWrapper();
-		queryClient.setQueryData(helmorQueryKeys.workspaceSessions("workspace-1"), [
+		queryClient.setQueryData(pathosQueryKeys.workspaceSessions("workspace-1"), [
 			{
 				id: "session-1",
 				workspaceId: "workspace-1",
@@ -827,13 +827,13 @@ describe("useConversationStreaming", () => {
 				active: true,
 			},
 		]);
-		queryClient.setQueryData(helmorQueryKeys.repositoryFolders, [
+		queryClient.setQueryData(pathosQueryKeys.repositoryFolders, [
 			{
 				repoId: "repo-1",
-				repoName: "helmor",
+				repoName: "pathos",
 				repoIconSrc: null,
 				repoInitials: "HE",
-				rootPath: "/tmp/helmor",
+				rootPath: "/tmp/pathos",
 				defaultBranch: "main",
 				isGit: true,
 				chats: [],
@@ -863,7 +863,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -872,7 +872,7 @@ describe("useConversationStreaming", () => {
 
 		const chat = queryClient.getQueryData<
 			Array<{ chats: Array<{ agentType: string | null; title: string }> }>
-		>(helmorQueryKeys.repositoryFolders)?.[0]?.chats[0];
+		>(pathosQueryKeys.repositoryFolders)?.[0]?.chats[0];
 
 		expect(chat).toMatchObject({
 			agentType: "codex",
@@ -914,7 +914,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -928,7 +928,7 @@ describe("useConversationStreaming", () => {
 				modelId: "",
 				resolvedModel: "opus-1m",
 				sessionId: "provider-session-1",
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				elicitationId: "elicitation-1",
 				serverName: "design-server",
 				message: "Need structured input",
@@ -1003,7 +1003,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -1102,7 +1102,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -1156,7 +1156,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -1242,7 +1242,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -1269,7 +1269,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -1310,7 +1310,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: false,
@@ -1367,7 +1367,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: true,
@@ -1423,7 +1423,7 @@ describe("useConversationStreaming", () => {
 				modelId: MODEL.id,
 				resolvedModel: MODEL.cliModel,
 				sessionId: "provider-session-1",
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				persisted: false,
 			});
 		});
@@ -1463,7 +1463,7 @@ describe("useConversationStreaming", () => {
 				filePaths: [],
 				customTags: [],
 				model: MODEL,
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				effortLevel: "medium",
 				permissionMode: "default",
 				fastMode: true,
@@ -1479,7 +1479,7 @@ describe("useConversationStreaming", () => {
 				modelId: MODEL.id,
 				resolvedModel: MODEL.cliModel,
 				sessionId: "provider-session-1",
-				workingDirectory: "/tmp/helmor",
+				workingDirectory: "/tmp/pathos",
 				persisted: false,
 			});
 		});
@@ -1509,14 +1509,14 @@ describe("useConversationStreaming", () => {
 			await result.current.handleElicitationResponse(
 				createPendingElicitation(),
 				"accept",
-				{ name: "Helmor" },
+				{ name: "Pathos" },
 			);
 		});
 
 		expect(apiMocks.respondToElicitationRequest).toHaveBeenCalledWith(
 			"elicitation-1",
 			"accept",
-			{ name: "Helmor" },
+			{ name: "Pathos" },
 		);
 		expect(result.current.pendingElicitation).toBeNull();
 		expect(result.current.isSending).toBe(true);
@@ -1647,7 +1647,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -1664,7 +1664,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -1716,7 +1716,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -1731,7 +1731,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -1747,7 +1747,7 @@ describe("useConversationStreaming", () => {
 					modelId: MODEL.id,
 					resolvedModel: MODEL.cliModel,
 					sessionId: "provider-session-1",
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					persisted: false,
 				});
 			});
@@ -1778,7 +1778,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -1841,7 +1841,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -1856,7 +1856,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -1914,7 +1914,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -1928,7 +1928,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -1951,7 +1951,7 @@ describe("useConversationStreaming", () => {
 					modelId: MODEL.id,
 					resolvedModel: MODEL.cliModel,
 					sessionId: "provider-session-A",
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					persisted: false,
 				});
 			});
@@ -1963,13 +1963,13 @@ describe("useConversationStreaming", () => {
 			expect(queue.snapshot().has("session-A")).toBe(false);
 			expect(queue.snapshot().has("session-B")).toBe(false);
 			// The drained submit targeted session A (NOT B, which is
-			// currently displayed) — verified via the helmorSessionId
+			// currently displayed) — verified via the pathosSessionId
 			// passed to the second `startAgentMessageStream` call.
 			expect(apiMocks.startAgentMessageStream).toHaveBeenCalledTimes(2);
 			const drainedPayload = apiMocks.startAgentMessageStream.mock
-				.calls[1][0] as { prompt: string; helmorSessionId: string };
+				.calls[1][0] as { prompt: string; pathosSessionId: string };
 			expect(drainedPayload.prompt).toBe("A follow-up");
-			expect(drainedPayload.helmorSessionId).toBe("session-A");
+			expect(drainedPayload.pathosSessionId).toBe("session-A");
 		});
 
 		it("forceQueue bypasses followUpBehavior='steer' and always queues", async () => {
@@ -2006,7 +2006,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -2022,7 +2022,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -2070,7 +2070,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -2085,7 +2085,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -2130,7 +2130,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -2145,7 +2145,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -2186,7 +2186,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -2201,7 +2201,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -2254,7 +2254,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -2267,7 +2267,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -2327,7 +2327,7 @@ describe("useConversationStreaming", () => {
 						filePaths: [],
 						customTags: [],
 						model: MODEL,
-						workingDirectory: "/tmp/helmor",
+						workingDirectory: "/tmp/pathos",
 						effortLevel: "medium",
 						permissionMode: "default",
 						fastMode: false,
@@ -2347,10 +2347,10 @@ describe("useConversationStreaming", () => {
 			expect(apiMocks.startAgentMessageStream).toHaveBeenCalledTimes(1);
 			const firstCall = apiMocks.startAgentMessageStream.mock.calls[0][0] as {
 				prompt: string;
-				helmorSessionId: string;
+				pathosSessionId: string;
 			};
 			expect(firstCall.prompt).toContain("Orphan");
-			expect(firstCall.helmorSessionId).toBe("session-1");
+			expect(firstCall.pathosSessionId).toBe("session-1");
 			expect(queue.snapshot().has("session-1")).toBe(false);
 		});
 
@@ -2386,7 +2386,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -2401,7 +2401,7 @@ describe("useConversationStreaming", () => {
 						filePaths: [],
 						customTags: [],
 						model: MODEL,
-						workingDirectory: "/tmp/helmor",
+						workingDirectory: "/tmp/pathos",
 						effortLevel: "medium",
 						permissionMode: "default",
 						fastMode: false,
@@ -2418,7 +2418,7 @@ describe("useConversationStreaming", () => {
 					modelId: MODEL.id,
 					resolvedModel: MODEL.cliModel,
 					sessionId: "provider-session-1",
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					persisted: false,
 				});
 			});
@@ -2436,7 +2436,7 @@ describe("useConversationStreaming", () => {
 					modelId: MODEL.id,
 					resolvedModel: MODEL.cliModel,
 					sessionId: "provider-session-1",
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					persisted: false,
 				});
 			});
@@ -2481,7 +2481,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,
@@ -2494,7 +2494,7 @@ describe("useConversationStreaming", () => {
 					filePaths: [],
 					customTags: [],
 					model: MODEL,
-					workingDirectory: "/tmp/helmor",
+					workingDirectory: "/tmp/pathos",
 					effortLevel: "medium",
 					permissionMode: "default",
 					fastMode: false,

@@ -1,4 +1,4 @@
-//! `helmor session` — session CRUD and thread messages.
+//! `pathos session` — session CRUD and thread messages.
 
 use anyhow::Result;
 use rusqlite::params;

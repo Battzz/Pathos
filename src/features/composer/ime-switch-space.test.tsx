@@ -14,7 +14,7 @@
  *   - W3C UI Events says nothing normative about IME-switch interruption.
  *   - Chromium typically fires `compositionend` with `event.data` = the raw
  *     buffer (including the IME's segmentation spaces).
- *   - WebKit (Helmor's Tauri target) sometimes does not fire `compositionend`
+ *   - WebKit (Pathos's Tauri target) sometimes does not fire `compositionend`
  *     at all and lets the text arrive only through `input` events
  *     (WebKit bug 164369).
  *   - Firefox sometimes leaves the widget stuck in composing mode forever
@@ -58,8 +58,9 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { AgentModelSection } from "@/lib/api";
-import { createHelmorQueryClient } from "@/lib/query-client";
+import { createPathosQueryClient } from "@/lib/query-client";
 
 vi.mock("@tauri-apps/api/core", () => ({
 	invoke: vi.fn(),
@@ -135,28 +136,30 @@ const MODEL_SECTIONS = [
 ] satisfies AgentModelSection[];
 
 function renderComposer() {
-	const queryClient = createHelmorQueryClient();
+	const queryClient = createPathosQueryClient();
 	return render(
-		<QueryClientProvider client={queryClient}>
-			<WorkspaceComposer
-				contextKey="session:ime-switch-test"
-				onSubmit={vi.fn()}
-				disabled={false}
-				submitDisabled={false}
-				sending={false}
-				selectedModelId="opus-1m"
-				modelSections={MODEL_SECTIONS}
-				onSelectModel={vi.fn()}
-				provider="claude"
-				effortLevel="high"
-				onSelectEffort={vi.fn()}
-				permissionMode="acceptEdits"
-				onChangePermissionMode={vi.fn()}
-				restoreImages={[]}
-				restoreFiles={[]}
-				restoreCustomTags={[]}
-			/>
-		</QueryClientProvider>,
+		<TooltipProvider delayDuration={0}>
+			<QueryClientProvider client={queryClient}>
+				<WorkspaceComposer
+					contextKey="session:ime-switch-test"
+					onSubmit={vi.fn()}
+					disabled={false}
+					submitDisabled={false}
+					sending={false}
+					selectedModelId="opus-1m"
+					modelSections={MODEL_SECTIONS}
+					onSelectModel={vi.fn()}
+					provider="claude"
+					effortLevel="high"
+					onSelectEffort={vi.fn()}
+					permissionMode="acceptEdits"
+					onChangePermissionMode={vi.fn()}
+					restoreImages={[]}
+					restoreFiles={[]}
+					restoreCustomTags={[]}
+				/>
+			</QueryClientProvider>
+		</TooltipProvider>,
 	);
 }
 

@@ -7,11 +7,12 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { PendingDeferredTool } from "@/features/conversation/pending-deferred-tool";
 import type { PendingElicitation } from "@/features/conversation/pending-elicitation";
-import { createHelmorQueryClient } from "@/lib/query-client";
+import { createPathosQueryClient } from "@/lib/query-client";
 import { getComposerDraftStorageKey } from "./draft-storage";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -28,6 +29,23 @@ const openerMocks = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
 	openUrl: openerMocks.openUrl,
+}));
+
+vi.mock("@/components/ui/tooltip", () => ({
+	Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+	TooltipContent: ({ children }: { children: React.ReactNode }) => (
+		<div>{children}</div>
+	),
+	TooltipProvider: ({ children }: { children: React.ReactNode }) => (
+		<>{children}</>
+	),
+	TooltipTrigger: ({
+		children,
+		asChild,
+	}: {
+		children: React.ReactNode;
+		asChild?: boolean;
+	}) => (asChild ? <>{children}</> : <span>{children}</span>),
 }));
 
 vi.mock("./composer-editor/plugins/file-mention-plugin", () => ({
@@ -77,7 +95,7 @@ function createAskUserQuestionDeferredTool(): PendingDeferredTool {
 		modelId: "opus-1m",
 		resolvedModel: "opus-1m",
 		providerSessionId: "provider-session-1",
-		workingDirectory: "/tmp/helmor",
+		workingDirectory: "/tmp/pathos",
 		permissionMode: "default",
 		toolUseId: "tool-ask-1",
 		toolName: "AskUserQuestion",
@@ -127,7 +145,7 @@ function createGenericDeferredTool(): PendingDeferredTool {
 		modelId: "opus-1m",
 		resolvedModel: "opus-1m",
 		providerSessionId: "provider-session-1",
-		workingDirectory: "/tmp/helmor",
+		workingDirectory: "/tmp/pathos",
 		permissionMode: "default",
 		toolUseId: "tool-generic-1",
 		toolName: "Bash",
@@ -143,7 +161,7 @@ function createFormElicitation(): PendingElicitation {
 		modelId: "opus-1m",
 		resolvedModel: "opus-1m",
 		providerSessionId: "provider-session-1",
-		workingDirectory: "/tmp/helmor",
+		workingDirectory: "/tmp/pathos",
 		elicitationId: "elicitation-form-1",
 		serverName: "design-server",
 		message: "Tell the MCP server what to do next.",
@@ -172,7 +190,7 @@ function createUrlElicitation(): PendingElicitation {
 		modelId: "opus-1m",
 		resolvedModel: "opus-1m",
 		providerSessionId: "provider-session-1",
-		workingDirectory: "/tmp/helmor",
+		workingDirectory: "/tmp/pathos",
 		elicitationId: "elicitation-url-1",
 		serverName: "auth-server",
 		message: "Finish sign-in in the browser.",
@@ -188,7 +206,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("renders custom tag insertions as badges and expands them on submit", async () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const handleSubmit = vi.fn();
 		const handleConsumed = vi.fn();
 
@@ -257,7 +275,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("persists drafts to localStorage and restores them after remount", async () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const handleSubmit = vi.fn();
 		const storageKey = getComposerDraftStorageKey("session:session-restore");
 		const { unmount } = render(
@@ -339,7 +357,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("clears persisted drafts after submit", async () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const handleSubmit = vi.fn();
 		const contextKey = "session:session-send";
 		const storageKey = getComposerDraftStorageKey(contextKey);
@@ -408,7 +426,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("does not rehydrate the active draft when restore props change in-place", async () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const storageKey = getComposerDraftStorageKey("session:session-stable");
 		window.localStorage.setItem(
 			storageKey,
@@ -507,7 +525,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("does not rehydrate stale local drafts on same-context rerenders", async () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const contextKey = "session:session-rerender";
 		const storageKey = getComposerDraftStorageKey(contextKey);
 		window.localStorage.setItem(
@@ -607,7 +625,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("only renders fast mode controls for supported models", () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const { rerender } = render(
 			<TooltipProvider delayDuration={0}>
 				<QueryClientProvider client={queryClient}>
@@ -700,7 +718,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("renders the fast mode lottie overlay only during the fast prelude", () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 
 		render(
 			<TooltipProvider delayDuration={0}>
@@ -742,7 +760,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("does not render the fast mode lottie overlay when fast mode is only toggled on", () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 
 		render(
 			<TooltipProvider delayDuration={0}>
@@ -782,7 +800,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("only dims the fast mode lightning icon when disabled", () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 
 		render(
 			<TooltipProvider delayDuration={0}>
@@ -823,7 +841,7 @@ describe("WorkspaceComposer", () => {
 
 	it("shows a hover preview for inserted image badges", async () => {
 		const user = userEvent.setup();
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 
 		render(
 			<QueryClientProvider client={queryClient}>
@@ -869,7 +887,7 @@ describe("WorkspaceComposer", () => {
 
 	it("shows a code preview for inserted custom tag badges", async () => {
 		const user = userEvent.setup();
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 
 		render(
 			<QueryClientProvider client={queryClient}>
@@ -928,7 +946,7 @@ describe("WorkspaceComposer", () => {
 
 	it("collects AskUserQuestion answers into updatedInput and resumes via allow", async () => {
 		const user = userEvent.setup();
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const handleDeferredToolResponse = vi.fn();
 
 		render(
@@ -1005,7 +1023,7 @@ describe("WorkspaceComposer", () => {
 
 	it("keeps deferred tool approval buttons enabled while the stream is paused for approval", async () => {
 		const user = userEvent.setup();
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const handleDeferredToolResponse = vi.fn();
 
 		render(
@@ -1054,7 +1072,7 @@ describe("WorkspaceComposer", () => {
 
 	it("edits custom AskUserQuestion answers inline inside the Other row", async () => {
 		const user = userEvent.setup();
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 
 		render(
 			<QueryClientProvider client={queryClient}>
@@ -1100,7 +1118,7 @@ describe("WorkspaceComposer", () => {
 
 	it("renders a form elicitation panel and submits structured content", async () => {
 		const user = userEvent.setup();
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const onElicitationResponse = vi.fn();
 
 		render(
@@ -1141,7 +1159,7 @@ describe("WorkspaceComposer", () => {
 
 		await user.type(
 			screen.getByPlaceholderText("Project name"),
-			"Helmor Elicitation",
+			"Pathos Elicitation",
 		);
 		expect(
 			screen.getByRole("button", { name: "Send Response" }),
@@ -1156,13 +1174,13 @@ describe("WorkspaceComposer", () => {
 		expect(onElicitationResponse).toHaveBeenCalledWith(
 			expect.objectContaining({ elicitationId: "elicitation-form-1" }),
 			"accept",
-			{ approved: true, name: "Helmor Elicitation" },
+			{ approved: true, name: "Pathos Elicitation" },
 		);
 	});
 
 	it("opens and copies URL elicitation links through the shared panel shell", async () => {
 		const user = userEvent.setup();
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const onElicitationResponse = vi.fn();
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		Object.defineProperty(navigator, "clipboard", {
@@ -1217,7 +1235,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("shows Approve and Request Changes buttons when ExitPlanMode permission is pending", () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 
 		render(
 			<QueryClientProvider client={queryClient}>
@@ -1255,7 +1273,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("calls onSubmit with bypassPermissions when Implement is clicked", async () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const onSubmit = vi.fn();
 
 		render(
@@ -1294,7 +1312,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("disables Request Changes when input is empty", () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 
 		render(
 			<QueryClientProvider client={queryClient}>
@@ -1326,7 +1344,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("shows plan review placeholder when plan is captured", () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 
 		render(
 			<QueryClientProvider client={queryClient}>
@@ -1356,7 +1374,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("keeps plan review controls visible while plan review is active", async () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const onChangePermissionMode = vi.fn();
 
 		render(
@@ -1396,7 +1414,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("switches permission mode and submits when Implement is clicked", async () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const onChangePermissionMode = vi.fn();
 		const onSubmit = vi.fn();
 
@@ -1437,7 +1455,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("shows normal Send button when hasPlanReview but permissionMode is not plan", () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 
 		render(
 			<QueryClientProvider client={queryClient}>
@@ -1473,7 +1491,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("shows normal placeholder when hasPlanReview but permissionMode is not plan", () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 
 		render(
 			<QueryClientProvider client={queryClient}>
@@ -1506,7 +1524,7 @@ describe("WorkspaceComposer", () => {
 	});
 
 	it("plan toggle button is freely clickable during plan review", async () => {
-		const queryClient = createHelmorQueryClient();
+		const queryClient = createPathosQueryClient();
 		const onChangePermissionMode = vi.fn();
 
 		render(

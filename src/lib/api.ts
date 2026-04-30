@@ -147,7 +147,7 @@ export type AgentSendRequest = {
 	promptPrefix?: string | null;
 	resumeOnly?: boolean | null;
 	sessionId?: string | null;
-	helmorSessionId?: string | null;
+	pathosSessionId?: string | null;
 	workingDirectory?: string | null;
 	effortLevel?: string | null;
 	permissionMode?: string | null;
@@ -349,7 +349,7 @@ export type AddRepositoryResponse = {
  * - `project`: the imported folder itself. Lazily created the first
  *   time the user starts a chat. Sessions in a project workspace
  *   render as "chats" in the sidebar.
- * - `workspace`: a branched git worktree under the helmor data dir.
+ * - `workspace`: a branched git worktree under the pathos data dir.
  *   The historical workspace concept.
  */
 export type WorkspaceKind = "project" | "workspace";
@@ -751,19 +751,19 @@ export async function getCliStatus(): Promise<CliStatus> {
 	return await invoke<CliStatus>("get_cli_status");
 }
 
-export type HelmorSkillsStatus = {
+export type PathosSkillsStatus = {
 	installed: boolean;
 	claude: boolean;
 	codex: boolean;
 	command: string;
 };
 
-export async function getHelmorSkillsStatus(): Promise<HelmorSkillsStatus> {
+export async function getPathosSkillsStatus(): Promise<PathosSkillsStatus> {
 	try {
-		return await invoke<HelmorSkillsStatus>("get_helmor_skills_status");
+		return await invoke<PathosSkillsStatus>("get_pathos_skills_status");
 	} catch (error) {
 		throw new Error(
-			describeInvokeError(error, "Unable to load Helmor skills status."),
+			describeInvokeError(error, "Unable to load Pathos skills status."),
 		);
 	}
 }
@@ -802,12 +802,12 @@ export async function installCli(): Promise<CliStatus> {
 	return await invoke<CliStatus>("install_cli");
 }
 
-export async function installHelmorSkills(): Promise<HelmorSkillsStatus> {
+export async function installPathosSkills(): Promise<PathosSkillsStatus> {
 	try {
-		return await invoke<HelmorSkillsStatus>("install_helmor_skills");
+		return await invoke<PathosSkillsStatus>("install_pathos_skills");
 	} catch (error) {
 		throw new Error(
-			describeInvokeError(error, "Unable to install Helmor skills."),
+			describeInvokeError(error, "Unable to install Pathos skills."),
 		);
 	}
 }
@@ -1754,7 +1754,7 @@ export type PendingCliSend = {
 
 /**
  * Atomically read and delete all pending CLI sends. Called on window focus
- * so the App can stream prompts that `helmor send` queued while the CLI
+ * so the App can stream prompts that `pathos send` queued while the CLI
  * detected the App was running.
  */
 export async function drainPendingCliSends(): Promise<PendingCliSend[]> {
@@ -2552,9 +2552,9 @@ export type ScriptEvent =
 
 /**
  * Resolve repo scripts using a fixed priority (enforced in Rust):
- *   1. Workspace worktree `helmor.json` (when `workspaceId` is given AND
+ *   1. Workspace worktree `pathos.json` (when `workspaceId` is given AND
  *      the worktree exists on disk)
- *   2. Source repo root `helmor.json` (fallback for any missing workspace
+ *   2. Source repo root `pathos.json` (fallback for any missing workspace
  *      / worktree — archived, broken, or caller with no workspace context)
  *   3. DB-level override (Settings UI edit)
  *

@@ -52,7 +52,7 @@ pub(super) fn parse_codex_output(
 pub(super) fn resolve_working_directory(provided: Option<&str>) -> Result<PathBuf> {
     if let Some(path) = non_empty(provided) {
         let directory = PathBuf::from(path);
-        // Provided path MUST exist — silently falling back to the helmor
+        // Provided path MUST exist — silently falling back to the pathos
         // process's cwd would spawn the agent CLI in `/` (or the app bundle)
         // and pollute session_messages with nonsense output. Tag the error
         // with `WorkspaceBroken` so the frontend can offer "Permanently
@@ -100,7 +100,7 @@ pub(super) fn resolve_resume_working_directory(session_id: &str) -> Result<Optio
 
     if kind == "project" {
         // Project workspaces operate on the imported folder directly —
-        // there's no worktree under the helmor data dir. Fall through to
+        // there's no worktree under the pathos data dir. Fall through to
         // None when the repo row has no `root_path` (legacy / corrupt
         // data) so the caller's process cwd remains the fallback.
         return Ok(root_path.map(PathBuf::from));

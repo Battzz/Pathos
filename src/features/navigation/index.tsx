@@ -81,9 +81,9 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 
 	useEffect(() => {
 		const handler = () => setIsAddMenuOpen(true);
-		window.addEventListener("helmor:open-add-repository", handler);
+		window.addEventListener("pathos:open-add-repository", handler);
 		return () =>
-			window.removeEventListener("helmor:open-add-repository", handler);
+			window.removeEventListener("pathos:open-add-repository", handler);
 	}, []);
 
 	const addBusy = Boolean(addingRepository);
