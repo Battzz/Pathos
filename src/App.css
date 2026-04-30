@@ -44,6 +44,15 @@ body,
 body {
 	min-height: 100vh;
 	background-color: var(--background);
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.conversation-markdown,
+.conversation-body-text,
+.conversation-streamdown {
+	user-select: text;
+	-webkit-user-select: text;
 }
 
 .conversation-scroll-viewport {

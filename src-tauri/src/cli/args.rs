@@ -76,7 +76,7 @@ pub enum Commands {
         #[command(subcommand)]
         action: GithubAction,
     },
-    /// Inspect repo-level setup/run/archive scripts.
+    /// Inspect repo-level setup/run scripts.
     Scripts {
         #[command(subcommand)]
         action: ScriptsAction,
@@ -166,7 +166,7 @@ pub enum RepoAction {
         #[arg(name = "ref")]
         repo_ref: String,
     },
-    /// Show saved setup/run/archive scripts for a repository.
+    /// Show saved setup/run scripts for a repository.
     Scripts {
         #[arg(name = "ref")]
         repo_ref: String,
@@ -183,8 +183,6 @@ pub enum RepoAction {
         setup: Option<String>,
         #[arg(long)]
         run: Option<String>,
-        #[arg(long)]
-        archive: Option<String>,
         /// Clear a script back to NULL (repeatable).
         #[arg(long, value_name = "KIND")]
         clear: Vec<String>,
@@ -633,7 +631,7 @@ pub enum GithubPrAction {
 
 #[derive(Subcommand)]
 pub enum ScriptsAction {
-    /// Show effective setup/run/archive scripts.
+    /// Show effective setup/run scripts.
     Show {
         #[arg(name = "ref")]
         repo_ref: String,

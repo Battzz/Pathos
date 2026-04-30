@@ -20,6 +20,15 @@ export const defaultInvokeHandlers: Record<string, InvokeHandler> = {
 			tokenExpiresAt: null,
 			refreshTokenExpiresAt: null,
 		},
+		accounts: [
+			{
+				githubUserId: 0,
+				login: "test",
+				name: "Test User",
+				avatarUrl: null,
+				primaryEmail: null,
+			},
+		],
 	}),
 	get_github_cli_status: () => ({
 		status: "ready",

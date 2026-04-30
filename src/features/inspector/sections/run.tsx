@@ -33,7 +33,7 @@ type RunTabProps = {
 	workspaceId: string | null;
 	runScript: string | null;
 	isActive: boolean;
-	onOpenSettings: () => void;
+	onOpenSettings: (initialSection?: string) => void;
 	onStatusChange?: (status: ScriptStatus) => void;
 	onUrlsChange?: (urls: string[]) => void;
 };
@@ -299,7 +299,9 @@ export function RunTab({
 						variant="outline"
 						size="sm"
 						className="gap-1.5 text-[12px]"
-						onClick={onOpenSettings}
+						onClick={() =>
+							onOpenSettings(repoId ? `repo:${repoId}` : undefined)
+						}
 					>
 						<Settings2 className="size-3.5" strokeWidth={1.8} />
 						Add run script

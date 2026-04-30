@@ -432,11 +432,9 @@ function ScriptsSection({
 	const data = scriptsQuery.data;
 	const setupLocked = data?.setupFromProject ?? false;
 	const runLocked = data?.runFromProject ?? false;
-	const archiveLocked = data?.archiveFromProject ?? false;
 
 	const [setupScript, setSetupScript] = useState("");
 	const [runScript, setRunScript] = useState("");
-	const [archiveScript, setArchiveScript] = useState("");
 	const [autoRunSetup, setAutoRunSetup] = useState(false);
 	const initialized = useRef(false);
 
@@ -444,15 +442,13 @@ function ScriptsSection({
 		if (!data) return;
 		const shouldSyncSetup = setupLocked || !initialized.current;
 		const shouldSyncRun = runLocked || !initialized.current;
-		const shouldSyncArchive = archiveLocked || !initialized.current;
 		if (shouldSyncSetup) setSetupScript(data.setupScript ?? "");
 		if (shouldSyncRun) setRunScript(data.runScript ?? "");
-		if (shouldSyncArchive) setArchiveScript(data.archiveScript ?? "");
 		if (!initialized.current) setAutoRunSetup(data.autoRunSetup);
-		if (!setupLocked && !runLocked && !archiveLocked) {
+		if (!setupLocked && !runLocked) {
 			initialized.current = true;
 		}
-	}, [data, setupLocked, runLocked, archiveLocked]);
+	}, [data, setupLocked, runLocked]);
 
 	// Reset when switching repos.
 	useEffect(() => {
@@ -462,14 +458,13 @@ function ScriptsSection({
 	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	const save = useCallback(
-		(nextSetup: string, nextRun: string, nextArchive: string) => {
+		(nextSetup: string, nextRun: string) => {
 			if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 			saveTimerRef.current = setTimeout(() => {
 				void updateRepoScripts(
 					repoId,
 					nextSetup.trim() || null,
 					nextRun.trim() || null,
-					nextArchive.trim() || null,
 				).then(() => {
 					void queryClient.invalidateQueries({
 						queryKey: ["repoScripts", repoId],
@@ -484,27 +479,18 @@ function ScriptsSection({
 		(e: React.ChangeEvent<HTMLTextAreaElement>) => {
 			const value = e.target.value;
 			setSetupScript(value);
-			save(value, runScript, archiveScript);
+			save(value, runScript);
 		},
-		[runScript, archiveScript, save],
+		[runScript, save],
 	);
 
 	const handleRunChange = useCallback(
 		(e: React.ChangeEvent<HTMLTextAreaElement>) => {
 			const value = e.target.value;
 			setRunScript(value);
-			save(setupScript, value, archiveScript);
+			save(setupScript, value);
 		},
-		[setupScript, archiveScript, save],
-	);
-
-	const handleArchiveChange = useCallback(
-		(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-			const value = e.target.value;
-			setArchiveScript(value);
-			save(setupScript, runScript, value);
-		},
-		[setupScript, runScript, save],
+		[setupScript, save],
 	);
 
 	const handleAutoRunSetupChange = useCallback(
@@ -527,7 +513,7 @@ function ScriptsSection({
 				Scripts
 			</div>
 			<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
-				Commands that run when workspaces are set up, run, or archived.
+				Commands that run when workspaces are set up or run.
 			</div>
 
 			<div className="mt-4 space-y-4">
@@ -576,15 +562,6 @@ function ScriptsSection({
 					locked={runLocked}
 					lockedMessage="Set by this workspace's pathos.json — edit it there"
 					onChange={handleRunChange}
-				/>
-				<ScriptField
-					label="Archive script"
-					description="Runs when a workspace is archived"
-					placeholder="e.g., docker compose down"
-					value={archiveScript}
-					locked={archiveLocked}
-					lockedMessage="Set by this workspace's pathos.json — edit it there"
-					onChange={handleArchiveChange}
 				/>
 			</div>
 		</div>

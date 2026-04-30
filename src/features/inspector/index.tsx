@@ -57,7 +57,7 @@ type WorkspaceInspectorSidebarProps = {
 	 * the forge action status — drives the git-header shimmer. Owned by App.
 	 */
 	forgeIsRefreshing?: boolean;
-	onOpenSettings?: () => void;
+	onOpenSettings?: (initialSection?: string) => void;
 };
 
 export function WorkspaceInspectorSidebar({
@@ -332,19 +332,11 @@ export function WorkspaceInspectorSidebar({
 		setActiveTab("setup");
 	}, [activeTab, terminalInstances, setActiveTab]);
 
-	// Only allow hover-to-zoom when the active tab has real terminal output.
-	// "idle" = script configured but never run; "no-script" = nothing to run.
-	// In both cases the body is a placeholder (Run / Open-settings button)
-	// that doesn't benefit from — and shouldn't trigger — the enlargement.
-	const scriptTabState =
-		activeTab === "setup" ? setupScriptState : runScriptState;
-	const canHoverExpand = isTerminalTabActive
-		? true
-		: scriptTabState === "running" ||
-			scriptTabState === "success" ||
-			scriptTabState === "failure";
+	// Hover-to-zoom is disabled — the panel only resizes via the chevron
+	// toggle and the manual resize handle.
+	const canHoverExpand = false;
 
-	const handleOpenSettings = onOpenSettings ?? (() => {});
+	const handleOpenSettings = onOpenSettings ?? ((_section?: string) => {});
 
 	return (
 		<div

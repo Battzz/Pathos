@@ -49,7 +49,7 @@ const AssistantText = memo(function AssistantText({
 
 	return (
 		<div
-			className="conversation-markdown assistant-markdown-scale max-w-none break-words text-foreground"
+			className="conversation-markdown assistant-markdown-scale max-w-none select-text break-words text-foreground"
 			style={{ fontSize: `${settings.fontSize}px` }}
 		>
 			<Suspense fallback={<AssistantTextFallback text={text} />}>
@@ -69,7 +69,7 @@ const AssistantText = memo(function AssistantText({
 
 function AssistantTextFallback({ text }: { text: string }) {
 	return (
-		<div className="conversation-streamdown whitespace-pre-wrap break-words">
+		<div className="conversation-streamdown select-text whitespace-pre-wrap break-words">
 			{text}
 		</div>
 	);

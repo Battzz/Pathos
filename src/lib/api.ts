@@ -217,8 +217,20 @@ export type GithubIdentitySession = {
 	refreshTokenExpiresAt?: string | null;
 };
 
+export type GithubIdentityAccount = {
+	githubUserId: number;
+	login: string;
+	name?: string | null;
+	avatarUrl?: string | null;
+	primaryEmail?: string | null;
+};
+
 export type GithubIdentitySnapshot =
-	| { status: "connected"; session: GithubIdentitySession }
+	| {
+			status: "connected";
+			session: GithubIdentitySession;
+			accounts: GithubIdentityAccount[];
+	  }
 	| { status: "disconnected" }
 	| { status: "unconfigured"; message: string }
 	| { status: "error"; message: string };
@@ -585,6 +597,14 @@ export async function cancelGithubIdentityConnect(): Promise<void> {
 
 export async function disconnectGithubIdentity(): Promise<void> {
 	await invoke("disconnect_github_identity");
+}
+
+export async function switchGithubIdentityAccount(
+	githubUserId: number,
+): Promise<GithubIdentitySnapshot> {
+	return invoke<GithubIdentitySnapshot>("switch_github_identity_account", {
+		githubUserId,
+	});
 }
 
 export async function listenGithubIdentityChanged(
@@ -2527,10 +2547,8 @@ export async function loadHiddenSessions(
 export type RepoScripts = {
 	setupScript?: string | null;
 	runScript?: string | null;
-	archiveScript?: string | null;
 	setupFromProject: boolean;
 	runFromProject: boolean;
-	archiveFromProject: boolean;
 	/** Auto-run the setup script on workspace creation. Defaults to true. */
 	autoRunSetup: boolean;
 };
@@ -2559,7 +2577,7 @@ export type ScriptEvent =
  *   3. DB-level override (Settings UI edit)
  *
  * Pass `workspaceId` when you have a specific workspace context (runtime
- * panel, inspector, script execution, archive hook). Omit for contexts
+ * panel, inspector, script execution). Omit for contexts
  * that only care about the repo's defaults (Settings page editing a repo
  * that isn't the current workspace's repo).
  */
@@ -2577,13 +2595,11 @@ export async function updateRepoScripts(
 	repoId: string,
 	setupScript: string | null,
 	runScript: string | null,
-	archiveScript: string | null,
 ): Promise<void> {
 	await invoke("update_repo_scripts", {
 		repoId,
 		setupScript,
 		runScript,
-		archiveScript,
 	});
 }
 

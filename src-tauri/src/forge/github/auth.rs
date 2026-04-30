@@ -4,6 +4,7 @@ use reqwest::blocking::Client;
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -14,6 +15,9 @@ use crate::settings;
 
 const GITHUB_IDENTITY_META_KEY: &str = "github_identity_meta";
 const DEV_IDENTITY_SECRET_KEY: &str = "github_identity_secret";
+const GITHUB_IDENTITY_ACCOUNTS_META_KEY: &str = "github_identity_accounts_meta";
+const GITHUB_IDENTITY_ACTIVE_USER_ID_KEY: &str = "github_identity_active_user_id";
+const DEV_IDENTITY_SECRETS_KEY: &str = "github_identity_secrets";
 const DEVICE_FLOW_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const REFRESH_GRANT_TYPE: &str = "refresh_token";
 const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
@@ -52,13 +56,30 @@ pub struct GithubIdentitySession {
     pub refresh_token_expires_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubIdentityAccount {
+    pub github_user_id: i64,
+    pub login: String,
+    pub name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub primary_email: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum GithubIdentitySnapshot {
-    Connected { session: GithubIdentitySession },
+    Connected {
+        session: GithubIdentitySession,
+        accounts: Vec<GithubIdentityAccount>,
+    },
     Disconnected,
-    Unconfigured { message: String },
-    Error { message: String },
+    Unconfigured {
+        message: String,
+    },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -174,9 +195,11 @@ struct OAuthTokenSuccess {
 }
 
 trait SecretStore {
-    fn load(&self) -> Result<Option<StoredIdentitySecret>>;
-    fn save(&self, secret: &StoredIdentitySecret) -> Result<()>;
-    fn delete(&self) -> Result<()>;
+    fn load_for(&self, github_user_id: i64) -> Result<Option<StoredIdentitySecret>>;
+    fn save_for(&self, github_user_id: i64, secret: &StoredIdentitySecret) -> Result<()>;
+    fn delete_for(&self, github_user_id: i64) -> Result<()>;
+    fn load_legacy(&self) -> Result<Option<StoredIdentitySecret>>;
+    fn delete_legacy(&self) -> Result<()>;
 }
 
 trait GithubHttpClient {
@@ -243,15 +266,26 @@ pub fn disconnect_github_identity(
 ) -> Result<()> {
     let secret_store = active_secret_store();
     runtime.cancel_current_flow();
-    clear_stored_identity(&secret_store)?;
-    emit_github_identity_snapshot(&app, &GithubIdentitySnapshot::Disconnected)
+    remove_active_identity(&secret_store)?;
+    emit_current_github_identity_snapshot(&app)
 }
 
 /// CLI-friendly disconnect that skips the Tauri event emit. Used by
 /// `pathos github auth logout` where no `AppHandle` is available.
 pub fn disconnect_github_identity_headless() -> Result<()> {
     let secret_store = active_secret_store();
-    clear_stored_identity(&secret_store)
+    remove_active_identity(&secret_store)
+}
+
+pub fn switch_github_identity_account(
+    app: AppHandle,
+    github_user_id: i64,
+) -> Result<GithubIdentitySnapshot> {
+    let secret_store = active_secret_store();
+    switch_github_identity_account_with(&secret_store, github_user_id)?;
+    let snapshot = get_github_identity_session()?;
+    emit_github_identity_snapshot(&app, &snapshot)?;
+    Ok(snapshot)
 }
 
 /// Load the currently-valid GitHub access token, refreshing it on the fly if
@@ -266,7 +300,7 @@ pub(crate) fn load_valid_github_access_token() -> Result<Option<String>> {
         return Ok(None);
     };
     let secret_store = active_secret_store();
-    let Some((_meta, mut secret)) = load_stored_identity(&secret_store)? else {
+    let Some((_meta, mut secret)) = load_active_identity(&secret_store)? else {
         tracing::debug!("No stored GitHub identity; access token unavailable");
         return Ok(None);
     };
@@ -281,7 +315,7 @@ pub(crate) fn load_valid_github_access_token() -> Result<Option<String>> {
             has_refresh_token = secret.refresh_token.is_some(),
             "GitHub refresh token expired/missing; clearing stored identity"
         );
-        clear_stored_identity(&secret_store)?;
+        remove_active_identity(&secret_store)?;
         return Ok(None);
     }
 
@@ -300,7 +334,7 @@ pub(crate) fn load_valid_github_access_token() -> Result<Option<String>> {
                 error = %format!("{error:#}"),
                 "GitHub OAuth refresh failed; clearing stored identity (load_valid_github_access_token)"
             );
-            clear_stored_identity(&secret_store)?;
+            remove_active_identity(&secret_store)?;
             return Ok(None);
         }
     };
@@ -312,11 +346,11 @@ pub(crate) fn load_valid_github_access_token() -> Result<Option<String>> {
 
     // Persist the refreshed secret so subsequent calls don't have to refresh
     // again within the same session.
-    let Some((mut meta, _)) = load_stored_identity(&secret_store)? else {
+    let Some((mut meta, _)) = load_active_identity(&secret_store)? else {
         return Ok(Some(secret.access_token));
     };
     sync_meta_expiry_fields(&mut meta, &secret);
-    save_stored_identity(&meta, &secret, &secret_store)?;
+    save_identity_account(&meta, &secret, &secret_store)?;
 
     Ok(Some(secret.access_token))
 }
@@ -334,7 +368,7 @@ fn get_github_identity_session_with(
         });
     };
 
-    let stored = load_stored_identity(secret_store)?;
+    let stored = load_active_identity(secret_store)?;
     let Some((mut meta, mut secret)) = stored else {
         tracing::debug!("No stored GitHub identity");
         return Ok(GithubIdentitySnapshot::Disconnected);
@@ -342,9 +376,11 @@ fn get_github_identity_session_with(
 
     if !is_expired(secret.access_token_expires_at.as_deref()) {
         sync_meta_expiry_fields(&mut meta, &secret);
+        save_identity_account(&meta, &secret, secret_store)?;
         tracing::debug!(login = %meta.login, "GitHub identity loaded from cache (token still fresh)");
         return Ok(GithubIdentitySnapshot::Connected {
             session: meta.into_session(),
+            accounts: load_identity_accounts()?,
         });
     }
 
@@ -355,7 +391,7 @@ fn get_github_identity_session_with(
             has_refresh_token = secret.refresh_token.is_some(),
             "GitHub refresh token expired/missing; clearing stored identity"
         );
-        clear_stored_identity(secret_store)?;
+        remove_active_identity(secret_store)?;
         return Ok(GithubIdentitySnapshot::Disconnected);
     }
 
@@ -377,7 +413,7 @@ fn get_github_identity_session_with(
                 error = %format!("{error:#}"),
                 "GitHub OAuth refresh failed; clearing stored identity (network blip indistinguishable from invalid_grant)"
             );
-            clear_stored_identity(secret_store)?;
+            remove_active_identity(secret_store)?;
             return Ok(GithubIdentitySnapshot::Disconnected);
         }
     };
@@ -388,11 +424,12 @@ fn get_github_identity_session_with(
     secret.refresh_token_expires_at = refreshed.refresh_token_expires_at;
 
     sync_meta_expiry_fields(&mut meta, &secret);
-    save_stored_identity(&meta, &secret, secret_store)?;
+    save_identity_account(&meta, &secret, secret_store)?;
 
     tracing::info!(login = %meta.login, "GitHub access token refreshed successfully");
     Ok(GithubIdentitySnapshot::Connected {
         session: meta.into_session(),
+        accounts: load_identity_accounts()?,
     })
 }
 
@@ -486,7 +523,7 @@ fn spawn_identity_poll_loop(
                         return;
                     }
 
-                    if let Err(error) = save_stored_identity(&meta, &secret, &secret_store) {
+                    if let Err(error) = save_identity_account(&meta, &secret, &secret_store) {
                         if !runtime.is_current_flow(generation) {
                             return;
                         }
@@ -519,6 +556,7 @@ fn spawn_identity_poll_loop(
                         &app,
                         &GithubIdentitySnapshot::Connected {
                             session: meta.into_session(),
+                            accounts: load_identity_accounts().unwrap_or_default(),
                         },
                     );
                     return;
@@ -573,6 +611,11 @@ fn emit_github_identity_snapshot(app: &AppHandle, snapshot: &GithubIdentitySnaps
         .context("Failed to emit github-identity-changed event")
 }
 
+fn emit_current_github_identity_snapshot(app: &AppHandle) -> Result<()> {
+    let snapshot = get_github_identity_session()?;
+    emit_github_identity_snapshot(app, &snapshot)
+}
+
 #[cfg(test)]
 fn poll_github_identity_connect_with(
     client_id: Option<&str>,
@@ -586,7 +629,7 @@ fn poll_github_identity_connect_with(
         }
         DeviceFlowPollOutcome::Connected { meta, secret } => {
             let session = meta.clone().into_session();
-            save_stored_identity(&meta, &secret, secret_store)?;
+            save_identity_account(&meta, &secret, secret_store)?;
 
             Ok(GithubIdentityConnectPollResult::Connected { session })
         }
@@ -661,41 +704,164 @@ fn poll_github_identity_connect_outcome(
     }
 }
 
-fn save_stored_identity(
+fn save_identity_account(
     meta: &GithubIdentityMeta,
     secret: &StoredIdentitySecret,
     secret_store: &impl SecretStore,
 ) -> Result<()> {
-    settings::upsert_setting_json(GITHUB_IDENTITY_META_KEY, meta)?;
-    secret_store.save(secret)?;
+    let mut metas = load_identity_metas()?;
+    metas.retain(|existing| existing.github_user_id != meta.github_user_id);
+    metas.push(meta.clone());
+    metas.sort_by(|a, b| a.login.to_lowercase().cmp(&b.login.to_lowercase()));
+    save_identity_metas(&metas)?;
+    settings::upsert_setting_value(
+        GITHUB_IDENTITY_ACTIVE_USER_ID_KEY,
+        &meta.github_user_id.to_string(),
+    )?;
+    secret_store.save_for(meta.github_user_id, secret)?;
+    cleanup_legacy_identity(secret_store)?;
     Ok(())
 }
 
-fn load_stored_identity(
+fn load_active_identity(
     secret_store: &impl SecretStore,
 ) -> Result<Option<(GithubIdentityMeta, StoredIdentitySecret)>> {
-    let meta = settings::load_setting_json::<GithubIdentityMeta>(GITHUB_IDENTITY_META_KEY)?;
-    let secret = secret_store.load()?;
+    let metas = load_identity_metas()?;
+    let Some(meta) = select_active_meta(&metas)? else {
+        cleanup_legacy_identity(secret_store)?;
+        return Ok(None);
+    };
 
-    match (meta, secret) {
-        (None, None) => Ok(None),
-        (Some(meta), Some(secret)) => Ok(Some((meta, secret))),
-        _ => {
-            clear_stored_identity(secret_store)?;
-            Ok(None)
-        }
+    if let Some(secret) = secret_store.load_for(meta.github_user_id)? {
+        return Ok(Some((meta, secret)));
     }
+
+    if let Some(legacy_secret) = secret_store.load_legacy()? {
+        save_identity_account(&meta, &legacy_secret, secret_store)?;
+        return Ok(Some((meta, legacy_secret)));
+    }
+
+    remove_identity_by_user_id(secret_store, meta.github_user_id)?;
+    Ok(None)
 }
 
+fn remove_active_identity(secret_store: &impl SecretStore) -> Result<()> {
+    let metas = load_identity_metas()?;
+    let Some(active) = select_active_meta(&metas)? else {
+        cleanup_legacy_identity(secret_store)?;
+        return Ok(());
+    };
+    remove_identity_by_user_id(secret_store, active.github_user_id)
+}
+
+fn remove_identity_by_user_id(secret_store: &impl SecretStore, github_user_id: i64) -> Result<()> {
+    let mut metas = load_identity_metas()?;
+    metas.retain(|meta| meta.github_user_id != github_user_id);
+    secret_store.delete_for(github_user_id)?;
+    save_identity_metas(&metas)?;
+
+    let active = load_active_user_id()?;
+    if active == Some(github_user_id) {
+        if let Some(next) = metas.first() {
+            settings::upsert_setting_value(
+                GITHUB_IDENTITY_ACTIVE_USER_ID_KEY,
+                &next.github_user_id.to_string(),
+            )?;
+        } else {
+            settings::delete_setting_value(GITHUB_IDENTITY_ACTIVE_USER_ID_KEY)?;
+        }
+    }
+
+    cleanup_legacy_identity(secret_store)
+}
+
+#[cfg(test)]
 fn clear_stored_identity(secret_store: &impl SecretStore) -> Result<()> {
+    for meta in load_identity_metas()? {
+        secret_store.delete_for(meta.github_user_id)?;
+    }
+    settings::delete_setting_value(GITHUB_IDENTITY_ACCOUNTS_META_KEY)?;
+    settings::delete_setting_value(GITHUB_IDENTITY_ACTIVE_USER_ID_KEY)?;
     settings::delete_setting_value(GITHUB_IDENTITY_META_KEY)?;
-    secret_store.delete()?;
+    secret_store.delete_legacy()?;
     Ok(())
 }
 
 fn sync_meta_expiry_fields(meta: &mut GithubIdentityMeta, secret: &StoredIdentitySecret) {
     meta.token_expires_at = secret.access_token_expires_at.clone();
     meta.refresh_token_expires_at = secret.refresh_token_expires_at.clone();
+}
+
+fn switch_github_identity_account_with(
+    secret_store: &impl SecretStore,
+    github_user_id: i64,
+) -> Result<()> {
+    let metas = load_identity_metas()?;
+    let has_meta = metas
+        .iter()
+        .any(|meta| meta.github_user_id == github_user_id);
+    if !has_meta {
+        return Err(anyhow!("GitHub account is not connected."));
+    }
+    if secret_store.load_for(github_user_id)?.is_none() {
+        return Err(anyhow!("GitHub account secret is missing."));
+    }
+    settings::upsert_setting_value(
+        GITHUB_IDENTITY_ACTIVE_USER_ID_KEY,
+        &github_user_id.to_string(),
+    )
+}
+
+fn load_identity_accounts() -> Result<Vec<GithubIdentityAccount>> {
+    Ok(load_identity_metas()?
+        .into_iter()
+        .map(GithubIdentityMeta::into_account)
+        .collect())
+}
+
+fn load_identity_metas() -> Result<Vec<GithubIdentityMeta>> {
+    if let Some(metas) =
+        settings::load_setting_json::<Vec<GithubIdentityMeta>>(GITHUB_IDENTITY_ACCOUNTS_META_KEY)?
+    {
+        return Ok(metas);
+    }
+
+    Ok(
+        settings::load_setting_json::<GithubIdentityMeta>(GITHUB_IDENTITY_META_KEY)?
+            .into_iter()
+            .collect(),
+    )
+}
+
+fn save_identity_metas(metas: &[GithubIdentityMeta]) -> Result<()> {
+    if metas.is_empty() {
+        settings::delete_setting_value(GITHUB_IDENTITY_ACCOUNTS_META_KEY)?;
+    } else {
+        settings::upsert_setting_json(GITHUB_IDENTITY_ACCOUNTS_META_KEY, &metas)?;
+    }
+    Ok(())
+}
+
+fn select_active_meta(metas: &[GithubIdentityMeta]) -> Result<Option<GithubIdentityMeta>> {
+    let Some(first) = metas.first() else {
+        return Ok(None);
+    };
+    let active_user_id = load_active_user_id()?;
+    Ok(active_user_id
+        .and_then(|id| metas.iter().find(|meta| meta.github_user_id == id).cloned())
+        .or_else(|| Some(first.clone())))
+}
+
+fn load_active_user_id() -> Result<Option<i64>> {
+    let Some(value) = settings::load_setting_value(GITHUB_IDENTITY_ACTIVE_USER_ID_KEY)? else {
+        return Ok(None);
+    };
+    Ok(value.parse::<i64>().ok())
+}
+
+fn cleanup_legacy_identity(secret_store: &impl SecretStore) -> Result<()> {
+    settings::delete_setting_value(GITHUB_IDENTITY_META_KEY)?;
+    secret_store.delete_legacy()
 }
 
 fn github_client_id() -> Option<&'static str> {
@@ -737,19 +903,46 @@ fn default_oauth_error_message(code: &str) -> &'static str {
 struct DevSettingsSecretStore;
 
 impl SecretStore for DevSettingsSecretStore {
-    fn load(&self) -> Result<Option<StoredIdentitySecret>> {
+    fn load_for(&self, github_user_id: i64) -> Result<Option<StoredIdentitySecret>> {
+        Ok(load_secret_map()?.remove(&github_user_id.to_string()))
+    }
+
+    fn save_for(&self, github_user_id: i64, secret: &StoredIdentitySecret) -> Result<()> {
+        let mut secrets = load_secret_map()?;
+        secrets.insert(github_user_id.to_string(), secret.clone());
+        save_secret_map(&secrets)
+    }
+
+    fn delete_for(&self, github_user_id: i64) -> Result<()> {
+        let mut secrets = load_secret_map()?;
+        secrets.remove(&github_user_id.to_string());
+        save_secret_map(&secrets)
+    }
+
+    fn load_legacy(&self) -> Result<Option<StoredIdentitySecret>> {
         settings::load_setting_json::<StoredIdentitySecret>(DEV_IDENTITY_SECRET_KEY)
             .context("Failed to load GitHub identity secret from development settings")
     }
 
-    fn save(&self, secret: &StoredIdentitySecret) -> Result<()> {
-        settings::upsert_setting_json(DEV_IDENTITY_SECRET_KEY, secret)
-            .context("Failed to save GitHub identity secret to development settings")
-    }
-
-    fn delete(&self) -> Result<()> {
+    fn delete_legacy(&self) -> Result<()> {
         settings::delete_setting_value(DEV_IDENTITY_SECRET_KEY)
             .context("Failed to delete GitHub identity secret from development settings")
+    }
+}
+
+fn load_secret_map() -> Result<BTreeMap<String, StoredIdentitySecret>> {
+    settings::load_setting_json::<BTreeMap<String, StoredIdentitySecret>>(DEV_IDENTITY_SECRETS_KEY)
+        .map(|value| value.unwrap_or_default())
+        .context("Failed to load GitHub identity secrets from development settings")
+}
+
+fn save_secret_map(secrets: &BTreeMap<String, StoredIdentitySecret>) -> Result<()> {
+    if secrets.is_empty() {
+        settings::delete_setting_value(DEV_IDENTITY_SECRETS_KEY)
+            .context("Failed to delete GitHub identity secrets from development settings")
+    } else {
+        settings::upsert_setting_json(DEV_IDENTITY_SECRETS_KEY, secrets)
+            .context("Failed to save GitHub identity secrets to development settings")
     }
 }
 
@@ -906,6 +1099,16 @@ impl GithubHttpClient for ReqwestGithubClient {
 }
 
 impl GithubIdentityMeta {
+    fn into_account(self) -> GithubIdentityAccount {
+        GithubIdentityAccount {
+            github_user_id: self.github_user_id,
+            login: self.login,
+            name: self.name,
+            avatar_url: self.avatar_url,
+            primary_email: self.primary_email,
+        }
+    }
+
     fn into_session(self) -> GithubIdentitySession {
         GithubIdentitySession {
             provider: self.provider,
@@ -955,24 +1158,42 @@ mod tests {
 
     #[derive(Default)]
     struct MockSecretStore {
-        secret: RefCell<Option<StoredIdentitySecret>>,
+        secrets: RefCell<BTreeMap<String, StoredIdentitySecret>>,
+        legacy_secret: RefCell<Option<StoredIdentitySecret>>,
         deleted: RefCell<bool>,
     }
 
     impl SecretStore for MockSecretStore {
-        fn load(&self) -> Result<Option<StoredIdentitySecret>> {
-            Ok(self.secret.borrow().clone())
+        fn load_for(&self, github_user_id: i64) -> Result<Option<StoredIdentitySecret>> {
+            Ok(self
+                .secrets
+                .borrow()
+                .get(&github_user_id.to_string())
+                .cloned())
         }
 
-        fn save(&self, secret: &StoredIdentitySecret) -> Result<()> {
-            *self.secret.borrow_mut() = Some(secret.clone());
+        fn save_for(&self, github_user_id: i64, secret: &StoredIdentitySecret) -> Result<()> {
+            self.secrets
+                .borrow_mut()
+                .insert(github_user_id.to_string(), secret.clone());
             *self.deleted.borrow_mut() = false;
             Ok(())
         }
 
-        fn delete(&self) -> Result<()> {
-            *self.secret.borrow_mut() = None;
+        fn delete_for(&self, github_user_id: i64) -> Result<()> {
+            self.secrets
+                .borrow_mut()
+                .remove(&github_user_id.to_string());
             *self.deleted.borrow_mut() = true;
+            Ok(())
+        }
+
+        fn load_legacy(&self) -> Result<Option<StoredIdentitySecret>> {
+            Ok(self.legacy_secret.borrow().clone())
+        }
+
+        fn delete_legacy(&self) -> Result<()> {
+            *self.legacy_secret.borrow_mut() = None;
             Ok(())
         }
     }
@@ -1063,13 +1284,32 @@ mod tests {
     }
 
     fn seed_identity(secret_store: &MockSecretStore, expired_access: bool) -> GithubIdentityMeta {
+        seed_identity_for(secret_store, 42, "octocat", expired_access)
+    }
+
+    fn seed_identity_for(
+        secret_store: &MockSecretStore,
+        github_user_id: i64,
+        login: &str,
+        expired_access: bool,
+    ) -> GithubIdentityMeta {
         let meta = GithubIdentityMeta {
             provider: "github-app-device-flow".to_string(),
-            github_user_id: 42,
-            login: "octocat".to_string(),
-            name: Some("Octocat".to_string()),
-            avatar_url: Some("https://avatars.githubusercontent.com/u/42".to_string()),
-            primary_email: Some("test@example.com".to_string()),
+            github_user_id,
+            login: login.to_string(),
+            name: Some(if login == "octocat" {
+                "Octocat".to_string()
+            } else {
+                login.to_string()
+            }),
+            avatar_url: Some(format!(
+                "https://avatars.githubusercontent.com/u/{github_user_id}"
+            )),
+            primary_email: Some(if login == "octocat" {
+                "test@example.com".to_string()
+            } else {
+                format!("{login}@example.com")
+            }),
             token_expires_at: Some(if expired_access {
                 (Utc::now() - Duration::minutes(1)).to_rfc3339()
             } else {
@@ -1083,8 +1323,7 @@ mod tests {
             access_token_expires_at: meta.token_expires_at.clone(),
             refresh_token_expires_at: meta.refresh_token_expires_at.clone(),
         };
-        settings::upsert_setting_json(GITHUB_IDENTITY_META_KEY, &meta).unwrap();
-        secret_store.save(&secret).unwrap();
+        save_identity_account(&meta, &secret, secret_store).unwrap();
         meta
     }
 
@@ -1123,15 +1362,16 @@ mod tests {
             get_github_identity_session_with(Some("client-id"), &client, &secret_store).unwrap();
 
         match snapshot {
-            GithubIdentitySnapshot::Connected { session } => {
+            GithubIdentitySnapshot::Connected { session, accounts } => {
                 assert_eq!(session.login, "octocat");
                 assert_eq!(session.primary_email.as_deref(), Some("test@example.com"));
                 assert!(session.token_expires_at.is_some());
+                assert_eq!(accounts.len(), 1);
             }
             other => panic!("unexpected snapshot: {other:?}"),
         }
 
-        let saved = secret_store.load().unwrap().unwrap();
+        let saved = secret_store.load_for(42).unwrap().unwrap();
         assert_eq!(saved.access_token, "ghu_new");
         assert_eq!(saved.refresh_token.as_deref(), Some("ghr_new"));
     }
@@ -1151,10 +1391,12 @@ mod tests {
             get_github_identity_session_with(Some("client-id"), &client, &secret_store).unwrap();
 
         assert_eq!(snapshot, GithubIdentitySnapshot::Disconnected);
-        assert!(settings::load_setting_value(GITHUB_IDENTITY_META_KEY)
-            .unwrap()
-            .is_none());
-        assert!(secret_store.load().unwrap().is_none());
+        assert!(
+            settings::load_setting_value(GITHUB_IDENTITY_ACCOUNTS_META_KEY)
+                .unwrap()
+                .is_none()
+        );
+        assert!(secret_store.load_for(42).unwrap().is_none());
     }
 
     #[test]
@@ -1247,10 +1489,12 @@ mod tests {
             }
             other => panic!("unexpected poll result: {other:?}"),
         }
-        assert!(settings::load_setting_value(GITHUB_IDENTITY_META_KEY)
-            .unwrap()
-            .is_some());
-        assert!(secret_store.load().unwrap().is_some());
+        assert!(
+            settings::load_setting_value(GITHUB_IDENTITY_ACCOUNTS_META_KEY)
+                .unwrap()
+                .is_some()
+        );
+        assert!(secret_store.load_for(42).unwrap().is_some());
     }
 
     #[test]
@@ -1302,10 +1546,34 @@ mod tests {
 
         clear_stored_identity(&secret_store).unwrap();
 
-        assert!(settings::load_setting_value(GITHUB_IDENTITY_META_KEY)
-            .unwrap()
-            .is_none());
-        assert!(secret_store.load().unwrap().is_none());
+        assert!(
+            settings::load_setting_value(GITHUB_IDENTITY_ACCOUNTS_META_KEY)
+                .unwrap()
+                .is_none()
+        );
+        assert!(secret_store.load_for(42).unwrap().is_none());
         assert!(*secret_store.deleted.borrow());
+    }
+
+    #[test]
+    fn remove_active_identity_preserves_other_accounts_and_switches_active() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _dir = TestDataDir::new("identity-remove-active");
+        let secret_store = MockSecretStore::default();
+        seed_identity_for(&secret_store, 1, "alpha", false);
+        seed_identity_for(&secret_store, 2, "bravo", false);
+
+        switch_github_identity_account_with(&secret_store, 1).unwrap();
+        remove_active_identity(&secret_store).unwrap();
+
+        assert!(secret_store.load_for(1).unwrap().is_none());
+        assert!(secret_store.load_for(2).unwrap().is_some());
+        assert_eq!(load_active_user_id().unwrap(), Some(2));
+
+        let metas = load_identity_metas().unwrap();
+        assert_eq!(metas.len(), 1);
+        assert_eq!(metas[0].login, "bravo");
     }
 }

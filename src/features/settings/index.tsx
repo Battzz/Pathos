@@ -82,6 +82,22 @@ export type SettingsSection =
 	| "account"
 	| `repo:${string}`;
 
+export function isSettingsSection(value: unknown): value is SettingsSection {
+	if (typeof value !== "string") return false;
+	if (value.startsWith("repo:")) return value.length > "repo:".length;
+	return (
+		value === "general" ||
+		value === "shortcuts" ||
+		value === "appearance" ||
+		value === "model" ||
+		value === "git" ||
+		value === "experimental" ||
+		value === "import" ||
+		value === "developer" ||
+		value === "account"
+	);
+}
+
 function sidebarSectionLabel(
 	section: SettingsSection,
 	repos: RepositoryCreateOption[],
@@ -756,7 +772,7 @@ export function SettingsButton({
 				<Button
 					variant="ghost"
 					size="icon"
-					onClick={onClick}
+					onClick={() => onClick()}
 					className="text-muted-foreground hover:text-foreground"
 				>
 					<Settings className="size-[15px]" strokeWidth={1.8} />

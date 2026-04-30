@@ -26,7 +26,6 @@ pub async fn execute_repo_script(
     let script = match script_type.as_str() {
         "setup" => scripts.setup_script,
         "run" => scripts.run_script,
-        "archive" => scripts.archive_script,
         _ => None,
     };
 

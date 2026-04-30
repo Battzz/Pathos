@@ -26,16 +26,8 @@ pub fn dispatch(action: &RepoAction, cli: &Cli) -> Result<()> {
             repo_ref,
             setup,
             run,
-            archive,
             clear,
-        } => update_scripts(
-            repo_ref,
-            setup.as_deref(),
-            run.as_deref(),
-            archive.as_deref(),
-            clear,
-            cli,
-        ),
+        } => update_scripts(repo_ref, setup.as_deref(), run.as_deref(), clear, cli),
         RepoAction::Prefs { repo_ref } => show_prefs(repo_ref, cli),
         RepoAction::UpdatePrefs {
             repo_ref,
@@ -165,13 +157,11 @@ fn show_scripts(repo_ref: &str, workspace: Option<&str>, cli: &Cli) -> Result<()
     let scripts = repos::load_repo_scripts(&id, workspace_id.as_deref())?;
     output::print(cli, &scripts, |s| {
         format!(
-            "setup    (project={}): {}\nrun      (project={}): {}\narchive  (project={}): {}",
+            "setup    (project={}): {}\nrun      (project={}): {}",
             s.setup_from_project,
             s.setup_script.as_deref().unwrap_or("-"),
             s.run_from_project,
             s.run_script.as_deref().unwrap_or("-"),
-            s.archive_from_project,
-            s.archive_script.as_deref().unwrap_or("-"),
         )
     })
 }
@@ -180,7 +170,6 @@ fn update_scripts(
     repo_ref: &str,
     setup: Option<&str>,
     run: Option<&str>,
-    archive: Option<&str>,
     clear: &[String],
     cli: &Cli,
 ) -> Result<()> {
@@ -189,30 +178,20 @@ fn update_scripts(
     let existing = repos::load_repo_scripts(&id, None)?;
     let mut setup_val = existing.setup_script;
     let mut run_val = existing.run_script;
-    let mut archive_val = existing.archive_script;
     if let Some(v) = setup {
         setup_val = Some(v.to_string());
     }
     if let Some(v) = run {
         run_val = Some(v.to_string());
     }
-    if let Some(v) = archive {
-        archive_val = Some(v.to_string());
-    }
     for kind in clear {
         match kind.as_str() {
             "setup" => setup_val = None,
             "run" => run_val = None,
-            "archive" => archive_val = None,
             other => anyhow::bail!("Unknown script kind to clear: {other}"),
         }
     }
-    repos::update_repo_scripts(
-        &id,
-        setup_val.as_deref(),
-        run_val.as_deref(),
-        archive_val.as_deref(),
-    )?;
+    repos::update_repo_scripts(&id, setup_val.as_deref(), run_val.as_deref())?;
     notify_ui_event(UiMutationEvent::RepositoryChanged { repo_id: id });
     output::print_ok(cli, "Scripts updated");
     Ok(())

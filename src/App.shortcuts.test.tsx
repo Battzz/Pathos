@@ -313,10 +313,8 @@ const UNAVAILABLE_FORGE_ACTION_STATUS = {
 const EMPTY_REPO_SCRIPTS = {
 	setupScript: null,
 	runScript: null,
-	archiveScript: null,
 	setupFromProject: false,
 	runFromProject: false,
-	archiveFromProject: false,
 	autoRunSetup: true,
 };
 

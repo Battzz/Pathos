@@ -89,10 +89,8 @@ describe("RepositorySettingsPanel branch prefix", () => {
 		apiMocks.loadRepoScripts.mockResolvedValue({
 			setupScript: null,
 			runScript: null,
-			archiveScript: null,
 			setupFromProject: false,
 			runFromProject: false,
-			archiveFromProject: false,
 			autoRunSetup: true,
 		});
 		apiMocks.prefetchRemoteRefs.mockResolvedValue({ fetched: false });

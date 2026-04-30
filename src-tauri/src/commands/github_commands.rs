@@ -37,6 +37,14 @@ pub async fn disconnect_github_identity(
 }
 
 #[tauri::command]
+pub async fn switch_github_identity_account(
+    app: AppHandle,
+    github_user_id: i64,
+) -> CmdResult<auth::GithubIdentitySnapshot> {
+    run_blocking(move || auth::switch_github_identity_account(app, github_user_id)).await
+}
+
+#[tauri::command]
 pub async fn get_github_cli_status() -> CmdResult<github_cli::GithubCliStatus> {
     run_blocking(github_cli::get_github_cli_status).await
 }

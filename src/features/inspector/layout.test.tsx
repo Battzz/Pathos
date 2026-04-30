@@ -123,4 +123,48 @@ describe("InspectorTabsSection", () => {
 			filter: "blur(6px)",
 		});
 	});
+
+	it("clears hover zoom before the chevron collapse toggle runs", () => {
+		vi.useFakeTimers();
+		const onToggle = vi.fn();
+
+		renderWithProviders(
+			<InspectorTabsSection
+				wrapperRef={createRef<HTMLDivElement>()}
+				open
+				onToggle={onToggle}
+				activeTab="run"
+				onTabChange={vi.fn()}
+				setupScriptState="idle"
+				runScriptState="running"
+				terminalInstances={[]}
+				onAddTerminal={vi.fn()}
+				onCloseTerminal={vi.fn()}
+				canSpawnTerminal={false}
+				canHoverExpand
+			>
+				<div>Terminal body</div>
+			</InspectorTabsSection>,
+		);
+
+		const tabsBody = screen.getByLabelText("Inspector tabs body");
+		const zoomContainer = screen.getByLabelText("Inspector section Tabs")
+			.parentElement as HTMLElement;
+		const expectedZoomedSize = `${TABS_HOVER_ZOOM_MULTIPLIER * 100}%`;
+
+		fireEvent.mouseEnter(zoomContainer);
+		fireEvent.mouseEnter(tabsBody);
+		act(() => {
+			vi.advanceTimersByTime(TABS_HOVER_ACTIVATION_MS);
+		});
+
+		expect(zoomContainer).toHaveStyle({ width: expectedZoomedSize });
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Toggle inspector tabs section" }),
+		);
+
+		expect(onToggle).toHaveBeenCalledTimes(1);
+		expect(zoomContainer).toHaveStyle({ width: "100%" });
+	});
 });

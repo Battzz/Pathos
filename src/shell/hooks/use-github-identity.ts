@@ -6,6 +6,7 @@ import {
 	listenGithubIdentityChanged,
 	loadGithubIdentitySession,
 	startGithubIdentityConnect,
+	switchGithubIdentityAccount,
 } from "@/lib/api";
 import { describeUnknownError } from "@/lib/workspace-helpers";
 import { getInitialGithubIdentityState } from "@/shell/layout";
@@ -115,7 +116,7 @@ export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 	const handleDisconnectGithubIdentity = useCallback(async () => {
 		try {
 			await disconnectGithubIdentity();
-			setGithubIdentityState({ status: "disconnected" });
+			await refreshGithubIdentityState();
 		} catch (error) {
 			setGithubIdentityState({
 				status: "error",
@@ -125,7 +126,25 @@ export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 				),
 			});
 		}
-	}, []);
+	}, [refreshGithubIdentityState]);
+
+	const handleSwitchGithubIdentityAccount = useCallback(
+		async (githubUserId: number) => {
+			try {
+				const snapshot = await switchGithubIdentityAccount(githubUserId);
+				setGithubIdentityState(snapshot);
+			} catch (error) {
+				setGithubIdentityState({
+					status: "error",
+					message: describeUnknownError(
+						error,
+						"Unable to switch GitHub account.",
+					),
+				});
+			}
+		},
+		[],
+	);
 
 	return {
 		githubIdentityState,
@@ -133,6 +152,7 @@ export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 		handleCopyGithubDeviceCode,
 		handleDisconnectGithubIdentity,
 		handleStartGithubIdentityConnect,
+		handleSwitchGithubIdentityAccount,
 		refreshGithubIdentityState,
 		isIdentityConnected: githubIdentityState.status === "connected",
 	};

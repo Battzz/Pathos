@@ -80,7 +80,7 @@ export function PlanReviewCard({ part }: { part: PlanReviewPart }) {
 					{part.planFilePath}
 				</p>
 			) : null}
-			<div className="conversation-markdown mt-2 max-w-none break-words text-[13px] leading-6 text-foreground">
+			<div className="conversation-markdown mt-2 max-w-none select-text break-words text-[13px] leading-6 text-foreground">
 				<Suspense
 					fallback={
 						<pre className="whitespace-pre-wrap break-words">

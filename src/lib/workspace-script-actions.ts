@@ -1,4 +1,4 @@
-export type WorkspaceScriptType = "setup" | "run" | "archive";
+export type WorkspaceScriptType = "setup" | "run";
 
 export const WORKSPACE_SCRIPT_PROMPTS: Record<WorkspaceScriptType, string> = {
 	setup: `Please help me initialize the Pathos setup script for this workspace and write the final result into the current workspace's pathos.json.
@@ -108,60 +108,4 @@ Your flow:
    - the final scripts.run
    - why it fits Cmd+R
    - how I can switch to another candidate later`,
-	archive: `Please help me initialize the Pathos archive script for this workspace and write the final result into the current workspace's pathos.json.
-
-Context:
-- This archive script runs when this workspace is archived.
-- Its job is to do light, safe, clearly-scoped cleanup or save a small amount of context before archive.
-- It should not perform dangerous deletion or take over workspace lifecycle management.
-
-Rules:
-1. Inspect the repository and workspace context first before asking questions.
-2. Your goal is to actually create or update scripts.archive in pathos.json, not just give advice.
-3. This is a worktree-based workspace. Use the environment variables correctly:
-   - PATHOS_ROOT_PATH: the original repository root.
-   - PATHOS_WORKSPACE_PATH: the current workspace's worktree path, and the directory where the script runs.
-   - PATHOS_WORKSPACE_NAME: the current workspace name.
-   - PATHOS_DEFAULT_BRANCH: the repository default branch.
-4. Migration from conductor.json:
-   - If pathos.json does not exist but conductor.json exists, copy conductor.json to pathos.json.
-   - Rename every CONDUCTOR_* environment variable reference in pathos.json to its Pathos equivalent. Cover both $VAR and \${VAR} forms. Do this whether pathos.json was just copied or an earlier incomplete migration left stale references:
-     - CONDUCTOR_WORKSPACE_NAME → PATHOS_WORKSPACE_NAME
-     - CONDUCTOR_WORKSPACE_PATH → PATHOS_WORKSPACE_PATH
-     - CONDUCTOR_ROOT_PATH → PATHOS_ROOT_PATH
-     - CONDUCTOR_DEFAULT_BRANCH → PATHOS_DEFAULT_BRANCH
-     - CONDUCTOR_PORT → PATHOS_PORT
-   - After this step, only work on pathos.json.
-5. If the migrated pathos.json already contains scripts.archive, stop and tell me the migration is complete.
-6. Default to conservative behavior.
-7. Ask at most 3 rounds of questions, and only when they materially change the script design.
-8. Without my explicit confirmation, do not write any destructive action such as deleting databases, volumes, caches, build outputs, secrets, logs, screenshots, files outside the workspace, remote resources, or broad rm -rf / git clean behavior.
-
-What to inspect:
-- pathos.json, conductor.json
-- README and developer docs
-- package.json, Cargo.toml
-- Makefile, justfile
-- docker-compose files
-- .env*
-- .gitignore
-- anything suggesting local services, containers, exports, or archive context
-
-Your flow:
-1. Inspect silently first.
-2. Tell me:
-   - where you plan to write the archive script
-   - which candidate archive actions you found
-   - which ones are safe by default
-   - which ones need confirmation
-   - which ones are too risky to write by default
-3. Only ask concise blocking questions if needed.
-4. Then create or update pathos.json.
-5. End with a short summary:
-   - which file you changed
-   - the final scripts.archive
-   - which higher-risk actions you intentionally left out
-   - your key assumptions
-
-If this project does not appear to need an automated archive script, say so clearly and choose the smallest safe result instead of inventing risky behavior.`,
 };

@@ -1067,7 +1067,7 @@ function MeasuredConversationRow({
 				right: 0,
 				top,
 			}}
-			className="flow-root px-5 pb-1.5"
+			className="flow-root select-none px-5 pb-1.5"
 		>
 			{children}
 		</div>

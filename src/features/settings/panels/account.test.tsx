@@ -12,6 +12,9 @@ import { renderWithProviders } from "@/test/render-with-providers";
 const apiMocks = vi.hoisted(() => ({
 	loadGithubIdentitySession: vi.fn(),
 	disconnectGithubIdentity: vi.fn(),
+	startGithubIdentityConnect: vi.fn(),
+	cancelGithubIdentityConnect: vi.fn(),
+	switchGithubIdentityAccount: vi.fn(),
 	getForgeCliStatus: vi.fn(),
 	openForgeCliAuthTerminal: vi.fn(),
 	listenGithubIdentityChanged: vi.fn(),
@@ -27,6 +30,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
 		...actual,
 		loadGithubIdentitySession: apiMocks.loadGithubIdentitySession,
 		disconnectGithubIdentity: apiMocks.disconnectGithubIdentity,
+		startGithubIdentityConnect: apiMocks.startGithubIdentityConnect,
+		cancelGithubIdentityConnect: apiMocks.cancelGithubIdentityConnect,
+		switchGithubIdentityAccount: apiMocks.switchGithubIdentityAccount,
 		getForgeCliStatus: apiMocks.getForgeCliStatus,
 		openForgeCliAuthTerminal: apiMocks.openForgeCliAuthTerminal,
 		listenGithubIdentityChanged: apiMocks.listenGithubIdentityChanged,
@@ -45,6 +51,43 @@ const connectedSnapshot: GithubIdentitySnapshot = {
 		avatarUrl: "https://avatars/nathan.png",
 		primaryEmail: "nathan@example.com",
 	},
+	accounts: [
+		{
+			githubUserId: 1,
+			login: "natllian",
+			name: "Nathan Lian",
+			avatarUrl: "https://avatars/nathan.png",
+			primaryEmail: "nathan@example.com",
+		},
+	],
+};
+
+const multiAccountSnapshot: GithubIdentitySnapshot = {
+	status: "connected",
+	session: {
+		provider: "github",
+		githubUserId: 1,
+		login: "natllian",
+		name: "Nathan Lian",
+		avatarUrl: "https://avatars/nathan.png",
+		primaryEmail: "nathan@example.com",
+	},
+	accounts: [
+		{
+			githubUserId: 1,
+			login: "natllian",
+			name: "Nathan Lian",
+			avatarUrl: "https://avatars/nathan.png",
+			primaryEmail: "nathan@example.com",
+		},
+		{
+			githubUserId: 2,
+			login: "workhub",
+			name: "Work Hub",
+			avatarUrl: "https://avatars/work.png",
+			primaryEmail: "work@example.com",
+		},
+	],
 };
 
 function gitlabRepo(host: string): RepositoryCreateOption {
@@ -80,9 +123,23 @@ describe("AccountPanel", () => {
 	beforeEach(() => {
 		apiMocks.loadGithubIdentitySession.mockReset();
 		apiMocks.disconnectGithubIdentity.mockReset();
+		apiMocks.startGithubIdentityConnect.mockReset();
+		apiMocks.cancelGithubIdentityConnect.mockReset();
+		apiMocks.switchGithubIdentityAccount.mockReset();
 		apiMocks.getForgeCliStatus.mockReset();
 		apiMocks.openForgeCliAuthTerminal.mockReset();
 		apiMocks.openForgeCliAuthTerminal.mockResolvedValue(undefined);
+		apiMocks.disconnectGithubIdentity.mockResolvedValue(undefined);
+		apiMocks.startGithubIdentityConnect.mockResolvedValue({
+			deviceCode: "device-code",
+			userCode: "ABCD-EFGH",
+			verificationUri: "https://github.com/login/device",
+			verificationUriComplete: null,
+			expiresAt: "2030-01-01T00:00:00Z",
+			intervalSeconds: 5,
+		});
+		apiMocks.cancelGithubIdentityConnect.mockResolvedValue(undefined);
+		apiMocks.switchGithubIdentityAccount.mockResolvedValue(connectedSnapshot);
 		apiMocks.listenGithubIdentityChanged.mockReset();
 		capturedIdentityListener = null;
 		apiMocks.listenGithubIdentityChanged.mockImplementation(
@@ -110,6 +167,46 @@ describe("AccountPanel", () => {
 		expect(screen.getByText("nathan@example.com")).toBeInTheDocument();
 		// `natllian` shows up both in the identity header and the ready CLI row.
 		expect(screen.getAllByText("natllian").length).toBeGreaterThan(0);
+	});
+
+	it("shows multiple GitHub accounts and switches between them", async () => {
+		apiMocks.loadGithubIdentitySession.mockResolvedValue(multiAccountSnapshot);
+		apiMocks.getForgeCliStatus.mockResolvedValue(githubReady);
+		apiMocks.switchGithubIdentityAccount.mockResolvedValue({
+			...multiAccountSnapshot,
+			session: {
+				provider: "github",
+				githubUserId: 2,
+				login: "workhub",
+				name: "Work Hub",
+				avatarUrl: "https://avatars/work.png",
+				primaryEmail: "work@example.com",
+			},
+		});
+
+		renderWithProviders(<AccountPanel repositories={[]} />);
+
+		expect(await screen.findByText("Nathan Lian")).toBeInTheDocument();
+		expect(screen.getByText("Work Hub")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "Switch" }));
+
+		await waitFor(() => {
+			expect(apiMocks.switchGithubIdentityAccount).toHaveBeenCalledWith(2);
+		});
+	});
+
+	it("starts an add-account flow from settings", async () => {
+		apiMocks.loadGithubIdentitySession.mockResolvedValue(connectedSnapshot);
+		apiMocks.getForgeCliStatus.mockResolvedValue(githubReady);
+
+		renderWithProviders(<AccountPanel repositories={[]} />);
+
+		fireEvent.click(await screen.findByRole("button", { name: "Add account" }));
+
+		await waitFor(() => {
+			expect(apiMocks.startGithubIdentityConnect).toHaveBeenCalledTimes(1);
+		});
 	});
 
 	it("shows the login inline (no Connect button) when CLI is ready", async () => {

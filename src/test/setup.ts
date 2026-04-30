@@ -161,6 +161,15 @@ vi.mock("@tauri-apps/api/core", () => ({
 						tokenExpiresAt: null,
 						refreshTokenExpiresAt: null,
 					},
+					accounts: [
+						{
+							githubUserId: 0,
+							login: "test",
+							name: "Test User",
+							avatarUrl: null,
+							primaryEmail: null,
+						},
+					],
 				};
 			case "get_github_cli_status":
 				return {

@@ -1,5 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, CircleAlert, Loader2, LogOut } from "lucide-react";
+import {
+	Check,
+	CheckCircle2,
+	CircleAlert,
+	Copy,
+	Loader2,
+	LogOut,
+	Plus,
+} from "lucide-react";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { GithubBrandIcon, GitlabBrandIcon } from "@/components/brand-icon";
@@ -11,12 +19,13 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-	disconnectGithubIdentity,
-	type ForgeCliStatus,
-	type ForgeProvider,
-	type GithubIdentitySession,
-	type RepositoryCreateOption,
+import type {
+	ForgeCliStatus,
+	ForgeProvider,
+	GithubIdentityAccount,
+	GithubIdentityDeviceFlowStart,
+	GithubIdentitySession,
+	RepositoryCreateOption,
 } from "@/lib/api";
 import { forgeCliStatusQueryOptions } from "@/lib/query-client";
 import { useForgeCliConnect } from "@/lib/use-forge-cli-connect";
@@ -33,8 +42,17 @@ export function AccountPanel({
 }) {
 	const queryClient = useQueryClient();
 	// Reflects external sign-in / sign-out via backend events.
-	const { githubIdentityState } = useGithubIdentity();
+	const {
+		githubIdentityState,
+		handleCancelGithubIdentityConnect,
+		handleCopyGithubDeviceCode,
+		handleDisconnectGithubIdentity,
+		handleStartGithubIdentityConnect,
+		handleSwitchGithubIdentityAccount,
+	} = useGithubIdentity();
 	const [signingOut, setSigningOut] = useState(false);
+	const [switchingUserId, setSwitchingUserId] = useState<number | null>(null);
+	const [codeCopied, setCodeCopied] = useState(false);
 	const gitlabHosts = useMemo(
 		() => gitlabHostsForRepositories(repositories),
 		[repositories],
@@ -44,11 +62,17 @@ export function AccountPanel({
 		githubIdentityState.status === "connected"
 			? githubIdentityState.session
 			: null;
+	const accounts: GithubIdentityAccount[] =
+		githubIdentityState.status === "connected"
+			? githubIdentityState.accounts.length
+				? githubIdentityState.accounts
+				: [githubIdentityState.session]
+			: [];
 
 	const handleSignOut = useCallback(async () => {
 		setSigningOut(true);
 		try {
-			await disconnectGithubIdentity();
+			await handleDisconnectGithubIdentity();
 			// Drop every auth-bound cache; backend pushes the identity update.
 			await queryClient.invalidateQueries();
 			onSignedOut?.();
@@ -59,18 +83,58 @@ export function AccountPanel({
 		} finally {
 			setSigningOut(false);
 		}
-	}, [onSignedOut, queryClient]);
+	}, [handleDisconnectGithubIdentity, onSignedOut, queryClient]);
+
+	const handleSwitchAccount = useCallback(
+		async (githubUserId: number) => {
+			setSwitchingUserId(githubUserId);
+			try {
+				await handleSwitchGithubIdentityAccount(githubUserId);
+				await queryClient.invalidateQueries();
+			} finally {
+				setSwitchingUserId(null);
+			}
+		},
+		[handleSwitchGithubIdentityAccount, queryClient],
+	);
+
+	const handleAddAccount = useCallback(() => {
+		setCodeCopied(false);
+		void handleStartGithubIdentityConnect();
+	}, [handleStartGithubIdentityConnect]);
+
+	const handleCopyPendingCode = useCallback(async () => {
+		if (githubIdentityState.status !== "pending") return;
+		const copied = await handleCopyGithubDeviceCode(
+			githubIdentityState.flow.userCode,
+		);
+		if (copied) {
+			setCodeCopied(true);
+		}
+	}, [githubIdentityState, handleCopyGithubDeviceCode]);
 
 	return (
 		<TooltipProvider delayDuration={150}>
 			<SettingsGroup>
-				{identity ? (
-					<IdentityRow
-						session={identity}
-						onSignOut={() => void handleSignOut()}
-						signingOut={signingOut}
-					/>
-				) : null}
+				<GithubAccountsSection
+					identity={identity}
+					accounts={accounts}
+					pendingFlow={
+						githubIdentityState.status === "pending"
+							? githubIdentityState.flow
+							: null
+					}
+					codeCopied={codeCopied}
+					signingOut={signingOut}
+					switchingUserId={switchingUserId}
+					onAddAccount={handleAddAccount}
+					onCancelAddAccount={handleCancelGithubIdentityConnect}
+					onCopyPendingCode={() => void handleCopyPendingCode()}
+					onSignOut={() => void handleSignOut()}
+					onSwitchAccount={(githubUserId) =>
+						void handleSwitchAccount(githubUserId)
+					}
+				/>
 				<CliIntegrationRow
 					provider="github"
 					host="github.com"
@@ -97,53 +161,164 @@ export function AccountPanel({
 	);
 }
 
-function IdentityRow({
-	session,
-	onSignOut,
+function GithubAccountsSection({
+	identity,
+	accounts,
+	pendingFlow,
+	codeCopied,
 	signingOut,
+	switchingUserId,
+	onAddAccount,
+	onCancelAddAccount,
+	onCopyPendingCode,
+	onSignOut,
+	onSwitchAccount,
 }: {
-	session: GithubIdentitySession;
-	onSignOut: () => void;
+	identity: GithubIdentitySession | null;
+	accounts: GithubIdentityAccount[];
+	pendingFlow: GithubIdentityDeviceFlowStart | null;
+	codeCopied: boolean;
 	signingOut: boolean;
+	switchingUserId: number | null;
+	onAddAccount: () => void;
+	onCancelAddAccount: () => void;
+	onCopyPendingCode: () => void;
+	onSignOut: () => void;
+	onSwitchAccount: (githubUserId: number) => void;
 }) {
 	return (
-		<div className="flex items-center gap-3 py-5">
+		<div className="select-none py-5">
+			<div className="mb-3 flex items-center justify-between gap-3">
+				<div className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
+					<GithubBrandIcon size={14} />
+					<span>GitHub accounts</span>
+				</div>
+				<Button
+					variant="outline"
+					size="sm"
+					onClick={onAddAccount}
+					disabled={!!pendingFlow}
+				>
+					<Plus className="size-3.5" strokeWidth={1.8} />
+					Add account
+				</Button>
+			</div>
+			{pendingFlow ? (
+				<div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/25 px-3 py-2">
+					<button
+						type="button"
+						onClick={onCopyPendingCode}
+						className="inline-flex h-8 cursor-pointer items-center gap-2 rounded-md px-2 font-mono text-[13px] font-medium tracking-[0.2em] text-foreground hover:bg-accent"
+					>
+						{pendingFlow.userCode}
+						{codeCopied ? (
+							<Check className="size-3.5 text-green-500" strokeWidth={2} />
+						) : (
+							<Copy
+								className="size-3.5 text-muted-foreground"
+								strokeWidth={1.8}
+							/>
+						)}
+					</button>
+					<Button variant="ghost" size="sm" onClick={onCancelAddAccount}>
+						Cancel
+					</Button>
+				</div>
+			) : null}
+			{accounts.length > 0 ? (
+				<div className="space-y-1">
+					{accounts.map((account) => (
+						<IdentityRow
+							key={account.githubUserId}
+							account={account}
+							active={account.githubUserId === identity?.githubUserId}
+							onSignOut={onSignOut}
+							onSwitch={() => onSwitchAccount(account.githubUserId)}
+							signingOut={signingOut}
+							switching={switchingUserId === account.githubUserId}
+						/>
+					))}
+				</div>
+			) : (
+				<div className="rounded-md border border-dashed border-border/70 px-3 py-3 text-[12px] text-muted-foreground">
+					No GitHub account connected.
+				</div>
+			)}
+		</div>
+	);
+}
+
+function IdentityRow({
+	account,
+	active,
+	onSignOut,
+	onSwitch,
+	signingOut,
+	switching,
+}: {
+	account: GithubIdentityAccount;
+	active: boolean;
+	onSignOut: () => void;
+	onSwitch: () => void;
+	signingOut: boolean;
+	switching: boolean;
+}) {
+	return (
+		<div className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-muted/30">
 			<Avatar size="lg">
-				{session.avatarUrl ? (
-					<AvatarImage src={session.avatarUrl} alt={session.login} />
+				{account.avatarUrl ? (
+					<AvatarImage src={account.avatarUrl} alt={account.login} />
 				) : null}
 				<AvatarFallback className="bg-muted text-[12px] font-medium text-muted-foreground">
-					{session.login.slice(0, 2).toUpperCase()}
+					{account.login.slice(0, 2).toUpperCase()}
 				</AvatarFallback>
 			</Avatar>
 			<div className="min-w-0 flex-1">
 				<div className="truncate text-[14px] font-semibold text-foreground">
-					{session.name?.trim() || session.login}
+					{account.name?.trim() || account.login}
 				</div>
-				{session.primaryEmail ? (
+				{account.primaryEmail ? (
 					<div className="truncate text-[12px] text-muted-foreground">
-						{session.primaryEmail}
+						{account.primaryEmail}
 					</div>
 				) : null}
 				<div className="mt-0.5 flex items-center gap-1 text-[12px] text-muted-foreground">
 					<GithubBrandIcon size={12} />
-					<span className="truncate">{session.login}</span>
+					<span className="truncate">{account.login}</span>
+					{active ? (
+						<span className="rounded bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+							Active
+						</span>
+					) : null}
 				</div>
 			</div>
-			<Button
-				variant="ghost"
-				size="sm"
-				onClick={onSignOut}
-				disabled={signingOut}
-				className="shrink-0 text-muted-foreground hover:text-foreground"
-			>
-				{signingOut ? (
-					<Loader2 className="size-3.5 animate-spin" />
-				) : (
-					<LogOut className="size-3.5" strokeWidth={1.8} />
-				)}
-				Sign out
-			</Button>
+			{active ? (
+				<Button
+					variant="ghost"
+					size="sm"
+					onClick={onSignOut}
+					disabled={signingOut}
+					className="shrink-0 text-muted-foreground hover:text-foreground"
+				>
+					{signingOut ? (
+						<Loader2 className="size-3.5 animate-spin" />
+					) : (
+						<LogOut className="size-3.5" strokeWidth={1.8} />
+					)}
+					Sign out
+				</Button>
+			) : (
+				<Button
+					variant="outline"
+					size="sm"
+					onClick={onSwitch}
+					disabled={switching}
+					className="shrink-0"
+				>
+					{switching ? <Loader2 className="size-3.5 animate-spin" /> : null}
+					Switch
+				</Button>
+			)}
 		</div>
 	);
 }

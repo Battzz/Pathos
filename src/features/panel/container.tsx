@@ -499,9 +499,6 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 		if (!scripts.runScript?.trim()) {
 			missing.push("run");
 		}
-		if (!scripts.archiveScript?.trim()) {
-			missing.push("archive");
-		}
 		return missing;
 	}, [repoScriptsQuery.data, selectedSession]);
 	const handleInitializeScript = useCallback(

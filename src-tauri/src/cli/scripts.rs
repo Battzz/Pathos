@@ -1,4 +1,4 @@
-//! `pathos scripts` — inspect effective repo scripts (setup / run / archive).
+//! `pathos scripts` — inspect effective repo scripts (setup / run).
 //!
 //! Execution (`run`, `stop`, `write-stdin`, `resize`) is GUI-owned because
 //! it requires a Tauri `Channel<ScriptEvent>` for streamed output. The
@@ -31,13 +31,11 @@ fn show(repo_ref: &str, workspace: Option<&str>, cli: &Cli) -> Result<()> {
     let scripts = repos::load_repo_scripts(&id, workspace_id.as_deref())?;
     output::print(cli, &scripts, |s| {
         format!(
-            "setup    (project={}): {}\nrun      (project={}): {}\narchive  (project={}): {}",
+            "setup    (project={}): {}\nrun      (project={}): {}",
             s.setup_from_project,
             s.setup_script.as_deref().unwrap_or("-"),
             s.run_from_project,
             s.run_script.as_deref().unwrap_or("-"),
-            s.archive_from_project,
-            s.archive_script.as_deref().unwrap_or("-"),
         )
     })
 }

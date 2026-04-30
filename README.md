@@ -22,7 +22,11 @@
   <img src="src/assets/pathos-screenshot-mix.png" alt="Pathos screenshot" width="100%" />
 </p>
 
-[**Download for macOS** →](https://github.com/dohooo/pathos/releases)
+Right now there is no release, but you can build it
+```bash
+bun install && bun run tauri build
+```
+then you should see the output in <strong>src-tauri/target/release/bundle/macos/Pathos.app</strong>
 
 ## Contributing
 
@@ -31,6 +35,9 @@ Open Pathos, Import Pathos, Ask Pathos:
 > _"How do I contribute to Pathos?"_
 
 That's the guide.
+
+## Notice
+This project started as a fork of [helmor by dohooo](https://github.com/dohooo/helmor) and adapted to my liking.
 
 ## License
 

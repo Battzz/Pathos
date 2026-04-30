@@ -30,7 +30,7 @@ fn auth_dispatch(action: &GithubAuthAction, cli: &Cli) -> Result<()> {
 fn auth_status(cli: &Cli) -> Result<()> {
     let snapshot = auth::get_github_identity_session()?;
     output::print(cli, &snapshot, |s| match s {
-        auth::GithubIdentitySnapshot::Connected { session } => format!(
+        auth::GithubIdentitySnapshot::Connected { session, .. } => format!(
             "Connected as @{} ({}{})",
             session.login,
             session.name.clone().unwrap_or_default(),

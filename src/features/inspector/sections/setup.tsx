@@ -26,7 +26,7 @@ type SetupTabProps = {
 	workspaceId: string | null;
 	setupScript: string | null;
 	isActive: boolean;
-	onOpenSettings: () => void;
+	onOpenSettings: (initialSection?: string) => void;
 };
 
 export function SetupTab({
@@ -174,7 +174,9 @@ export function SetupTab({
 						variant="outline"
 						size="sm"
 						className="mt-1 gap-1.5 text-[12px]"
-						onClick={onOpenSettings}
+						onClick={() =>
+							onOpenSettings(repoId ? `repo:${repoId}` : undefined)
+						}
 					>
 						<Settings2 className="size-3.5" strokeWidth={1.8} />
 						Open settings

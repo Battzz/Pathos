@@ -223,6 +223,7 @@ pub fn run() {
             commands::github_commands::get_github_cli_status,
             commands::github_commands::get_github_cli_user,
             commands::github_commands::get_github_identity_session,
+            commands::github_commands::switch_github_identity_account,
             commands::forge_commands::get_workspace_forge,
             commands::forge_commands::get_forge_cli_status,
             commands::forge_commands::open_forge_cli_auth_terminal,

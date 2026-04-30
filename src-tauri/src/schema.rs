@@ -47,6 +47,7 @@ const DEAD_COLUMNS: &[(&str, &str)] = &[
     ("repos", "custom_prompt_code_review"),
     ("repos", "icon"),
     ("repos", "branch_prefix_type"),
+    ("repos", "archive_script"),
     ("repos", "run_script_mode"),
     ("repos", "storage_version"),
     // workspaces: legacy fields with no read path in production.
@@ -492,7 +493,6 @@ CREATE TABLE IF NOT EXISTS repos (
     default_branch TEXT DEFAULT 'main',
     root_path TEXT,
     setup_script TEXT,
-    archive_script TEXT,
     display_order INTEGER DEFAULT 0,
     run_script TEXT,
     remote TEXT,

@@ -41,6 +41,7 @@ import { AppOnboarding } from "@/features/onboarding";
 import { seedNewSessionInCache } from "@/features/panel/session-cache";
 import { useConfirmSessionClose } from "@/features/panel/use-confirm-session-close";
 import {
+	isSettingsSection,
 	SettingsButton,
 	SettingsDialog,
 	type SettingsSection,
@@ -191,10 +192,9 @@ function MainApp() {
 				typeof event.detail === "object"
 					? (event.detail as { section?: unknown })
 					: {};
-			const section =
-				typeof detail.section === "string"
-					? (detail.section as SettingsSection)
-					: undefined;
+			const section = isSettingsSection(detail.section)
+				? detail.section
+				: undefined;
 			setSettingsInitialSection(section);
 			setSettingsWorkspaceId(null);
 			setSettingsWorkspaceRepoId(null);
@@ -319,8 +319,10 @@ function MainApp() {
 					<AppOnboarding onComplete={completeOnboarding} />
 				) : (
 					<AppShell
-						onOpenSettings={(workspaceId, workspaceRepoId) => {
-							setSettingsInitialSection(undefined);
+						onOpenSettings={(workspaceId, workspaceRepoId, initialSection) => {
+							setSettingsInitialSection(
+								initialSection as SettingsSection | undefined,
+							);
 							setSettingsWorkspaceId(workspaceId);
 							setSettingsWorkspaceRepoId(workspaceRepoId);
 							setSettingsOpen(true);
@@ -351,6 +353,7 @@ function AppShell({
 	onOpenSettings: (
 		workspaceId: string | null,
 		workspaceRepoId: string | null,
+		initialSection?: string,
 	) => void;
 }) {
 	useZoom();
@@ -438,6 +441,7 @@ function AppShell({
 		handleCopyGithubDeviceCode,
 		handleDisconnectGithubIdentity,
 		handleStartGithubIdentityConnect,
+		handleSwitchGithubIdentityAccount,
 		refreshGithubIdentityState,
 		isIdentityConnected,
 	} = useGithubIdentity(pushWorkspaceToast);
@@ -750,16 +754,23 @@ function AppShell({
 		...workspaceDetailQueryOptions(selectedWorkspaceId ?? "__none__"),
 		enabled: isIdentityConnected && selectedWorkspaceId !== null,
 	});
-	const handleOpenSettings = useCallback((): void => {
-		onOpenSettings(
+	const handleOpenSettings = useCallback(
+		(initialSection?: unknown): void => {
+			const section = isSettingsSection(initialSection)
+				? initialSection
+				: undefined;
+			onOpenSettings(
+				selectedWorkspaceId,
+				selectedWorkspaceDetailQuery.data?.repoId ?? null,
+				section,
+			);
+		},
+		[
+			onOpenSettings,
+			selectedWorkspaceDetailQuery.data?.repoId,
 			selectedWorkspaceId,
-			selectedWorkspaceDetailQuery.data?.repoId ?? null,
-		);
-	}, [
-		onOpenSettings,
-		selectedWorkspaceDetailQuery.data?.repoId,
-		selectedWorkspaceId,
-	]);
+		],
+	);
 	const selectedWorkspaceDetail =
 		selectedWorkspaceDetailQuery.data ??
 		(selectedWorkspaceId
@@ -2265,8 +2276,16 @@ function AppShell({
 																githubIdentityState.status === "connected" ? (
 																	<GithubStatusMenu
 																		identityState={githubIdentityState}
+																		onAddGithubAccount={() => {
+																			void handleStartGithubIdentityConnect();
+																		}}
 																		onDisconnectGithub={() => {
 																			void handleDisconnectGithubIdentity();
+																		}}
+																		onSwitchGithubAccount={(githubUserId) => {
+																			void handleSwitchGithubIdentityAccount(
+																				githubUserId,
+																			);
 																		}}
 																	/>
 																) : null

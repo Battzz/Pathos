@@ -1,4 +1,11 @@
-import { ChevronDown, Plus, X } from "lucide-react";
+import {
+	ChevronDown,
+	Play,
+	Plus,
+	SquareTerminal,
+	Wrench,
+	X,
+} from "lucide-react";
 import {
 	createContext,
 	useCallback,
@@ -216,6 +223,21 @@ export function InspectorTabsSection({
 		}
 	}, []);
 
+	const resetZoomState = useCallback(() => {
+		clearHoverTimer();
+		clearPresentationClearTimer();
+		clearBlurTimer();
+		releaseTerminalFitLock();
+		setIsHoverExpanded(false);
+		setIsZoomPresented(false);
+		setIsContentBlurred(false);
+	}, [
+		clearHoverTimer,
+		clearPresentationClearTimer,
+		clearBlurTimer,
+		releaseTerminalFitLock,
+	]);
+
 	// Pause every mounted `TerminalOutput`'s FitAddon for the duration of the
 	// CSS transition. Without this, each xterm re-fits once per animation
 	// frame (reflowing its 5000-line scrollback) which stutters the zoom.
@@ -315,21 +337,9 @@ export function InspectorTabsSection({
 	// unmount or change size and shouldn't be held back.
 	useEffect(() => {
 		if (!open) {
-			clearHoverTimer();
-			clearPresentationClearTimer();
-			clearBlurTimer();
-			releaseTerminalFitLock();
-			setIsHoverExpanded(false);
-			setIsZoomPresented(false);
-			setIsContentBlurred(false);
+			resetZoomState();
 		}
-	}, [
-		open,
-		clearHoverTimer,
-		clearPresentationClearTimer,
-		clearBlurTimer,
-		releaseTerminalFitLock,
-	]);
+	}, [open, resetZoomState]);
 
 	// If the active tab no longer has output worth zooming (e.g. user switched
 	// from Run — with a live dev server — to Setup — never run), force the
@@ -353,17 +363,9 @@ export function InspectorTabsSection({
 	// Clean up any pending timer on unmount.
 	useEffect(() => {
 		return () => {
-			clearHoverTimer();
-			clearPresentationClearTimer();
-			clearBlurTimer();
-			releaseTerminalFitLock();
+			resetZoomState();
 		};
-	}, [
-		clearHoverTimer,
-		clearPresentationClearTimer,
-		clearBlurTimer,
-		releaseTerminalFitLock,
-	]);
+	}, [resetZoomState]);
 
 	const zoomedSize = `${TABS_HOVER_ZOOM_MULTIPLIER * 100}%`;
 
@@ -392,6 +394,13 @@ export function InspectorTabsSection({
 		if (!open) onToggle();
 		onAddTerminal();
 	}, [open, onAddTerminal, onToggle]);
+
+	const handleToggleClick = useCallback(() => {
+		if (open) {
+			resetZoomState();
+		}
+		onToggle();
+	}, [open, onToggle, resetZoomState]);
 
 	return (
 		<div
@@ -516,7 +525,17 @@ export function InspectorTabsSection({
 									)}
 									onClick={() => handleTabClick("setup")}
 								>
-									<ScriptStatusIcon state={setupScriptState} />
+									{setupScriptState === "running" ||
+									setupScriptState === "success" ||
+									setupScriptState === "failure" ? (
+										<ScriptStatusIcon state={setupScriptState} />
+									) : (
+										<Wrench
+											aria-hidden="true"
+											className="size-3 shrink-0"
+											strokeWidth={1.8}
+										/>
+									)}
 									Setup
 									<span
 										aria-hidden="true"
@@ -540,7 +559,17 @@ export function InspectorTabsSection({
 									)}
 									onClick={() => handleTabClick("run")}
 								>
-									<ScriptStatusIcon state={runScriptState} />
+									{runScriptState === "running" ||
+									runScriptState === "success" ||
+									runScriptState === "failure" ? (
+										<ScriptStatusIcon state={runScriptState} />
+									) : (
+										<Play
+											aria-hidden="true"
+											className="size-3 shrink-0"
+											strokeWidth={1.8}
+										/>
+									)}
 									Run
 									<span
 										aria-hidden="true"
@@ -568,6 +597,11 @@ export function InspectorTabsSection({
 											"shrink-0 disabled:cursor-not-allowed disabled:opacity-50",
 										)}
 									>
+										<SquareTerminal
+											aria-hidden="true"
+											className="size-3 shrink-0"
+											strokeWidth={1.8}
+										/>
 										Terminal
 									</button>
 								) : (
@@ -589,7 +623,7 @@ export function InspectorTabsSection({
 												// stable on mask toggle). `transform-gpu` keeps it
 												// on its own compositing layer.
 												className={cn(
-													"group/tab relative flex h-full min-w-[5rem] shrink-0 transform-gpu cursor-pointer items-center overflow-hidden px-3 text-[12px] font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-0",
+													"group/tab relative flex h-full min-w-[5rem] shrink-0 transform-gpu cursor-pointer items-center gap-1.5 overflow-hidden px-3 text-[12px] font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-0",
 													isActive && "text-foreground",
 												)}
 												onClick={() => handleTabClick(instance.id)}
@@ -600,6 +634,11 @@ export function InspectorTabsSection({
 													}
 												}}
 											>
+												<SquareTerminal
+													aria-hidden="true"
+													className="size-3 shrink-0"
+													strokeWidth={1.8}
+												/>
 												<span className="terminal-tab-fade flex min-w-0 flex-1 items-center justify-center">
 													<span className="truncate">{label}</span>
 												</span>
@@ -658,7 +697,7 @@ export function InspectorTabsSection({
 								<Button
 									type="button"
 									aria-label="Toggle inspector tabs section"
-									onClick={onToggle}
+									onClick={handleToggleClick}
 									variant="ghost"
 									size="icon-sm"
 									className="shrink-0 text-muted-foreground hover:bg-accent/60 hover:text-foreground"

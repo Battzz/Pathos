@@ -272,10 +272,13 @@ describe("App GitHub identity states", () => {
 	});
 
 	it("disconnects the GitHub identity from the account menu", async () => {
-		apiMocks.loadGithubIdentitySession.mockResolvedValue({
-			status: "connected",
-			session: CONNECTED_IDENTITY,
-		});
+		apiMocks.loadGithubIdentitySession
+			.mockResolvedValueOnce({
+				status: "connected",
+				session: CONNECTED_IDENTITY,
+				accounts: [CONNECTED_IDENTITY],
+			})
+			.mockResolvedValueOnce({ status: "disconnected" });
 
 		const user = userEvent.setup();
 		render(<App />);
@@ -301,6 +304,7 @@ describe("App GitHub identity states", () => {
 		apiMocks.loadGithubIdentitySession.mockResolvedValue({
 			status: "connected",
 			session: CONNECTED_IDENTITY,
+			accounts: [CONNECTED_IDENTITY],
 		});
 
 		render(<App />);

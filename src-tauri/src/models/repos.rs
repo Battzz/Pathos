@@ -316,12 +316,11 @@ pub(crate) fn insert_repository(repository: &ResolvedRepositoryInput) -> Result<
               hidden,
               setup_script,
               run_script,
-              archive_script,
               forge_provider,
               is_git,
               created_at,
               updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, NULL, NULL, NULL, ?8, ?9, datetime('now'), datetime('now'))
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, NULL, NULL, ?8, ?9, datetime('now'), datetime('now'))
             "#,
             (
                 repo_id.as_str(),
@@ -552,10 +551,8 @@ pub fn update_repository_branch_prefix(
 pub struct RepoScripts {
     pub setup_script: Option<String>,
     pub run_script: Option<String>,
-    pub archive_script: Option<String>,
     pub setup_from_project: bool,
     pub run_from_project: bool,
-    pub archive_from_project: bool,
     /// Auto-run setup on workspace creation. DB-only — not configurable
     /// from `pathos.json`. Defaults to true.
     pub auto_run_setup: bool,
@@ -579,7 +576,7 @@ pub struct RepoPreferences {
 ///   2. The source repo root's `pathos.json` — used whenever (1) can't
 ///      apply: no `workspace_id`, unknown workspace, or worktree missing
 ///      (archived / broken / pre-Phase-2 creation).
-///   3. DB-level config (`repos.setup_script/run_script/archive_script`) —
+///   3. DB-level config (`repos.setup_script/run_script`) —
 ///      the per-user override set via the Settings UI, used as a final
 ///      fallback when neither `pathos.json` source provides a value.
 ///
@@ -609,18 +606,15 @@ pub fn load_repo_scripts(repo_id: &str, workspace_id: Option<&str>) -> Result<Re
     // config doesn't provide a value.
     let connection = db::read_conn()?;
     let mut statement = connection
-        .prepare(
-            "SELECT setup_script, run_script, archive_script, auto_run_setup FROM repos WHERE id = ?1",
-        )
+        .prepare("SELECT setup_script, run_script, auto_run_setup FROM repos WHERE id = ?1")
         .with_context(|| format!("Failed to prepare script lookup for {repo_id}"))?;
 
-    let (db_setup, db_run, db_archive, auto_run_setup) = statement
+    let (db_setup, db_run, auto_run_setup) = statement
         .query_row([repo_id], |row| {
             Ok((
                 row.get::<_, Option<String>>(0)?,
                 row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<i64>>(3)?.unwrap_or(1) != 0,
+                row.get::<_, Option<i64>>(2)?.unwrap_or(1) != 0,
             ))
         })
         .with_context(|| format!("Repository not found: {repo_id}"))?;
@@ -629,18 +623,12 @@ pub fn load_repo_scripts(repo_id: &str, workspace_id: Option<&str>) -> Result<Re
         pick_script(project.as_ref().and_then(|p| p.setup.as_deref()), db_setup);
     let (run_script, run_from_project) =
         pick_script(project.as_ref().and_then(|p| p.run.as_deref()), db_run);
-    let (archive_script, archive_from_project) = pick_script(
-        project.as_ref().and_then(|p| p.archive.as_deref()),
-        db_archive,
-    );
 
     Ok(RepoScripts {
         setup_script,
         run_script,
-        archive_script,
         setup_from_project,
         run_from_project,
-        archive_from_project,
         auto_run_setup,
     })
 }
@@ -656,7 +644,6 @@ fn pick_script(project_value: Option<&str>, db_value: Option<String>) -> (Option
 struct PathosJsonScripts {
     setup: Option<String>,
     run: Option<String>,
-    archive: Option<String>,
 }
 
 fn load_pathos_json_scripts(root_path: &Path) -> Option<PathosJsonScripts> {
@@ -691,10 +678,6 @@ fn parse_project_config_scripts(config_path: &Path) -> Option<PathosJsonScripts>
             .get("run")
             .and_then(Value::as_str)
             .map(ToOwned::to_owned),
-        archive: scripts
-            .get("archive")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned),
     })
 }
 
@@ -702,13 +685,12 @@ pub fn update_repo_scripts(
     repo_id: &str,
     setup_script: Option<&str>,
     run_script: Option<&str>,
-    archive_script: Option<&str>,
 ) -> Result<()> {
     let connection = db::write_conn()?;
     let updated = connection
         .execute(
-            "UPDATE repos SET setup_script = ?1, run_script = ?2, archive_script = ?3, updated_at = datetime('now') WHERE id = ?4",
-            rusqlite::params![setup_script, run_script, archive_script, repo_id],
+            "UPDATE repos SET setup_script = ?1, run_script = ?2, updated_at = datetime('now') WHERE id = ?3",
+            rusqlite::params![setup_script, run_script, repo_id],
         )
         .with_context(|| format!("Failed to update scripts for {repo_id}"))?;
 

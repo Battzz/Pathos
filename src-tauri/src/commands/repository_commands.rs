@@ -105,15 +105,9 @@ pub async fn update_repo_scripts(
     repo_id: String,
     setup_script: Option<String>,
     run_script: Option<String>,
-    archive_script: Option<String>,
 ) -> CmdResult<()> {
     run_blocking(move || {
-        repos::update_repo_scripts(
-            &repo_id,
-            setup_script.as_deref(),
-            run_script.as_deref(),
-            archive_script.as_deref(),
-        )
+        repos::update_repo_scripts(&repo_id, setup_script.as_deref(), run_script.as_deref())
     })
     .await
 }
