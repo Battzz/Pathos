@@ -1,5 +1,4 @@
 import {
-	ChevronRight,
 	FolderOpen,
 	LoaderCircle,
 	MessageSquarePlus,
@@ -59,13 +58,6 @@ export const FolderRow = memo(function FolderRow({
 						className="flex min-w-0 flex-1 items-center gap-2 cursor-pointer text-left"
 						onClick={() => onToggle(folder.repoId)}
 					>
-						<ChevronRight
-							className={cn(
-								"size-3 shrink-0 text-muted-foreground/70 transition-transform duration-200 ease-out",
-								expanded && "rotate-90 text-muted-foreground",
-							)}
-							strokeWidth={2.4}
-						/>
 						<WorkspaceAvatar
 							repoIconSrc={folder.repoIconSrc}
 							repoInitials={folder.repoInitials}
@@ -115,7 +107,7 @@ export const FolderRow = memo(function FolderRow({
 					</Button>
 				</div>
 			</ContextMenuTrigger>
-			<ContextMenuContent>
+			<ContextMenuContent className="min-w-44">
 				<ContextMenuItem onSelect={() => onCreateChat(folder.repoId)}>
 					<MessageSquarePlus className="size-3.5" strokeWidth={2} />
 					<span>New chat</span>
@@ -133,7 +125,7 @@ export const FolderRow = memo(function FolderRow({
 					<>
 						<ContextMenuSeparator />
 						<ContextMenuItem
-							className="text-destructive focus:text-destructive"
+							variant="destructive"
 							onSelect={() => onRemoveProject(folder.repoId)}
 						>
 							<Trash2 className="size-3.5" strokeWidth={2} />

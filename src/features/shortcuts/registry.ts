@@ -87,6 +87,14 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		editable: true,
 	},
 	{
+		id: "commandBar.open",
+		title: "Open command bar",
+		group: "Navigation",
+		defaultHotkey: "Mod+K",
+		scopes: ["app"],
+		editable: true,
+	},
+	{
 		id: "script.run",
 		title: "Run / stop script",
 		group: "Actions",

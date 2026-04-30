@@ -29,6 +29,7 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { CommandBar } from "@/features/command-bar";
 import { useWorkspaceCommitLifecycle } from "@/features/commit/hooks/use-commit-lifecycle";
 import { WorkspaceConversationContainer } from "@/features/conversation";
 import { useDockUnreadBadge } from "@/features/dock-badge";
@@ -105,6 +106,7 @@ import {
 	detectedEditorsQueryOptions,
 	pathosQueryKeys,
 	pathosQueryPersister,
+	repositoryFoldersQueryOptions,
 	sessionThreadMessagesQueryOptions,
 	workspaceChangeRequestQueryOptions,
 	workspaceChangesQueryOptions,
@@ -487,6 +489,7 @@ function AppShell({
 	const [pendingComposerInserts, setPendingComposerInserts] = useState<
 		ResolvedComposerInsertRequest[]
 	>([]);
+	const [commandBarOpen, setCommandBarOpen] = useState(false);
 	// Tracks sessions that have reached a terminal "done" event at least once
 	// in this app run. Used by the commit lifecycle to know when to prompt.
 	// Distinct from "unread" — `unreadCount` is the persisted, cross-restart
@@ -663,6 +666,10 @@ function AppShell({
 		appSettings.shortcuts,
 		"workspace.addRepository",
 	);
+	const commandBarShortcut = getShortcut(
+		appSettings.shortcuts,
+		"commandBar.open",
+	);
 	const leftSidebarToggleShortcut = getShortcut(
 		appSettings.shortcuts,
 		"sidebar.left.toggle",
@@ -749,6 +756,10 @@ function AppShell({
 		...archivedWorkspacesQueryOptions(),
 		enabled: isIdentityConnected,
 	});
+	const repositoryFoldersQuery = useQuery({
+		...repositoryFoldersQueryOptions(),
+		enabled: isIdentityConnected,
+	});
 	const workspaceGroups = navigationGroupsQuery.data ?? [];
 	const archivedRows = useMemo(
 		() => (navigationArchivedQuery.data ?? []).map(summaryToArchivedRow),
@@ -756,6 +767,10 @@ function AppShell({
 	);
 	const selectedWorkspaceDetailQuery = useQuery({
 		...workspaceDetailQueryOptions(selectedWorkspaceId ?? "__none__"),
+		enabled: isIdentityConnected && selectedWorkspaceId !== null,
+	});
+	const selectedWorkspaceSessionsQuery = useQuery({
+		...workspaceSessionsQueryOptions(selectedWorkspaceId ?? "__none__"),
 		enabled: isIdentityConnected && selectedWorkspaceId !== null,
 	});
 	const handleOpenSettings = useCallback(
@@ -1873,6 +1888,11 @@ function AppShell({
 	const globalShortcutHandlers = useMemo<ShortcutHandler[]>(
 		() => [
 			{
+				id: "commandBar.open" as const,
+				callback: () => setCommandBarOpen((open) => !open),
+				enabled: isIdentityConnected,
+			},
+			{
 				id: "settings.open" as const,
 				callback: handleOpenSettings,
 			},
@@ -2038,6 +2058,7 @@ function AppShell({
 			preferredEditor,
 			pullRequestUrl,
 			selectedWorkspaceId,
+			setCommandBarOpen,
 			setInspectorCollapsed,
 			setSidebarCollapsed,
 			updateSettings,
@@ -2759,6 +2780,59 @@ function AppShell({
 										</>
 									)}
 								</div>
+								<CommandBar
+									open={commandBarOpen}
+									onOpenChange={setCommandBarOpen}
+									repositoryFolders={repositoryFoldersQuery.data ?? []}
+									currentWorkspaceId={selectedWorkspaceId}
+									currentSessionId={selectedSessionId}
+									currentWorkspaceSessions={
+										selectedWorkspaceSessionsQuery.data ?? []
+									}
+									canCreateSession={
+										workspaceViewMode === "conversation" &&
+										Boolean(selectedWorkspaceId)
+									}
+									canOpenWorkspace={Boolean(
+										selectedWorkspaceId && preferredEditor,
+									)}
+									onSelectWorkspace={handleSelectWorkspace}
+									onSelectChat={handleSelectChat}
+									onSelectSession={handleSelectSession}
+									onCreateSession={() => {
+										void handleCreateSession();
+									}}
+									onOpenSettings={handleOpenSettings}
+									onToggleLeftSidebar={() =>
+										setSidebarCollapsed((collapsed) => !collapsed)
+									}
+									onToggleRightSidebar={() =>
+										setInspectorCollapsed((collapsed) => !collapsed)
+									}
+									onFocusComposer={() =>
+										window.dispatchEvent(new Event("pathos:focus-composer"))
+									}
+									onOpenWorkspaceInEditor={handleOpenPreferredEditor}
+									shortcuts={{
+										openCommandBar: commandBarShortcut,
+										openProject: addRepositoryShortcut,
+										newSession: getShortcut(
+											appSettings.shortcuts,
+											"session.new",
+										),
+										settings: getShortcut(
+											appSettings.shortcuts,
+											"settings.open",
+										),
+										focusComposer: getShortcut(
+											appSettings.shortcuts,
+											"composer.focus",
+										),
+										openWorkspaceInEditor: openPreferredEditorShortcut,
+										toggleLeftSidebar: leftSidebarToggleShortcut,
+										toggleRightSidebar: rightSidebarToggleShortcut,
+									}}
+								/>
 							</main>
 						)}
 						<Toaster

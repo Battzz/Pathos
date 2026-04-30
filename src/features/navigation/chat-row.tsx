@@ -205,7 +205,7 @@ export const ChatRow = memo(function ChatRow({
 				</div>
 			</ContextMenuTrigger>
 			{onDelete || onTogglePin ? (
-				<ContextMenuContent>
+				<ContextMenuContent className="min-w-40">
 					{onTogglePin ? (
 						<ContextMenuItem onSelect={() => onTogglePin(chat)}>
 							{isPinned ? (
@@ -217,7 +217,10 @@ export const ChatRow = memo(function ChatRow({
 						</ContextMenuItem>
 					) : null}
 					{onDelete ? (
-						<ContextMenuItem onSelect={() => onDelete(chat.sessionId)}>
+						<ContextMenuItem
+							variant="destructive"
+							onSelect={() => onDelete(chat.sessionId)}
+						>
 							<Trash2 className="size-3.5" strokeWidth={2} />
 							<span>Delete chat</span>
 						</ContextMenuItem>
