@@ -12,10 +12,6 @@ import { loadRepoScripts, type RepoScripts } from "@/lib/api";
 import type { InspectorFileItem } from "@/lib/editor-session";
 import { workspaceChangesQueryOptions } from "@/lib/query-client";
 import {
-	OPEN_INSPECTOR_TAB_EVENT,
-	type OpenInspectorTabDetail,
-} from "../header-buttons";
-import {
 	DEFAULT_TABS_BODY_HEIGHT,
 	MIN_SECTION_HEIGHT,
 	TABS_ANIMATION_MS,
@@ -198,24 +194,6 @@ export function useWorkspaceInspectorSidebar({
 
 		animateSection(tabsElement, tabsFrom, tabsTo);
 	}, []);
-
-	// External callers (e.g. the Setup / Run buttons in the panel header) ask
-	// the inspector to surface a specific tab. Always switch the active tab,
-	// and pop the panel open if it was collapsed so the body is visible.
-	const tabsOpenRef = useRef(tabsOpen);
-	tabsOpenRef.current = tabsOpen;
-	useEffect(() => {
-		const handler = (event: Event) => {
-			const detail = (event as CustomEvent<OpenInspectorTabDetail>).detail;
-			if (!detail) return;
-			setActiveTab(detail.tab);
-			if (!tabsOpenRef.current) {
-				handleToggleTabs();
-			}
-		};
-		window.addEventListener(OPEN_INSPECTOR_TAB_EVENT, handler);
-		return () => window.removeEventListener(OPEN_INSPECTOR_TAB_EVENT, handler);
-	}, [handleToggleTabs]);
 
 	useEffect(() => {
 		if (!resizeState) {

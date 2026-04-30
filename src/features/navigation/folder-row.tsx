@@ -45,8 +45,11 @@ export const FolderRow = memo(function FolderRow({
 		<ContextMenu>
 			<ContextMenuTrigger asChild>
 				<div
+					data-expanded={expanded ? "true" : "false"}
 					className={cn(
-						"group/folder flex h-8 select-none items-center gap-1 rounded-md px-1.5 text-[13px] font-semibold tracking-[-0.01em] text-foreground hover:bg-accent/60",
+						"group/folder relative flex h-8 select-none items-center gap-1 rounded-md pr-1 pl-1.5 text-[13px] font-semibold tracking-[-0.01em] text-foreground/90 transition-colors",
+						"hover:bg-accent/40 hover:text-foreground",
+						"data-[expanded=true]:text-foreground",
 					)}
 				>
 					<button
@@ -58,22 +61,28 @@ export const FolderRow = memo(function FolderRow({
 					>
 						<ChevronRight
 							className={cn(
-								"size-3.5 shrink-0 text-muted-foreground transition-transform",
-								expanded && "rotate-90",
+								"size-3 shrink-0 text-muted-foreground/70 transition-transform duration-200 ease-out",
+								expanded && "rotate-90 text-muted-foreground",
 							)}
-							strokeWidth={2}
+							strokeWidth={2.4}
 						/>
 						<WorkspaceAvatar
 							repoIconSrc={folder.repoIconSrc}
 							repoInitials={folder.repoInitials}
 							repoName={folder.repoName}
 							title={folder.repoName}
-							className="size-4 rounded-[4px]"
-							fallbackClassName="text-[7px]"
+							className="size-[18px] rounded-[5px]"
+							fallbackClassName="text-[8.5px]"
 						/>
 						<span className="truncate">{folder.repoName}</span>
 						{itemCount > 0 ? (
-							<span className="ml-auto rounded-full bg-muted px-1.5 text-[10px] leading-4 text-muted-foreground tabular-nums opacity-0 transition-opacity group-hover/folder:opacity-100">
+							<span
+								className={cn(
+									"ml-auto inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full px-1 text-[10px] font-medium leading-none tabular-nums transition-all",
+									"bg-foreground/[0.06] text-muted-foreground/70",
+									"group-hover/folder:bg-foreground/[0.1] group-hover/folder:text-muted-foreground group-hover/folder:opacity-0",
+								)}
+							>
 								{itemCount}
 							</span>
 						) : null}
@@ -86,7 +95,8 @@ export const FolderRow = memo(function FolderRow({
 						size="icon-xs"
 						disabled={busy}
 						className={cn(
-							"text-muted-foreground opacity-0 transition-opacity group-hover/folder:opacity-100",
+							"absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity",
+							"group-hover/folder:opacity-100 hover:text-foreground",
 							busy && "opacity-100",
 						)}
 						onClick={(event) => {

@@ -91,13 +91,19 @@ export const ChatRow = memo(function ChatRow({
 		<ContextMenu>
 			<ContextMenuTrigger asChild>
 				<div className="group/chat relative h-7 w-full">
+					{selected ? (
+						<span
+							aria-hidden="true"
+							className="pointer-events-none absolute left-0 top-1/2 h-3.5 w-[2px] -translate-y-1/2 rounded-full bg-foreground/70"
+						/>
+					) : null}
 					<button
 						type="button"
 						className={cn(
-							"flex h-7 w-full select-none items-center gap-2 rounded-md px-2 text-[13px] cursor-pointer",
+							"flex h-7 w-full select-none items-center gap-2 rounded-md px-2 text-[13px] cursor-pointer transition-colors",
 							selected
 								? "workspace-row-selected text-foreground"
-								: "text-foreground/80 hover:bg-accent/60",
+								: "text-foreground/75 hover:bg-accent/40 hover:text-foreground/95",
 						)}
 						onClick={() => onSelect(chat.workspaceId, chat.sessionId)}
 					>

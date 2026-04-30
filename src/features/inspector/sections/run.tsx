@@ -1,6 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ExternalLink, Play, RotateCcw, Settings2, Square } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	type TerminalHandle,
 	TerminalOutput,
@@ -16,10 +16,13 @@ import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { extractPort } from "../detect-urls";
+import type { ScriptIconState } from "../hooks/use-script-status";
 import { TABS_EASING, TABS_HOVER_TRANSITION_MS, useTabsZoom } from "../layout";
+import { ScriptStatusBanner } from "../script-status-banner";
 import {
 	attach,
 	detach,
+	getScriptState,
 	resizeScript,
 	type ScriptStatus,
 	startScript,
@@ -147,6 +150,7 @@ export function RunTab({
 }: RunTabProps) {
 	const termRef = useRef<TerminalHandle | null>(null);
 	const [status, setStatus] = useState<ScriptStatus>("idle");
+	const [exitCode, setExitCode] = useState<number | null>(null);
 	const [hasRun, setHasRun] = useState(false);
 	const { isZoomPresented, isHoverExpanded } = useTabsZoom();
 	const { settings } = useSettings();
@@ -166,7 +170,15 @@ export function RunTab({
 
 		const existing = attach(workspaceId, "run", {
 			onChunk: (data) => termRef.current?.write(data),
-			onStatusChange: setStatus,
+			onStatusChange: (s) => {
+				setStatus(s);
+				if (s === "running") {
+					setExitCode(null);
+				} else if (s === "exited") {
+					const state = getScriptState(workspaceId, "run");
+					setExitCode(state?.exitCode ?? null);
+				}
+			},
 			onUrlsChange: (urls) => onUrlsChange?.(urls),
 			// When a fresh run is triggered externally (e.g. Cmd+R while this
 			// tab is mounted), wipe the terminal so old output doesn't bleed
@@ -180,6 +192,7 @@ export function RunTab({
 		if (existing) {
 			setHasRun(true);
 			setStatus(existing.status);
+			setExitCode(existing.exitCode);
 			// Replay URLs already detected on this entry so the parent's state
 			// mirrors the store the moment the component mounts.
 			onUrlsChange?.([...existing.urls]);
@@ -195,6 +208,7 @@ export function RunTab({
 		} else {
 			setHasRun(false);
 			setStatus("idle");
+			setExitCode(null);
 			onUrlsChange?.([]);
 			termRef.current?.clear();
 		}
@@ -206,6 +220,7 @@ export function RunTab({
 		if (!repoId || !workspaceId) return;
 		termRef.current?.clear();
 		setStatus("running");
+		setExitCode(null);
 		setHasRun(true);
 		startScript(repoId, "run", workspaceId);
 	}, [repoId, workspaceId]);
@@ -235,6 +250,13 @@ export function RunTab({
 
 	const hasScript = !!runScript?.trim();
 
+	const bannerState = useMemo<ScriptIconState>(() => {
+		if (!hasScript) return "no-script";
+		if (status === "running") return "running";
+		if (status === "exited") return exitCode === 0 ? "success" : "failure";
+		return "idle";
+	}, [hasScript, status, exitCode]);
+
 	return (
 		<div
 			id="inspector-panel-run"
@@ -248,6 +270,11 @@ export function RunTab({
 		>
 			{hasRun ? (
 				<>
+					<ScriptStatusBanner
+						state={bannerState}
+						exitCode={exitCode}
+						scriptKind="run"
+					/>
 					<div className="min-h-0 flex-1">
 						<TerminalOutput
 							terminalRef={termRef}

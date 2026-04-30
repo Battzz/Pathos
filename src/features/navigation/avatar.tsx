@@ -1,4 +1,5 @@
-import { memo, useEffect, useState } from "react";
+import type * as React from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
 	Avatar,
 	AvatarBadge,
@@ -36,6 +37,25 @@ function getWorkspaceAvatarSrc(repoIconSrc?: string | null) {
 	return repoIconSrc?.trim() ? repoIconSrc : null;
 }
 
+function hashString(value: string): number {
+	let hash = 2166136261;
+	for (let i = 0; i < value.length; i += 1) {
+		hash ^= value.charCodeAt(i);
+		hash = Math.imul(hash, 16777619);
+	}
+	return hash >>> 0;
+}
+
+function avatarTintFromKey(key: string) {
+	const hue = hashString(key) % 360;
+	const hueB = (hue + 28) % 360;
+	return {
+		background: `linear-gradient(140deg, oklch(0.42 0.09 ${hue}) 0%, oklch(0.30 0.07 ${hueB}) 100%)`,
+		ring: `oklch(0.62 0.12 ${hue} / 0.35)`,
+		text: `oklch(0.96 0.02 ${hue})`,
+	};
+}
+
 export const WorkspaceAvatar = memo(function WorkspaceAvatar({
 	repoIconSrc,
 	repoInitials,
@@ -64,6 +84,10 @@ export const WorkspaceAvatar = memo(function WorkspaceAvatar({
 		.toUpperCase();
 	const src = getWorkspaceAvatarSrc(repoIconSrc);
 	const [hasImage, setHasImage] = useState(Boolean(src));
+	const tint = useMemo(
+		() => avatarTintFromKey(repoName || title || fallback),
+		[repoName, title, fallback],
+	);
 
 	useEffect(() => {
 		setHasImage(Boolean(src));
@@ -78,6 +102,13 @@ export const WorkspaceAvatar = memo(function WorkspaceAvatar({
 				"size-[16px] shrink-0 rounded-[5px] border-0 bg-transparent outline-none",
 				className,
 			)}
+			style={
+				!hasImage
+					? ({
+							boxShadow: `inset 0 0 0 0.5px ${tint.ring}`,
+						} as React.CSSProperties)
+					: undefined
+			}
 		>
 			{src ? (
 				<AvatarImage
@@ -95,9 +126,13 @@ export const WorkspaceAvatar = memo(function WorkspaceAvatar({
 				<AvatarFallback
 					delayMs={0}
 					className={cn(
-						"bg-muted text-[7px] font-semibold uppercase tracking-[0.02em] text-muted-foreground",
+						"text-[7.5px] font-semibold uppercase tracking-[0.04em]",
 						fallbackClassName,
 					)}
+					style={{
+						background: tint.background,
+						color: tint.text,
+					}}
 				>
 					{fallback}
 				</AvatarFallback>

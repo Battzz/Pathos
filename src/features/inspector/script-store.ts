@@ -24,6 +24,7 @@ type Listener = {
 };
 
 type StatusListener = (status: ScriptStatus, exitCode: number | null) => void;
+type ChunkSubscriber = (data: string) => void;
 
 /**
  * Max bytes of stdout/stderr retained per script entry. Long-running dev
@@ -76,11 +77,25 @@ const listeners = new Map<string, Listener>();
  * so both the tab panel and the tab label header can reflect live status.
  */
 const statusListeners = new Map<string, Set<StatusListener>>();
+/**
+ * Multi-subscriber chunk observers. Coexist with the single-listener
+ * `listeners` map: each appended chunk fans out to both the tab panel's
+ * single listener AND every chunk subscriber, so secondary surfaces (e.g.
+ * the header dropdown's output popover) can mirror live output without
+ * stealing the tab panel's slot.
+ */
+const chunkListeners = new Map<string, Set<ChunkSubscriber>>();
 
 function emitStatus(k: string, status: ScriptStatus, exitCode: number | null) {
 	const subs = statusListeners.get(k);
 	if (!subs) return;
 	for (const sub of subs) sub(status, exitCode);
+}
+
+function emitChunk(k: string, data: string) {
+	const subs = chunkListeners.get(k);
+	if (!subs) return;
+	for (const sub of subs) sub(data);
 }
 
 function key(workspaceId: string, scriptType: string) {
@@ -131,6 +146,7 @@ export function startScript(
 				case "stderr": {
 					appendChunk(entry, event.data);
 					listeners.get(k)?.onChunk(event.data);
+					emitChunk(k, event.data);
 
 					// Cheap short-circuit: once a dev server has settled into
 					// steady-state, ~every chunk is HMR / request-log noise with
@@ -180,6 +196,7 @@ export function startScript(
 					// No exit code from the backend here — treat as failure.
 					entry.exitCode = entry.exitCode ?? 1;
 					listeners.get(k)?.onChunk(msg);
+					emitChunk(k, msg);
 					listeners.get(k)?.onStatusChange("exited");
 					emitStatus(k, "exited", entry.exitCode);
 					break;
@@ -194,6 +211,7 @@ export function startScript(
 		entry.status = "exited";
 		entry.exitCode = entry.exitCode ?? 1;
 		listeners.get(k)?.onChunk(msg);
+		emitChunk(k, msg);
 		listeners.get(k)?.onStatusChange("exited");
 		emitStatus(k, "exited", entry.exitCode);
 	});
@@ -276,9 +294,37 @@ export function subscribeStatus(
 	};
 }
 
+/**
+ * Subscribe to chunk-only updates for a script. Multiple subscribers are
+ * allowed per key, fanning out alongside the single-consumer `listeners`
+ * map. Useful for secondary surfaces (e.g. the header output popover) that
+ * need a live mirror of stdout/stderr without stealing the tab panel's
+ * listener slot. Returns an unsubscribe fn.
+ */
+export function subscribeChunks(
+	workspaceId: string,
+	scriptType: string,
+	listener: ChunkSubscriber,
+): () => void {
+	const k = key(workspaceId, scriptType);
+	let set = chunkListeners.get(k);
+	if (!set) {
+		set = new Set();
+		chunkListeners.set(k, set);
+	}
+	set.add(listener);
+	return () => {
+		const current = chunkListeners.get(k);
+		if (!current) return;
+		current.delete(listener);
+		if (current.size === 0) chunkListeners.delete(k);
+	};
+}
+
 /** Reset all state. Test-only. */
 export function _resetForTesting() {
 	entries.clear();
 	listeners.clear();
 	statusListeners.clear();
+	chunkListeners.clear();
 }

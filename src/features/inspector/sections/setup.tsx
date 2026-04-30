@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Play, RotateCcw, Settings2, Square } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	type TerminalHandle,
 	TerminalOutput,
@@ -8,7 +8,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { pathosQueryKeys } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
+import type { ScriptIconState } from "../hooks/use-script-status";
 import { TABS_EASING, TABS_HOVER_TRANSITION_MS, useTabsZoom } from "../layout";
+import { ScriptStatusBanner } from "../script-status-banner";
 import {
 	attach,
 	detach,
@@ -38,6 +40,7 @@ export function SetupTab({
 }: SetupTabProps) {
 	const termRef = useRef<TerminalHandle | null>(null);
 	const [status, setStatus] = useState<ScriptStatus>("idle");
+	const [exitCode, setExitCode] = useState<number | null>(null);
 	const [hasRun, setHasRun] = useState(false);
 	const queryClient = useQueryClient();
 	const { isZoomPresented, isHoverExpanded } = useTabsZoom();
@@ -53,11 +56,14 @@ export function SetupTab({
 				setStatus(s);
 				if (s === "exited") {
 					const state = getScriptState(workspaceId, "setup");
+					setExitCode(state?.exitCode ?? null);
 					if (state?.exitCode === 0) {
 						queryClient.invalidateQueries({
 							queryKey: pathosQueryKeys.workspaceDetail(workspaceId),
 						});
 					}
+				} else if (s === "running") {
+					setExitCode(null);
 				}
 			},
 		});
@@ -65,6 +71,7 @@ export function SetupTab({
 		if (existing) {
 			setHasRun(true);
 			setStatus(existing.status);
+			setExitCode(existing.exitCode);
 			const replay = () => {
 				const t = termRef.current;
 				if (!t) return;
@@ -79,6 +86,7 @@ export function SetupTab({
 		} else {
 			setHasRun(false);
 			setStatus("idle");
+			setExitCode(null);
 			termRef.current?.clear();
 		}
 
@@ -89,9 +97,17 @@ export function SetupTab({
 		if (!repoId || !workspaceId) return;
 		termRef.current?.clear();
 		setStatus("running");
+		setExitCode(null);
 		setHasRun(true);
 		startScript(repoId, "setup", workspaceId);
 	}, [repoId, workspaceId]);
+
+	const bannerState = useMemo<ScriptIconState>(() => {
+		if (!hasScript) return "no-script";
+		if (status === "running") return "running";
+		if (status === "exited") return exitCode === 0 ? "success" : "failure";
+		return "idle";
+	}, [hasScript, status, exitCode]);
 
 	const handleStop = useCallback(() => {
 		if (!repoId || !workspaceId) return;
@@ -127,6 +143,11 @@ export function SetupTab({
 		>
 			{hasRun ? (
 				<>
+					<ScriptStatusBanner
+						state={bannerState}
+						exitCode={exitCode}
+						scriptKind="setup"
+					/>
 					<div className="min-h-0 flex-1">
 						<TerminalOutput
 							terminalRef={termRef}

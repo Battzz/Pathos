@@ -33,16 +33,22 @@ function deriveState(
 	return "idle";
 }
 
+export type ScriptStatusDetail = {
+	state: ScriptIconState;
+	exitCode: number | null;
+};
+
 /**
  * Subscribes to the shared script-store for live status of a script slot
- * (setup / run) in a given workspace. Returns a state label suitable for
- * driving the small status icon next to each tab label.
+ * (setup / run) in a given workspace. Returns the icon state plus the last
+ * known exit code so callers can render richer status copy (e.g. dropdown
+ * "Last run: failed (exit 1)" rows).
  */
-export function useScriptStatus(
+export function useScriptStatusDetail(
 	workspaceId: string | null,
 	scriptType: "setup" | "run",
 	hasScript: boolean,
-): ScriptIconState {
+): ScriptStatusDetail {
 	const [status, setStatus] = useState<ScriptStatus>("idle");
 	const [exitCode, setExitCode] = useState<number | null>(null);
 
@@ -65,5 +71,17 @@ export function useScriptStatus(
 		});
 	}, [workspaceId, scriptType]);
 
-	return deriveState(hasScript, status, exitCode);
+	return { state: deriveState(hasScript, status, exitCode), exitCode };
+}
+
+/**
+ * Convenience wrapper around {@link useScriptStatusDetail} that returns just
+ * the icon state — used where the exit code isn't needed.
+ */
+export function useScriptStatus(
+	workspaceId: string | null,
+	scriptType: "setup" | "run",
+	hasScript: boolean,
+): ScriptIconState {
+	return useScriptStatusDetail(workspaceId, scriptType, hasScript).state;
 }

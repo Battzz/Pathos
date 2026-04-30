@@ -109,7 +109,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 				{folders.length === 0 ? (
 					<EmptySidebar onAddRepository={onAddRepository} />
 				) : (
-					<ul className="flex flex-col gap-0.5 pb-2">
+					<ul className="flex flex-col gap-0.5 pb-2 pt-1">
 						{folders.map((folder) => (
 							<li key={folder.repoId} className="flex flex-col">
 								<FolderRow
@@ -122,7 +122,16 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 									creatingChat={creatingChatRepoId === folder.repoId}
 								/>
 								{isFolderExpanded(folder.repoId) ? (
-									<div className="ml-5 flex flex-col gap-0.5 border-l border-border/40 pl-2">
+									<div
+										className="relative ml-[14px] flex flex-col gap-0.5 pb-1 pl-3"
+										style={{
+											backgroundImage:
+												"linear-gradient(to bottom, color-mix(in oklch, var(--border) 70%, transparent) 0%, color-mix(in oklch, var(--border) 70%, transparent) 100%)",
+											backgroundSize: "1px calc(100% - 8px)",
+											backgroundPosition: "0 4px",
+											backgroundRepeat: "no-repeat",
+										}}
+									>
 										{folder.chats.length === 0 ? (
 											<FolderEmptyState
 												onCreateChat={() => onCreateChat(folder.repoId)}
@@ -224,20 +233,37 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 
 function EmptySidebar({ onAddRepository }: { onAddRepository: () => void }) {
 	return (
-		<div className="flex flex-col items-center justify-center gap-3 px-4 pt-12 text-center">
-			<FolderPlus
-				className="size-8 text-muted-foreground/50"
-				strokeWidth={1.5}
-			/>
-			<p className="text-[13px] text-muted-foreground">
-				No projects yet. Open a folder to start a chat.
-			</p>
+		<div className="flex flex-col items-center justify-center gap-4 px-6 pt-16 text-center">
+			<div className="relative">
+				<div
+					aria-hidden="true"
+					className="absolute inset-0 -z-10 rounded-full blur-2xl"
+					style={{
+						background:
+							"radial-gradient(circle at center, color-mix(in oklch, var(--foreground) 8%, transparent), transparent 70%)",
+					}}
+				/>
+				<div className="flex size-12 items-center justify-center rounded-xl border border-border/60 bg-foreground/[0.02]">
+					<FolderPlus
+						className="size-5 text-muted-foreground/70"
+						strokeWidth={1.5}
+					/>
+				</div>
+			</div>
+			<div className="flex flex-col gap-1">
+				<p className="text-[13px] font-medium text-foreground/85">
+					No projects yet
+				</p>
+				<p className="text-[12px] leading-relaxed text-muted-foreground/75">
+					Open a folder to start a chat.
+				</p>
+			</div>
 			<Button
 				type="button"
 				size="sm"
 				variant="secondary"
 				onClick={onAddRepository}
-				className="cursor-pointer"
+				className="mt-1 cursor-pointer"
 			>
 				<FolderPlus className="size-3.5" strokeWidth={2} />
 				<span>Open project</span>
@@ -254,16 +280,21 @@ function FolderEmptyState({
 	busy: boolean;
 }) {
 	return (
-		<div className="flex flex-col gap-1 py-1.5 pl-1 text-[12px] text-muted-foreground">
-			<button
-				type="button"
-				disabled={busy}
-				className="flex h-7 items-center gap-2 rounded-md px-2 hover:bg-accent/60 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-				onClick={onCreateChat}
-			>
-				<MessageSquarePlus className="size-3.5" strokeWidth={2} />
-				<span>New chat</span>
-			</button>
-		</div>
+		<button
+			type="button"
+			disabled={busy}
+			className={cn(
+				"group/empty mx-0 my-0.5 flex h-7 items-center gap-2 rounded-md border border-dashed border-border/50 bg-transparent px-2 text-[12px] text-muted-foreground/70 transition-colors cursor-pointer",
+				"hover:border-border/80 hover:bg-accent/30 hover:text-foreground/90",
+				"disabled:cursor-not-allowed disabled:opacity-60",
+			)}
+			onClick={onCreateChat}
+		>
+			<MessageSquarePlus
+				className="size-3.5 shrink-0 transition-transform group-hover/empty:scale-110"
+				strokeWidth={2}
+			/>
+			<span className="tracking-[-0.005em]">New chat</span>
+		</button>
 	);
 }

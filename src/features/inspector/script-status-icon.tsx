@@ -4,8 +4,8 @@ import {
 	CircleQuestionMark,
 	CircleX,
 } from "lucide-react";
-import { PathosLogoAnimated } from "@/components/pathos-logo-animated";
 import { cn } from "@/lib/utils";
+import { AsciiSpinner } from "./ascii-spinner";
 import type { ScriptIconState } from "./hooks/use-script-status";
 
 type ScriptStatusIconProps = {
@@ -22,17 +22,14 @@ type ScriptStatusIconProps = {
  * Success / failure reuse the Git-actions PR accent tokens (open-accent
  * green, closed-accent red) so status semantics stay consistent across
  * the inspector. `no-script` and `idle` stay muted — they're neutral
- * states, not alerts. `running` uses the Pathos logo animation.
+ * states, not alerts. `running` uses a smooth braille-dot spinner —
+ * matches the terminal feel of the script output it's announcing while
+ * staying readable at small sizes.
  */
 export function ScriptStatusIcon({ state, className }: ScriptStatusIconProps) {
 	switch (state) {
 		case "running":
-			return (
-				<PathosLogoAnimated
-					size={11}
-					className={cn("shrink-0 opacity-85", className)}
-				/>
-			);
+			return <AsciiSpinner className={cn("text-foreground/80", className)} />;
 		case "success":
 			return (
 				<CircleCheck
