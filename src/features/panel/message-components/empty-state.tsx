@@ -64,27 +64,6 @@ function Atmosphere({ variant = "dots" }: { variant?: "dots" | "net" }) {
 	);
 }
 
-function PathosWordmark() {
-	return (
-		<div className="flex flex-col items-center gap-3">
-			<div className="flex items-center gap-2.5 font-mono text-[10px] font-medium uppercase tracking-[0.32em] text-muted-foreground/55">
-				<span aria-hidden className="block h-px w-7 bg-foreground/25" />
-				<span className="font-display text-[15px] normal-case italic tracking-normal text-foreground/65">
-					πάθος
-				</span>
-				<span aria-hidden className="block h-px w-7 bg-foreground/25" />
-			</div>
-			<h1
-				aria-label="Pathos"
-				className="font-display text-[56px] font-normal leading-none tracking-[-0.02em] text-foreground/95"
-			>
-				Pathos
-				<span style={{ color: "var(--editorial-accent)" }}>.</span>
-			</h1>
-		</div>
-	);
-}
-
 function PrimaryAction({
 	icon: Icon,
 	label,
@@ -130,6 +109,158 @@ function GhostAction({
 	);
 }
 
+function ProjectPickerEmpty({
+	onCloneProject,
+	onOpenProject,
+}: {
+	onCloneProject?: () => void;
+	onOpenProject?: () => void;
+}) {
+	return (
+		<div className="relative flex w-full max-w-[620px] flex-col items-center px-6 text-center">
+			<Atmosphere variant="net" />
+
+			<div className="flex flex-col items-center gap-7">
+				<div
+					className="flex flex-col items-center gap-3 opacity-0"
+					style={{
+						animation: "empty-rise 760ms ease-out forwards",
+						animationDelay: "0ms",
+					}}
+				>
+					<div className="font-mono text-[10px] font-medium uppercase tracking-[0.26em] text-muted-foreground/55">
+						Nothing selected
+					</div>
+					<h1 className="max-w-[560px] text-balance text-[42px] font-medium leading-[1.02] tracking-[-0.035em] text-foreground/92">
+						Choose a workspace
+					</h1>
+					<p className="max-w-[420px] text-balance text-[13px] leading-6 text-muted-foreground/75">
+						Select a project or thread from the sidebar, or open another
+						repository to start a new workspace.
+					</p>
+				</div>
+
+				<div
+					className="flex items-center gap-1 opacity-0"
+					style={{
+						animation: "empty-rise 720ms ease-out forwards",
+						animationDelay: "140ms",
+					}}
+				>
+					<PrimaryAction
+						icon={FolderPlus}
+						label="Open project"
+						onClick={onOpenProject}
+					/>
+					<GhostAction label="Clone from URL" onClick={onCloneProject} />
+				</div>
+			</div>
+
+			<style>{`
+				@keyframes empty-rise {
+					0% { opacity: 0; transform: translateY(8px); filter: blur(2px); }
+					60% { filter: blur(0); }
+					100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+				}
+			`}</style>
+		</div>
+	);
+}
+
+function WorkspaceSessionEmpty({
+	workspaceLabel,
+	sessionCount,
+	onCloneProject,
+	onOpenProject,
+}: {
+	workspaceLabel: string;
+	sessionCount: number;
+	onCloneProject?: () => void;
+	onOpenProject?: () => void;
+}) {
+	const eyebrow = sessionCount > 0 ? "No session selected" : "No sessions yet";
+	const body =
+		sessionCount > 0
+			? "Choose an existing thread from the sidebar, or start a fresh one when you are ready."
+			: "Start a thread to work inside this project, or bring in another repository for something new.";
+
+	return (
+		<div className="relative flex w-full max-w-[620px] flex-col items-center px-6 text-center">
+			<Atmosphere variant="net" />
+
+			<div className="flex flex-col items-center gap-7">
+				<div
+					className="flex flex-col items-center gap-3 opacity-0"
+					style={{
+						animation: "empty-rise 760ms ease-out forwards",
+						animationDelay: "0ms",
+					}}
+				>
+					<div className="font-mono text-[10px] font-medium uppercase tracking-[0.26em] text-muted-foreground/55">
+						{eyebrow}
+					</div>
+					<h1 className="max-w-[560px] text-balance text-[42px] font-medium leading-[1.02] tracking-[-0.035em] text-foreground/92">
+						{workspaceLabel}
+					</h1>
+					<p className="max-w-[420px] text-balance text-[13px] leading-6 text-muted-foreground/75">
+						{body}
+					</p>
+				</div>
+
+				<div
+					className="grid w-full max-w-[420px] grid-cols-3 gap-2 opacity-0"
+					style={{
+						animation: "empty-rise 720ms ease-out forwards",
+						animationDelay: "140ms",
+					}}
+				>
+					<div className="rounded-md border border-foreground/8 bg-foreground/[0.025] px-3 py-2.5 text-left">
+						<div className="text-[11px] text-muted-foreground/65">Project</div>
+						<div className="mt-1 truncate text-[12.5px] font-medium text-foreground/82">
+							{workspaceLabel}
+						</div>
+					</div>
+					<div className="rounded-md border border-foreground/8 bg-foreground/[0.025] px-3 py-2.5 text-left">
+						<div className="text-[11px] text-muted-foreground/65">Sessions</div>
+						<div className="mt-1 text-[12.5px] font-medium text-foreground/82">
+							{sessionCount}
+						</div>
+					</div>
+					<div className="rounded-md border border-foreground/8 bg-foreground/[0.025] px-3 py-2.5 text-left">
+						<div className="text-[11px] text-muted-foreground/65">Status</div>
+						<div className="mt-1 text-[12.5px] font-medium text-foreground/82">
+							Ready
+						</div>
+					</div>
+				</div>
+
+				<div
+					className="flex items-center gap-1 opacity-0"
+					style={{
+						animation: "empty-rise 720ms ease-out forwards",
+						animationDelay: "240ms",
+					}}
+				>
+					<PrimaryAction
+						icon={FolderPlus}
+						label="Open project"
+						onClick={onOpenProject}
+					/>
+					<GhostAction label="Clone from URL" onClick={onCloneProject} />
+				</div>
+			</div>
+
+			<style>{`
+				@keyframes empty-rise {
+					0% { opacity: 0; transform: translateY(8px); filter: blur(2px); }
+					60% { filter: blur(0); }
+					100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+				}
+			`}</style>
+		</div>
+	);
+}
+
 export function EmptyState({
 	hasSession,
 	onCloneProject,
@@ -137,6 +268,7 @@ export function EmptyState({
 	providerName = null,
 	workspaceState = null,
 	workspaceLabel = null,
+	sessionCount = 0,
 }: {
 	hasSession: boolean;
 	onCloneProject?: () => void;
@@ -144,6 +276,7 @@ export function EmptyState({
 	providerName?: string | null;
 	workspaceState?: string | null;
 	workspaceLabel?: string | null;
+	sessionCount?: number;
 }) {
 	if (workspaceState === "initializing") {
 		return (
@@ -158,45 +291,22 @@ export function EmptyState({
 	}
 
 	if (!hasSession) {
+		if (workspaceLabel) {
+			return (
+				<WorkspaceSessionEmpty
+					workspaceLabel={workspaceLabel}
+					sessionCount={sessionCount}
+					onCloneProject={onCloneProject}
+					onOpenProject={onOpenProject}
+				/>
+			);
+		}
+
 		return (
-			<div className="relative flex w-full max-w-[560px] flex-col items-center px-6 text-center">
-				<Atmosphere variant="net" />
-
-				<div className="flex flex-col items-center">
-					<div
-						className="opacity-0"
-						style={{
-							animation: "empty-rise 760ms ease-out forwards",
-							animationDelay: "0ms",
-						}}
-					>
-						<PathosWordmark />
-					</div>
-
-					<div
-						className="mt-9 flex items-center gap-1 opacity-0"
-						style={{
-							animation: "empty-rise 720ms ease-out forwards",
-							animationDelay: "180ms",
-						}}
-					>
-						<PrimaryAction
-							icon={FolderPlus}
-							label="Open project"
-							onClick={onOpenProject}
-						/>
-						<GhostAction label="Clone from URL" onClick={onCloneProject} />
-					</div>
-				</div>
-
-				<style>{`
-					@keyframes empty-rise {
-						0% { opacity: 0; transform: translateY(8px); filter: blur(2px); }
-						60% { filter: blur(0); }
-						100% { opacity: 1; transform: translateY(0); filter: blur(0); }
-					}
-				`}</style>
-			</div>
+			<ProjectPickerEmpty
+				onCloneProject={onCloneProject}
+				onOpenProject={onOpenProject}
+			/>
 		);
 	}
 

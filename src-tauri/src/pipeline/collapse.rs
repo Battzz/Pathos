@@ -7,6 +7,7 @@
 use serde_json::Value;
 
 use super::classify::{classify_tool_with_args, is_collapsible_with_args, ToolCategory};
+use super::shell_read_files::{file_name, shell_read_file_paths};
 use super::types::{
     CollapseCategory, CollapsedGroupPart, ExtendedMessagePart, MessagePart, MessageRole,
     ThreadMessageLike,
@@ -151,22 +152,61 @@ pub fn build_group_summary(tools: &[MessagePart], active: bool) -> String {
 
     // Shell summary
     if !shell_tools.is_empty() {
-        let verb = if parts.is_empty() {
-            if active {
-                "Running"
-            } else {
-                "Ran"
+        let mut shell_read_paths = std::collections::HashSet::new();
+        let mut shell_read_tool_count = 0;
+        for t in &shell_tools {
+            if let MessagePart::ToolCall { args, .. } = t {
+                let Some(command) = args.get("command").and_then(Value::as_str) else {
+                    continue;
+                };
+                let paths = shell_read_file_paths(command);
+                if !paths.is_empty() {
+                    shell_read_tool_count += 1;
+                }
+                for path in paths {
+                    shell_read_paths.insert(path);
+                }
             }
-        } else if active {
-            "running"
-        } else {
-            "ran"
-        };
-        let plural = if shell_tools.len() > 1 { "s" } else { "" };
-        parts.push(format!(
-            "{verb} {} read-only command{plural}",
-            shell_tools.len()
-        ));
+        }
+
+        if !shell_read_paths.is_empty() {
+            let verb = if parts.is_empty() {
+                if active {
+                    "Reading"
+                } else {
+                    "Read"
+                }
+            } else if active {
+                "reading"
+            } else {
+                "read"
+            };
+            if shell_read_paths.len() == 1 {
+                let path = shell_read_paths.iter().next().map_or("", String::as_str);
+                parts.push(format!("{verb} {}", file_name(path)));
+            } else {
+                parts.push(format!("{verb} {} files", shell_read_paths.len()));
+            }
+        }
+
+        let remaining_shell_count = shell_tools.len().saturating_sub(shell_read_tool_count);
+        if remaining_shell_count > 0 {
+            let verb = if parts.is_empty() {
+                if active {
+                    "Running"
+                } else {
+                    "Ran"
+                }
+            } else if active {
+                "running"
+            } else {
+                "ran"
+            };
+            let plural = if remaining_shell_count > 1 { "s" } else { "" };
+            parts.push(format!(
+                "{verb} {remaining_shell_count} read-only command{plural}",
+            ));
+        }
     }
 
     if parts.is_empty() {
@@ -446,7 +486,7 @@ mod tests {
         if let ExtendedMessagePart::CollapsedGroup(g) = &result[0] {
             assert_eq!(g.category, CollapseCategory::Shell);
             assert_eq!(g.tools.len(), 3);
-            assert_eq!(g.summary, "Ran 3 read-only commands");
+            assert_eq!(g.summary, "Read 3 files");
         } else {
             panic!("expected collapsed group");
         }
@@ -477,7 +517,7 @@ mod tests {
         if let ExtendedMessagePart::CollapsedGroup(g) = &result[0] {
             assert_eq!(g.category, CollapseCategory::Shell);
             assert_eq!(g.tools.len(), 3);
-            assert_eq!(g.summary, "Ran 3 read-only commands");
+            assert_eq!(g.summary, "Read showToast.ts, ran 2 read-only commands");
         } else {
             panic!("expected collapsed group");
         }

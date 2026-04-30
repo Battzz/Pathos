@@ -12,7 +12,7 @@ import type { ForgeActionStatus, WorkspaceGitActionStatus } from "@/lib/api";
 import { ComposerInsertProvider } from "@/lib/composer-insert-context";
 import { renderWithProviders } from "@/test/render-with-providers";
 import { WorkspaceInspectorSidebar } from "./index";
-import { ActionsSection } from "./sections/actions";
+import { ActionsMenu, ActionsSection } from "./sections/actions";
 
 const apiMocks = vi.hoisted(() => ({
 	listWorkspaceChangesWithContent: vi.fn(),
@@ -102,6 +102,25 @@ function renderInspector(
 				{...props}
 			/>
 		</>,
+	);
+}
+
+function renderActionsMenu(
+	props: Partial<ComponentProps<typeof ActionsMenu>> = {},
+) {
+	return renderWithProviders(
+		<ActionsMenu
+			workspaceId={props.workspaceId ?? "workspace-1"}
+			workspaceState={props.workspaceState}
+			repoId={props.repoId}
+			workspaceRemote={props.workspaceRemote ?? "testuser"}
+			onCommitAction={props.onCommitAction}
+			currentSessionId={props.currentSessionId ?? "session-1"}
+			onQueuePendingPromptForSession={props.onQueuePendingPromptForSession}
+			commitButtonMode={props.commitButtonMode}
+			commitButtonState={props.commitButtonState}
+			changeRequest={props.changeRequest ?? null}
+		/>,
 	);
 }
 
@@ -222,6 +241,81 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		).toBeInTheDocument();
 	});
 
+	it("resizes the tabs panel through a CSS variable during drag", async () => {
+		const originalRequestAnimationFrame = window.requestAnimationFrame;
+		const originalCancelAnimationFrame = window.cancelAnimationFrame;
+		window.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+			callback(0);
+			return 1;
+		});
+		window.cancelAnimationFrame = vi.fn();
+
+		try {
+			const user = userEvent.setup();
+			renderInspector();
+
+			await screen.findByText("No uncommitted changes");
+			await user.click(
+				screen.getByRole("button", { name: "Toggle inspector tabs section" }),
+			);
+
+			const inspector = screen.getByLabelText("Inspector section Changes")
+				.parentElement as HTMLElement;
+			const initialHeight = Number.parseInt(
+				inspector.style.getPropertyValue("--pathos-inspector-changes-height"),
+				10,
+			);
+
+			fireEvent.mouseDown(screen.getByRole("separator"), {
+				clientY: 100,
+			});
+			fireEvent.mouseMove(window, { clientY: 150 });
+
+			expect(
+				inspector.style.getPropertyValue("--pathos-inspector-changes-height"),
+			).toBe(`${initialHeight + 50}px`);
+
+			fireEvent.mouseUp(window);
+			expect(
+				inspector.style.getPropertyValue("--pathos-inspector-changes-height"),
+			).toBe(`${initialHeight + 50}px`);
+		} finally {
+			window.requestAnimationFrame = originalRequestAnimationFrame;
+			window.cancelAnimationFrame = originalCancelAnimationFrame;
+		}
+	});
+
+	it("labels branch changes as incoming pull changes when the target is behind", async () => {
+		apiMocks.listWorkspaceChangesWithContent.mockResolvedValue({
+			items: [
+				{
+					path: "src/incoming.ts",
+					absolutePath: "/tmp/workspace/src/incoming.ts",
+					name: "incoming.ts",
+					status: "M",
+					unstagedStatus: null,
+					stagedStatus: null,
+					committedStatus: "M",
+					insertions: 8,
+					deletions: 2,
+				},
+			],
+			prefetched: [],
+		});
+		apiMocks.loadWorkspaceGitActionStatus.mockResolvedValue({
+			...cleanGitStatus(),
+			syncStatus: "behind",
+			behindTargetCount: 2,
+		});
+
+		renderInspector();
+
+		const changes = screen.getByLabelText("Inspector section Changes");
+		expect(
+			await within(changes).findByText("Pull from testuser/main"),
+		).toBeInTheDocument();
+	});
+
 	it("shows clean git rows with passed status icons", async () => {
 		renderInspector();
 
@@ -250,6 +344,69 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		await user.click(screen.getByRole("button", { name: "Create PR" }));
 
 		expect(onCommitAction).toHaveBeenCalledWith("create-pr");
+	});
+
+	it("marks the header actions trigger when a commit and push is available", async () => {
+		apiMocks.loadWorkspaceGitActionStatus.mockResolvedValue({
+			...cleanGitStatus(),
+			uncommittedCount: 2,
+		});
+
+		renderActionsMenu({ commitButtonMode: "commit-and-push" });
+
+		expect(
+			await screen.findByLabelText(
+				"Open workspace actions: Commit and push available",
+			),
+		).toBeInTheDocument();
+	});
+
+	it("marks the header actions trigger when a pull is needed", async () => {
+		apiMocks.loadWorkspaceGitActionStatus.mockResolvedValue({
+			...cleanGitStatus(),
+			syncStatus: "behind",
+			behindTargetCount: 3,
+		});
+
+		renderActionsMenu({ commitButtonMode: "create-pr" });
+
+		expect(
+			await screen.findByLabelText("Open workspace actions: Pull needed"),
+		).toBeInTheDocument();
+	});
+
+	it("marks the header actions trigger when a pull request can be opened", async () => {
+		renderActionsMenu({ commitButtonMode: "create-pr" });
+
+		expect(
+			await screen.findByLabelText(
+				"Open workspace actions: Create PR available",
+			),
+		).toBeInTheDocument();
+	});
+
+	it("marks the header actions trigger when a pull request can be merged", async () => {
+		apiMocks.loadWorkspaceForgeActionStatus.mockResolvedValue(
+			emptyPrStatus({
+				remoteState: "ok",
+				mergeable: "MERGEABLE",
+			}),
+		);
+
+		renderActionsMenu({
+			commitButtonMode: "merge",
+			changeRequest: {
+				url: "https://github.com/acme/repo/pull/1",
+				number: 1,
+				state: "OPEN",
+				title: "Ready",
+				isMerged: false,
+			},
+		});
+
+		expect(
+			await screen.findByLabelText("Open workspace actions: Merge available"),
+		).toBeInTheDocument();
 	});
 
 	it("keeps the actions scroll area shrinkable when tabs are collapsed", async () => {

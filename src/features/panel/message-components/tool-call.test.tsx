@@ -48,6 +48,25 @@ describe("AssistantToolCall apply_patch", () => {
 });
 
 describe("AssistantToolCall default-collapsed", () => {
+	it("renders detected Bash file reads without the raw command chip", () => {
+		const { container } = render(
+			<AssistantToolCall
+				toolName="Bash"
+				args={{ command: `/bin/zsh -lc "sed -n '1,220p' README.md"` }}
+			/>,
+		);
+
+		expect(screen.getByText("Read")).toBeInTheDocument();
+		expect(screen.getByText("README.md")).toBeInTheDocument();
+		expect(container.querySelector("code")).toBeNull();
+		expect(screen.queryByText(/sed -n/)).not.toBeInTheDocument();
+
+		fireEvent.mouseEnter(screen.getByText("README.md"));
+		expect(screen.getByRole("tooltip")).toHaveTextContent(
+			`/bin/zsh -lc "sed -n '1,220p' README.md"`,
+		);
+	});
+
 	it("keeps a streaming Read collapsed until the user opens it", () => {
 		const { container } = render(
 			<AssistantToolCall

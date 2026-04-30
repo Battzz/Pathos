@@ -1283,6 +1283,24 @@ export async function loadSessionThreadMessages(
 	}
 }
 
+export async function truncateSessionMessagesAfter(
+	sessionId: string,
+	messageId: string,
+	includeSelected: boolean,
+): Promise<number> {
+	try {
+		return await invoke<number>("truncate_session_messages_after", {
+			sessionId,
+			messageId,
+			includeSelected,
+		});
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to rewind session messages."),
+		);
+	}
+}
+
 export async function restoreWorkspace(
 	workspaceId: string,
 	targetBranchOverride?: string,
@@ -1779,6 +1797,10 @@ export type PendingCliSend = {
  */
 export async function drainPendingCliSends(): Promise<PendingCliSend[]> {
 	return invoke<PendingCliSend[]>("drain_pending_cli_sends");
+}
+
+export async function playNotificationSound(sound: string): Promise<void> {
+	await invoke<void>("play_notification_sound", { sound });
 }
 
 export async function permanentlyDeleteWorkspace(

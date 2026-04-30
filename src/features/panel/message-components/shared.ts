@@ -23,6 +23,7 @@ export type FileChangeInfo = {
 export type ToolInfo = {
 	action: string;
 	file?: string;
+	fileDisplay?: "plain" | "pill";
 	detail?: string;
 	command?: string;
 	fullCommand?: string;

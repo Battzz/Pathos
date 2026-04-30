@@ -14,6 +14,7 @@ import {
 	Sparkles,
 	Terminal,
 } from "lucide-react";
+import { extractShellReadFilePaths } from "@/lib/shell-read-files";
 import type { FileChangeInfo, ToolInfo } from "./shared";
 import { basename, isObj, str, truncate } from "./shared";
 
@@ -121,6 +122,28 @@ export function getToolInfo(
 	if (name === "Bash") {
 		const command = str(input.command);
 		const description = str(input.description);
+		const readPaths = command ? extractShellReadFilePaths(command) : [];
+		if (!description && readPaths.length === 1) {
+			return {
+				action: "Read",
+				file: basename(readPaths[0]!),
+				fileDisplay: "pill",
+				icon: (
+					<FileText className={neutralToolIconClassName} strokeWidth={1.8} />
+				),
+				fullCommand: command ?? undefined,
+			};
+		}
+		if (!description && readPaths.length > 1) {
+			return {
+				action: `Read ${readPaths.length} files`,
+				icon: (
+					<FileText className={neutralToolIconClassName} strokeWidth={1.8} />
+				),
+				command: command ? truncate(command, 80) : undefined,
+				fullCommand: command ?? undefined,
+			};
+		}
 		return {
 			action: description ?? "Run",
 			icon: <Terminal className={neutralToolIconClassName} strokeWidth={1.8} />,

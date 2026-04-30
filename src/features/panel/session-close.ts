@@ -4,6 +4,7 @@ import {
 	createSession,
 	deleteSession,
 	hideSession,
+	type RepositoryFolder,
 	type WorkspaceDetail,
 	type WorkspaceSessionSummary,
 } from "@/lib/api";
@@ -36,6 +37,100 @@ function findAdjacentSessionId(
 	}
 
 	return sessions[index + 1]?.id ?? sessions[index - 1]?.id ?? null;
+}
+
+function activateSessionInCache({
+	queryClient,
+	workspace,
+	sessions,
+	sessionId,
+	adjacentSessionId,
+}: {
+	queryClient: QueryClient;
+	workspace: WorkspaceDetail;
+	sessions: WorkspaceSessionSummary[];
+	sessionId: string;
+	adjacentSessionId: string;
+}) {
+	const adjacentSession =
+		sessions.find((session) => session.id === adjacentSessionId) ?? null;
+
+	queryClient.setQueryData(
+		pathosQueryKeys.workspaceDetail(workspace.id),
+		(current: WorkspaceDetail | null | undefined) => {
+			const base = current ?? workspace;
+			if (!base) {
+				return base;
+			}
+
+			return {
+				...base,
+				activeSessionId: adjacentSessionId,
+				activeSessionTitle: adjacentSession?.title ?? "Untitled",
+				activeSessionAgentType: adjacentSession?.agentType ?? null,
+				activeSessionStatus: adjacentSession?.status ?? "idle",
+				sessionCount: Math.max(0, base.sessionCount - 1),
+			};
+		},
+	);
+	queryClient.setQueryData(
+		pathosQueryKeys.workspaceSessions(workspace.id),
+		(current: WorkspaceSessionSummary[] | undefined) =>
+			(current ?? sessions)
+				.filter((session) => session.id !== sessionId)
+				.map((session) => ({
+					...session,
+					active: session.id === adjacentSessionId,
+				})),
+	);
+}
+
+function removeSessionFromSidebarCache({
+	queryClient,
+	sessionId,
+}: {
+	queryClient: QueryClient;
+	sessionId: string;
+}) {
+	queryClient.setQueryData(
+		pathosQueryKeys.repositoryFolders,
+		(current: RepositoryFolder[] | undefined) => {
+			if (!current) {
+				return current;
+			}
+
+			let changed = false;
+
+			const next = current.map((folder) => {
+				let folderChanged = false;
+				const chats = folder.chats.flatMap((chat) => {
+					if (chat.sessionId !== sessionId) {
+						return [chat];
+					}
+					changed = true;
+					folderChanged = true;
+					return [];
+				});
+				const workspaces = folder.workspaces.map((workspace) => {
+					const sessions = workspace.sessions.flatMap((chat) => {
+						if (chat.sessionId !== sessionId) {
+							return [chat];
+						}
+						changed = true;
+						folderChanged = true;
+						return [];
+					});
+					return sessions === workspace.sessions
+						? workspace
+						: { ...workspace, sessions };
+				});
+
+				return folderChanged ? { ...folder, chats, workspaces } : folder;
+			});
+
+			return changed ? next : current;
+		},
+	);
 }
 
 export async function closeWorkspaceSession({
@@ -72,6 +167,7 @@ export async function closeWorkspaceSession({
 				replacementSessionId,
 				now,
 			);
+			removeSessionFromSidebarCache({ queryClient, sessionId });
 			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.repoScripts(workspace.repoId, workspace.id),
 			});
@@ -106,6 +202,21 @@ export async function closeWorkspaceSession({
 			onSelectSession?.(replacementSessionId);
 		}
 
+		if (adjacentSessionId) {
+			activateSessionInCache({
+				queryClient,
+				workspace,
+				sessions,
+				sessionId,
+				adjacentSessionId,
+			});
+			removeSessionFromSidebarCache({ queryClient, sessionId });
+			onSelectSession?.(adjacentSessionId);
+		}
+		if (!isClosingLastVisibleSession && !adjacentSessionId) {
+			removeSessionFromSidebarCache({ queryClient, sessionId });
+		}
+
 		// New sessions (never had any messages) are deleted outright instead of
 		// being hidden, so they don't clutter the history list.
 		if (isEmptySession) {
@@ -114,41 +225,6 @@ export async function closeWorkspaceSession({
 		} else {
 			await hideSession(sessionId);
 			onSessionHidden?.(sessionId, workspace.id);
-		}
-
-		if (adjacentSessionId) {
-			const adjacentSession =
-				sessions.find((session) => session.id === adjacentSessionId) ?? null;
-
-			queryClient.setQueryData(
-				pathosQueryKeys.workspaceDetail(workspace.id),
-				(current: WorkspaceDetail | null | undefined) => {
-					const base = current ?? workspace;
-					if (!base) {
-						return base;
-					}
-
-					return {
-						...base,
-						activeSessionId: adjacentSessionId,
-						activeSessionTitle: adjacentSession?.title ?? "Untitled",
-						activeSessionAgentType: adjacentSession?.agentType ?? null,
-						activeSessionStatus: adjacentSession?.status ?? "idle",
-						sessionCount: Math.max(0, base.sessionCount - 1),
-					};
-				},
-			);
-			queryClient.setQueryData(
-				pathosQueryKeys.workspaceSessions(workspace.id),
-				(current: WorkspaceSessionSummary[] | undefined) =>
-					(current ?? sessions)
-						.filter((session) => session.id !== sessionId)
-						.map((session) => ({
-							...session,
-							active: session.id === adjacentSessionId,
-						})),
-			);
-			onSelectSession?.(adjacentSessionId);
 		}
 
 		onSessionsChanged?.();

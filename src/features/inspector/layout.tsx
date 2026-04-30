@@ -1,4 +1,11 @@
-import { ChevronDown, Plus, SquareTerminal, X } from "lucide-react";
+import {
+	ChevronDown,
+	Play,
+	Plus,
+	SquareTerminal,
+	Wrench,
+	X,
+} from "lucide-react";
 import {
 	createContext,
 	useCallback,
@@ -19,6 +26,8 @@ import { getShortcut } from "@/features/shortcuts/registry";
 import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
+import type { ScriptIconState } from "./hooks/use-script-status";
+import { ScriptStatusIcon } from "./script-status-icon";
 import {
 	getTerminalDisplayTitle,
 	type TerminalInstance,
@@ -95,6 +104,8 @@ type InspectorTabsSectionProps = {
 	onToggle: () => void;
 	activeTab: string;
 	onTabChange: (tab: string) => void;
+	setupStatus?: ScriptIconState;
+	runStatus?: ScriptIconState;
 	/**
 	 * Optional slot for tab-specific actions rendered on the right side of the
 	 * header, just before the collapse/expand chevron. Used e.g. to expose the
@@ -128,6 +139,8 @@ export function InspectorTabsSection({
 	onToggle,
 	activeTab,
 	onTabChange,
+	setupStatus = "idle",
+	runStatus = "idle",
 	tabActions,
 	terminalInstances,
 	onAddTerminal,
@@ -498,6 +511,22 @@ export function InspectorTabsSection({
 								aria-orientation="horizontal"
 								className="scrollbar-none flex h-full min-w-0 flex-1 self-stretch items-stretch gap-0 overflow-x-auto overflow-y-hidden"
 							>
+								<ScriptTabButton
+									id="setup"
+									label="Setup"
+									icon={Wrench}
+									status={setupStatus}
+									activeTab={activeTab}
+									onClick={handleTabClick}
+								/>
+								<ScriptTabButton
+									id="run"
+									label="Run"
+									icon={Play}
+									status={runStatus}
+									activeTab={activeTab}
+									onClick={handleTabClick}
+								/>
 								{terminalInstances.length === 0 ? (
 									// Placeholder tab so the Terminal entry point is always
 									// discoverable, even on a fresh workspace with no live
@@ -650,6 +679,59 @@ export function InspectorTabsSection({
 				</section>
 			</div>
 		</div>
+	);
+}
+
+type ScriptTabButtonProps = {
+	id: "setup" | "run";
+	label: string;
+	icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+	status: ScriptIconState;
+	activeTab: string;
+	onClick: (tabId: string) => void;
+};
+
+function ScriptTabButton({
+	id,
+	label,
+	icon: Icon,
+	status,
+	activeTab,
+	onClick,
+}: ScriptTabButtonProps) {
+	const isActive = activeTab === id;
+
+	return (
+		<button
+			type="button"
+			role="tab"
+			id={`inspector-tab-${id}`}
+			aria-controls={`inspector-panel-${id}`}
+			aria-selected={isActive}
+			tabIndex={isActive ? 0 : -1}
+			onClick={() => onClick(id)}
+			className={cn(INSPECTOR_TAB_BUTTON_CLASS, "shrink-0")}
+		>
+			<Icon
+				aria-hidden="true"
+				className={cn(
+					"size-3 shrink-0",
+					status === "no-script" && "text-muted-foreground/60",
+				)}
+				strokeWidth={1.8}
+			/>
+			<span>{label}</span>
+			{status !== "idle" && status !== "no-script" ? (
+				<ScriptStatusIcon state={status} className="size-3" />
+			) : null}
+			<span
+				aria-hidden="true"
+				className={cn(
+					"pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-foreground opacity-0 transition-opacity",
+					isActive && "opacity-100",
+				)}
+			/>
+		</button>
 	);
 }
 

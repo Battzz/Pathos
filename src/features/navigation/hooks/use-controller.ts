@@ -27,6 +27,7 @@ import { describeUnknownError } from "@/lib/workspace-helpers";
 const STORAGE_KEY = "pathos:sidebar:folder-collapse-v1";
 
 type CollapseState = Record<string, boolean>;
+type AddRepositoryPhase = "idle" | "picking" | "importing";
 
 type WorkspaceToastFn = (
 	description: string,
@@ -180,7 +181,11 @@ export function useFolderSidebarController({
 	const foldersQuery = useQuery(repositoryFoldersQueryOptions());
 	const folders: RepositoryFolder[] = foldersQuery.data ?? [];
 
-	const [addingRepository, setAddingRepository] = useState(false);
+	const [addRepositoryPhase, setAddRepositoryPhase] =
+		useState<AddRepositoryPhase>("idle");
+	const [recentlyAddedRepoId, setRecentlyAddedRepoId] = useState<string | null>(
+		null,
+	);
 	const [creatingChatRepoId, setCreatingChatRepoId] = useState<string | null>(
 		null,
 	);
@@ -196,6 +201,16 @@ export function useFolderSidebarController({
 	useEffect(() => {
 		writeCollapseState(collapseState);
 	}, [collapseState]);
+
+	useEffect(() => {
+		if (!recentlyAddedRepoId) {
+			return;
+		}
+		const timeout = window.setTimeout(() => {
+			setRecentlyAddedRepoId(null);
+		}, 1400);
+		return () => window.clearTimeout(timeout);
+	}, [recentlyAddedRepoId]);
 
 	// Auto-expand the folder containing the selected workspace once when
 	// the selection changes. Stored in a ref so subsequent refetches don't
@@ -247,10 +262,10 @@ export function useFolderSidebarController({
 	}, [queryClient]);
 
 	const handleAddRepository = useCallback(async () => {
-		if (addingRepository) {
+		if (addRepositoryPhase !== "idle") {
 			return;
 		}
-		setAddingRepository(true);
+		setAddRepositoryPhase("picking");
 		try {
 			const defaults = await loadAddRepositoryDefaults();
 			setCloneDefaultDirectory(defaults.lastCloneDirectory ?? null);
@@ -263,6 +278,7 @@ export function useFolderSidebarController({
 			if (!selectedPath) {
 				return;
 			}
+			setAddRepositoryPhase("importing");
 			const response = await addRepositoryFromLocalPath(selectedPath);
 			refetchFolders();
 			if (!response.createdRepository) {
@@ -278,6 +294,9 @@ export function useFolderSidebarController({
 				...current,
 				[response.repositoryId]: true,
 			}));
+			if (response.createdRepository) {
+				setRecentlyAddedRepoId(response.repositoryId);
+			}
 		} catch (error) {
 			pushWorkspaceToast(
 				describeUnknownError(error, "Unable to add project."),
@@ -285,9 +304,9 @@ export function useFolderSidebarController({
 				"destructive",
 			);
 		} finally {
-			setAddingRepository(false);
+			setAddRepositoryPhase("idle");
 		}
-	}, [addingRepository, pushWorkspaceToast, refetchFolders]);
+	}, [addRepositoryPhase, pushWorkspaceToast, refetchFolders]);
 
 	const handleOpenCloneDialog = useCallback(() => {
 		setIsCloneDialogOpen(true);
@@ -461,7 +480,9 @@ export function useFolderSidebarController({
 	return {
 		folders,
 		isLoadingFolders: foldersQuery.isLoading,
-		addingRepository,
+		addingRepository: addRepositoryPhase !== "idle",
+		importingRepository: addRepositoryPhase === "importing",
+		recentlyAddedRepoId,
 		creatingChatRepoId,
 		isCloneDialogOpen,
 		setIsCloneDialogOpen,

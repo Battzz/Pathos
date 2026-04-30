@@ -36,10 +36,6 @@ import { useDockUnreadBadge } from "@/features/dock-badge";
 import { WorkspaceEditorSurface } from "@/features/editor";
 import { WorkspaceInspectorSidebar } from "@/features/inspector";
 import { DiffStatsBadge } from "@/features/inspector/diff-stats-badge";
-import {
-	RunHeaderButton,
-	SetupHeaderButton,
-} from "@/features/inspector/header-buttons";
 import { ActionsMenu } from "@/features/inspector/sections/actions";
 import { WorkspacesSidebarContainer } from "@/features/navigation/container";
 import { AppOnboarding } from "@/features/onboarding";
@@ -460,6 +456,8 @@ function AppShell({
 		sidebarCollapsed,
 		sidebarWidth,
 		setSidebarCollapsed,
+		shellPanelsRef,
+		shellPanelsStyle,
 	} = useShellPanels();
 	const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
 	const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
@@ -1582,10 +1580,11 @@ function AppShell({
 			});
 
 			const isCurrentSession = sessionId === selectedSessionIdRef.current;
-			// Bump session-level unread for sessions the user isn't viewing.
-			// Workspace.unread is purely derived, so this also drives the
-			// sidebar workspace dot and the dock badge.
-			if (!isCurrentSession) {
+			const isFocusedCurrentSession = document.hasFocus() && isCurrentSession;
+			// Bump session-level unread whenever the completion is not visible to
+			// the user. Workspace.unread is derived from sessions, so this also
+			// drives the sidebar workspace dot and the dock/app-switcher badge.
+			if (!isFocusedCurrentSession) {
 				void markSessionUnread(sessionId)
 					.then(() => {
 						// Same rationale as the mark-read path — defer the
@@ -1605,7 +1604,7 @@ function AppShell({
 					});
 			}
 			// OS notification: skip when user is focused on this session
-			if (document.hasFocus() && isCurrentSession) return;
+			if (isFocusedCurrentSession) return;
 			const name =
 				queryClient.getQueryData<WorkspaceDetail | null>(
 					pathosQueryKeys.workspaceDetail(workspaceId),
@@ -2271,7 +2270,11 @@ function AppShell({
 								aria-label="Application shell"
 								className="relative h-screen overflow-hidden bg-background font-sans text-foreground antialiased"
 							>
-								<div className="relative flex h-full min-h-0 bg-background">
+								<div
+									ref={shellPanelsRef}
+									className="relative flex h-full min-h-0 bg-background"
+									style={shellPanelsStyle}
+								>
 									{workspaceViewMode === "conversation" && (
 										<>
 											{!sidebarCollapsed && (
@@ -2279,7 +2282,7 @@ function AppShell({
 													aria-label="Workspace sidebar"
 													data-pathos-sidebar-root
 													className="relative flex h-full shrink-0 flex-col overflow-hidden bg-sidebar"
-													style={{ width: `${sidebarWidth}px` }}
+													style={{ width: "var(--pathos-sidebar-width)" }}
 												>
 													<div className="min-h-0 flex-1">
 														<WorkspacesSidebarContainer
@@ -2365,7 +2368,7 @@ function AppShell({
 													onKeyDown={handleResizeKeyDown("sidebar")}
 													className="group absolute inset-y-0 z-30 cursor-ew-resize touch-none outline-none"
 													style={{
-														left: `${sidebarWidth - SIDEBAR_RESIZE_HIT_AREA / 2}px`,
+														left: `calc(var(--pathos-sidebar-width) - ${SIDEBAR_RESIZE_HIT_AREA / 2}px)`,
 														width: `${SIDEBAR_RESIZE_HIT_AREA}px`,
 													}}
 												>
@@ -2500,20 +2503,6 @@ function AppShell({
 													headerActions={
 														selectedWorkspaceId && displayedSessionId ? (
 															<div className="flex items-center gap-1">
-																<SetupHeaderButton
-																	workspaceId={selectedWorkspaceId}
-																	repoId={
-																		selectedWorkspaceDetailQuery.data?.repoId ??
-																		null
-																	}
-																/>
-																<RunHeaderButton
-																	workspaceId={selectedWorkspaceId}
-																	repoId={
-																		selectedWorkspaceDetailQuery.data?.repoId ??
-																		null
-																	}
-																/>
 																<ActionsMenu
 																	workspaceId={selectedWorkspaceId}
 																	workspaceState={
@@ -2724,7 +2713,7 @@ function AppShell({
 												onKeyDown={handleResizeKeyDown("inspector")}
 												className="group absolute inset-y-0 z-30 cursor-ew-resize touch-none outline-none"
 												style={{
-													right: `${Math.max(0, inspectorWidth - SIDEBAR_RESIZE_HIT_AREA)}px`,
+													right: `max(0px, calc(var(--pathos-inspector-width) - ${SIDEBAR_RESIZE_HIT_AREA}px))`,
 													width: `${SIDEBAR_RESIZE_HIT_AREA}px`,
 												}}
 											>
@@ -2741,7 +2730,7 @@ function AppShell({
 											<aside
 												aria-label="Inspector sidebar"
 												className="relative h-full shrink-0 overflow-hidden bg-sidebar has-[[data-tabs-zoomed=true]]:overflow-visible"
-												style={{ width: `${inspectorWidth}px` }}
+												style={{ width: "var(--pathos-inspector-width)" }}
 											>
 												<WorkspaceInspectorSidebar
 													workspaceId={selectedWorkspaceId}

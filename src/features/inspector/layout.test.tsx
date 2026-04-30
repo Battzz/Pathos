@@ -159,4 +159,32 @@ describe("InspectorTabsSection", () => {
 		expect(onToggle).toHaveBeenCalledTimes(1);
 		expect(zoomContainer).toHaveStyle({ width: "100%" });
 	});
+
+	it("keeps primary Setup and Run icons visible when scripts are not configured", () => {
+		renderWithProviders(
+			<InspectorTabsSection
+				wrapperRef={createRef<HTMLDivElement>()}
+				open
+				onToggle={vi.fn()}
+				activeTab="setup"
+				onTabChange={vi.fn()}
+				setupStatus="no-script"
+				runStatus="no-script"
+				terminalInstances={[]}
+				onAddTerminal={vi.fn()}
+				onCloseTerminal={vi.fn()}
+				canSpawnTerminal={false}
+				canHoverExpand={false}
+			>
+				<div>Terminal body</div>
+			</InspectorTabsSection>,
+		);
+
+		expect(
+			screen.getByRole("tab", { name: "Setup" }).querySelector("svg"),
+		).toBeTruthy();
+		expect(
+			screen.getByRole("tab", { name: "Run" }).querySelector("svg"),
+		).toBeTruthy();
+	});
 });

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +11,7 @@ const apiMocks = vi.hoisted(() => ({
 	loadWorkspaceDetail: vi.fn(),
 	loadWorkspaceSessions: vi.fn(),
 	loadSessionThreadMessages: vi.fn(),
+	listRepositoryFolders: vi.fn(),
 	listRepositories: vi.fn(),
 }));
 
@@ -41,6 +42,7 @@ vi.mock("./lib/api", async (importOriginal) => {
 		loadWorkspaceSessions: apiMocks.loadWorkspaceSessions,
 		loadSessionMessages: apiMocks.loadSessionThreadMessages,
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
+		listRepositoryFolders: apiMocks.listRepositoryFolders,
 		listRepositories: apiMocks.listRepositories,
 	};
 });
@@ -59,6 +61,7 @@ describe("App add repository flow", () => {
 		apiMocks.loadWorkspaceDetail.mockReset();
 		apiMocks.loadWorkspaceSessions.mockReset();
 		apiMocks.loadSessionThreadMessages.mockReset();
+		apiMocks.listRepositoryFolders.mockReset();
 		apiMocks.listRepositories.mockReset();
 		dialogMocks.open.mockReset();
 
@@ -99,6 +102,43 @@ describe("App add repository flow", () => {
 		]);
 		apiMocks.loadArchivedWorkspaces.mockResolvedValue([]);
 		apiMocks.loadAgentModelSections.mockResolvedValue([]);
+		apiMocks.listRepositoryFolders.mockImplementation(async () =>
+			addRepoRuntime.added
+				? [
+						{
+							repoId: "repo-existing",
+							repoName: "pathos-core",
+							repoInitials: "HC",
+							rootPath: "/tmp/test-repos/pathos-core",
+							defaultBranch: "main",
+							isGit: true,
+							chats: [],
+							workspaces: [],
+						},
+						{
+							repoId: "repo-added",
+							repoName: "added-repo",
+							repoInitials: "AR",
+							rootPath: "/tmp/test-repos/added-repo",
+							defaultBranch: "main",
+							isGit: true,
+							chats: [],
+							workspaces: [],
+						},
+					]
+				: [
+						{
+							repoId: "repo-existing",
+							repoName: "pathos-core",
+							repoInitials: "HC",
+							rootPath: "/tmp/test-repos/pathos-core",
+							defaultBranch: "main",
+							isGit: true,
+							chats: [],
+							workspaces: [],
+						},
+					],
+		);
 		apiMocks.listRepositories.mockImplementation(async () =>
 			addRepoRuntime.added
 				? [
@@ -279,6 +319,54 @@ describe("App add repository flow", () => {
 		});
 
 		expect(apiMocks.loadWorkspaceGroups).toHaveBeenCalled();
+	});
+
+	it("shows progress while a selected project is being added", async () => {
+		const user = userEvent.setup();
+		let resolveImport: (value: {
+			repositoryId: string;
+			createdRepository: boolean;
+			selectedWorkspaceId: string;
+			createdWorkspaceId: string;
+			createdWorkspaceState: string;
+		}) => void = () => {};
+		apiMocks.addRepositoryFromLocalPath.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveImport = (value) => {
+						addRepoRuntime.added = true;
+						resolve(value);
+					};
+				}),
+		);
+
+		render(<App />);
+		await screen.findByRole("main", { name: "Application shell" });
+
+		await user.click(screen.getByRole("button", { name: "Add project" }));
+		await user.click(
+			await screen.findByRole("menuitem", { name: "Open project" }),
+		);
+
+		await waitFor(() => {
+			expect(apiMocks.addRepositoryFromLocalPath).toHaveBeenCalledWith(
+				"/tmp/test-repos/added-repo",
+			);
+		});
+		expect(screen.getByText("Adding project...")).toBeInTheDocument();
+
+		await act(async () => {
+			resolveImport({
+				repositoryId: "repo-added",
+				createdRepository: true,
+				selectedWorkspaceId: "workspace-added",
+				createdWorkspaceId: "workspace-added",
+				createdWorkspaceState: "ready",
+			});
+		});
+
+		const addedProject = await screen.findByText("added-repo");
+		expect(addedProject.closest(".pathos-project-added")).toBeInTheDocument();
 	});
 
 	it("treats picker cancel as a no-op", async () => {

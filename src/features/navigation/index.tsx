@@ -1,4 +1,5 @@
 import {
+	ChevronDown,
 	FolderPlus,
 	Globe,
 	LoaderCircle,
@@ -25,12 +26,16 @@ import { ChatRow } from "./chat-row";
 import { CloneFromUrlDialog } from "./clone-from-url-dialog";
 import { FolderRow } from "./folder-row";
 
+const MAX_COLLAPSED_CHATS = 8;
+
 export type WorkspacesSidebarProps = {
 	folders: RepositoryFolder[];
 	selectedWorkspaceId: string | null;
 	selectedSessionId: string | null;
 	addRepositoryShortcut?: string | null;
 	addingRepository: boolean;
+	importingRepository: boolean;
+	recentlyAddedRepoId: string | null;
 	creatingChatRepoId: string | null;
 	isCloneDialogOpen: boolean;
 	cloneDefaultDirectory: string | null;
@@ -59,6 +64,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	selectedSessionId,
 	addRepositoryShortcut,
 	addingRepository,
+	importingRepository,
+	recentlyAddedRepoId,
 	creatingChatRepoId,
 	isCloneDialogOpen,
 	cloneDefaultDirectory,
@@ -78,6 +85,9 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	accountControl,
 }: WorkspacesSidebarProps) {
 	const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+	const [expandedChatRepoIds, setExpandedChatRepoIds] = useState<Set<string>>(
+		() => new Set(),
+	);
 
 	useEffect(() => {
 		const handler = () => setIsAddMenuOpen(true);
@@ -105,15 +115,28 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 				<div data-tauri-drag-region className="h-full flex-1" />
 			</div>
 
-			<div className="scrollbar-stable min-h-0 flex-1 overflow-y-auto pr-1 pl-2 [scrollbar-width:thin]">
+			<div
+				className={cn(
+					"scrollbar-stable min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]",
+					folders.length === 0
+						? "flex items-center justify-center px-6"
+						: "pr-1 pl-2",
+				)}
+			>
 				{folders.length === 0 ? (
-					<EmptySidebar onAddRepository={onAddRepository} />
+					<EmptySidebar
+						onAddRepository={onAddRepository}
+						addingRepository={addingRepository}
+						importingRepository={importingRepository}
+					/>
 				) : (
 					<ul className="flex flex-col gap-0.5 pb-2 pt-1">
+						{importingRepository ? <PendingProjectRow /> : null}
 						{folders.map((folder) => (
 							<li key={folder.repoId} className="flex flex-col">
 								<FolderRow
 									folder={folder}
+									highlighted={recentlyAddedRepoId === folder.repoId}
 									expanded={isFolderExpanded(folder.repoId)}
 									itemCount={folder.chats.length}
 									onToggle={onToggleFolder}
@@ -138,22 +161,46 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 												busy={creatingChatRepoId === folder.repoId}
 											/>
 										) : (
-											folder.chats.map((chat) => (
-												<ChatRow
-													key={chat.sessionId}
-													chat={chat}
-													selected={
-														selectedWorkspaceId === chat.workspaceId &&
-														selectedSessionId === chat.sessionId
-													}
-													onSelect={(ws, session) => {
-														onPrefetchChat(ws, session);
-														onSelectChat(ws, session);
-													}}
-													onTogglePin={onToggleChatPin}
-													onDelete={onDeleteChat}
-												/>
-											))
+											<>
+												{folder.chats
+													.slice(
+														0,
+														expandedChatRepoIds.has(folder.repoId)
+															? folder.chats.length
+															: MAX_COLLAPSED_CHATS,
+													)
+													.map((chat) => (
+														<ChatRow
+															key={chat.sessionId}
+															chat={chat}
+															selected={
+																selectedWorkspaceId === chat.workspaceId &&
+																selectedSessionId === chat.sessionId
+															}
+															onSelect={(ws, session) => {
+																onPrefetchChat(ws, session);
+																onSelectChat(ws, session);
+															}}
+															onTogglePin={onToggleChatPin}
+															onDelete={onDeleteChat}
+														/>
+													))}
+												{folder.chats.length > MAX_COLLAPSED_CHATS &&
+												!expandedChatRepoIds.has(folder.repoId) ? (
+													<ShowMoreChatsButton
+														hiddenCount={
+															folder.chats.length - MAX_COLLAPSED_CHATS
+														}
+														onClick={() => {
+															setExpandedChatRepoIds((repoIds) => {
+																const next = new Set(repoIds);
+																next.add(folder.repoId);
+																return next;
+															});
+														}}
+													/>
+												) : null}
+											</>
 										)}
 									</div>
 								) : null}
@@ -206,14 +253,22 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 						</Tooltip>
 						<DropdownMenuContent align="start" className="min-w-44">
 							<DropdownMenuItem
+								disabled={addBusy}
 								onSelect={() => {
 									onAddRepository();
 								}}
 							>
-								<FolderPlus strokeWidth={2} />
-								<span>Open project</span>
+								{addBusy ? (
+									<LoaderCircle className="animate-spin" strokeWidth={2.1} />
+								) : (
+									<FolderPlus strokeWidth={2} />
+								)}
+								<span>
+									{importingRepository ? "Adding project..." : "Open project"}
+								</span>
 							</DropdownMenuItem>
 							<DropdownMenuItem
+								disabled={addBusy}
 								onSelect={() => {
 									onOpenCloneDialog();
 								}}
@@ -231,9 +286,39 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	);
 });
 
-function EmptySidebar({ onAddRepository }: { onAddRepository: () => void }) {
+function ShowMoreChatsButton({
+	hiddenCount,
+	onClick,
+}: {
+	hiddenCount: number;
+	onClick: () => void;
+}) {
 	return (
-		<div className="flex flex-col items-center justify-center gap-4 px-6 pt-16 text-center">
+		<button
+			type="button"
+			className="mx-0 my-0.5 flex h-7 items-center gap-2 rounded-md px-2 text-[12px] font-medium text-muted-foreground/75 transition-colors cursor-pointer hover:bg-accent/30 hover:text-foreground/90"
+			onClick={onClick}
+		>
+			<ChevronDown className="size-3.5 shrink-0" strokeWidth={2} />
+			<span className="tracking-[-0.005em]">Show more</span>
+			<span className="ml-auto text-[11px] tabular-nums text-muted-foreground/55">
+				{hiddenCount}
+			</span>
+		</button>
+	);
+}
+
+function EmptySidebar({
+	onAddRepository,
+	addingRepository,
+	importingRepository,
+}: {
+	onAddRepository: () => void;
+	addingRepository: boolean;
+	importingRepository: boolean;
+}) {
+	return (
+		<div className="flex flex-col items-center justify-center gap-4 text-center">
 			<div className="relative">
 				<div
 					aria-hidden="true"
@@ -263,12 +348,33 @@ function EmptySidebar({ onAddRepository }: { onAddRepository: () => void }) {
 				size="sm"
 				variant="secondary"
 				onClick={onAddRepository}
+				disabled={addingRepository}
 				className="mt-1 cursor-pointer"
 			>
-				<FolderPlus className="size-3.5" strokeWidth={2} />
-				<span>Open project</span>
+				{addingRepository ? (
+					<LoaderCircle className="size-3.5 animate-spin" strokeWidth={2.1} />
+				) : (
+					<FolderPlus className="size-3.5" strokeWidth={2} />
+				)}
+				<span>
+					{importingRepository ? "Adding project..." : "Open project"}
+				</span>
 			</Button>
 		</div>
+	);
+}
+
+function PendingProjectRow() {
+	return (
+		<li className="flex flex-col">
+			<div className="mx-0.5 flex h-8 items-center gap-2 rounded-md border border-border/45 bg-accent/25 px-2 text-[13px] font-medium text-muted-foreground">
+				<LoaderCircle
+					className="size-3.5 shrink-0 animate-spin"
+					strokeWidth={2.1}
+				/>
+				<span className="truncate">Adding project...</span>
+			</div>
+		</li>
 	);
 }
 

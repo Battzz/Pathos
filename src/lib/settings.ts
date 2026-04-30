@@ -11,6 +11,14 @@ export type FollowUpBehavior = "steer" | "queue";
 
 export type ShortcutOverrides = Record<string, string | null>;
 
+export type NotificationSound =
+	| "Ping"
+	| "Glass"
+	| "Hero"
+	| "Submarine"
+	| "Tink"
+	| "none";
+
 export type ClaudeCustomProviderSettings = {
 	builtinProviderApiKeys: Record<string, string>;
 	customBaseUrl: string;
@@ -24,6 +32,7 @@ export type AppSettings = {
 	branchPrefixCustom: string;
 	theme: ThemeMode;
 	notifications: boolean;
+	notificationSound: NotificationSound;
 	lastWorkspaceId: string | null;
 	lastSessionId: string | null;
 	defaultModelId: string | null;
@@ -56,6 +65,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	branchPrefixCustom: "",
 	theme: "system",
 	notifications: true,
+	notificationSound: "Ping",
 	lastWorkspaceId: null,
 	lastSessionId: null,
 	defaultModelId: null,
@@ -84,6 +94,7 @@ const SETTINGS_KEY_MAP: Record<Exclude<keyof AppSettings, "theme">, string> = {
 	branchPrefixType: "branch_prefix_type",
 	branchPrefixCustom: "branch_prefix_custom",
 	notifications: "app.notifications",
+	notificationSound: "app.notification_sound",
 	lastWorkspaceId: "app.last_workspace_id",
 	lastSessionId: "app.last_session_id",
 	defaultModelId: "app.default_model_id",
@@ -146,6 +157,20 @@ function parseClaudeCustomProviderSettings(
 	}
 }
 
+function parseNotificationSound(raw: string | undefined): NotificationSound {
+	if (
+		raw === "Ping" ||
+		raw === "Glass" ||
+		raw === "Hero" ||
+		raw === "Submarine" ||
+		raw === "Tink" ||
+		raw === "none"
+	) {
+		return raw;
+	}
+	return DEFAULT_SETTINGS.notificationSound;
+}
+
 export async function loadSettings(): Promise<AppSettings> {
 	try {
 		const raw = await invoke<Record<string, string>>("get_app_settings");
@@ -170,6 +195,9 @@ export async function loadSettings(): Promise<AppSettings> {
 				raw[SETTINGS_KEY_MAP.notifications] !== undefined
 					? raw[SETTINGS_KEY_MAP.notifications] === "true"
 					: DEFAULT_SETTINGS.notifications,
+			notificationSound: parseNotificationSound(
+				raw[SETTINGS_KEY_MAP.notificationSound],
+			),
 			lastWorkspaceId: raw[SETTINGS_KEY_MAP.lastWorkspaceId] || null,
 			lastSessionId: raw[SETTINGS_KEY_MAP.lastSessionId] || null,
 			defaultModelId:

@@ -51,6 +51,7 @@ import { extractError, isRecoverableByPurge } from "@/lib/errors";
 import {
 	detectedEditorsQueryOptions,
 	pathosQueryKeys,
+	workspaceGitActionStatusQueryOptions,
 } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 import { showWorkspaceBrokenToast } from "@/lib/workspace-broken-toast";
@@ -95,6 +96,7 @@ type ChangesSectionProps = {
 	workspaceId: string | null;
 	workspaceRootPath: string | null;
 	workspaceTargetBranch: string | null;
+	workspaceRemote?: string | null;
 	changes: InspectorFileItem[];
 	editorMode: boolean;
 	activeEditorPath?: string | null;
@@ -114,6 +116,7 @@ export function ChangesSection({
 	workspaceId,
 	workspaceRootPath,
 	workspaceTargetBranch,
+	workspaceRemote,
 	changes,
 	editorMode,
 	activeEditorPath,
@@ -125,6 +128,15 @@ export function ChangesSection({
 	const [changesTreeView, setChangesTreeView] = useState(true);
 	const [branchDiffTreeView, setBranchDiffTreeView] = useState(true);
 	const [branchDiffOpen, setBranchDiffOpen] = useState(true);
+	const gitStatusQuery = useQuery({
+		...workspaceGitActionStatusQueryOptions(workspaceId ?? "__none__"),
+		enabled: workspaceId !== null,
+	});
+	const gitStatus = gitStatusQuery.data ?? null;
+	const incomingPullRef =
+		gitStatus?.syncStatus === "behind" && gitStatus.behindTargetCount > 0
+			? formatSyncTargetRef(workspaceRemote, gitStatus.syncTargetBranch)
+			: null;
 	// Only show loading when the user switches target branch within the
 	// same workspace — not on workspace/repo navigation or routine polling.
 	const [branchSwitching, setBranchSwitching] = useState(false);
@@ -312,7 +324,13 @@ export function ChangesSection({
 				"flex min-h-0 flex-col overflow-hidden border-b border-border/60 bg-sidebar",
 				fillAvailable && "flex-1",
 			)}
-			style={fillAvailable ? undefined : { height: `${bodyHeight}px` }}
+			style={
+				fillAvailable
+					? undefined
+					: {
+							height: `var(--pathos-inspector-changes-height, ${bodyHeight}px)`,
+						}
+			}
 		>
 			<ChangesSectionHeader
 				count={uncommittedCount}
@@ -362,6 +380,7 @@ export function ChangesSection({
 				{(committedChanges.length > 0 || branchSwitching) && (
 					<BranchDiffSection
 						targetBranch={workspaceTargetBranch}
+						incomingPullRef={incomingPullRef}
 						count={committedChanges.length}
 						loading={branchSwitching}
 						open={branchDiffOpen}
@@ -508,8 +527,24 @@ function ChangesListContent({
 	);
 }
 
+function formatSyncTargetRef(
+	workspaceRemote?: string | null,
+	syncTargetBranch?: string | null,
+): string {
+	const branch = syncTargetBranch?.trim();
+	if (!branch) {
+		return "target branch";
+	}
+	if (branch.includes("/")) {
+		return branch;
+	}
+	const remote = workspaceRemote?.trim() || "origin";
+	return `${remote}/${branch}`;
+}
+
 function BranchDiffSection({
 	targetBranch,
+	incomingPullRef,
 	count,
 	loading,
 	open,
@@ -523,6 +558,7 @@ function BranchDiffSection({
 	flashingPaths,
 }: {
 	targetBranch: string | null;
+	incomingPullRef: string | null;
 	count: number;
 	loading: boolean;
 	open: boolean;
@@ -545,6 +581,7 @@ function BranchDiffSection({
 		},
 		[onOpenEditorFile, targetBranch],
 	);
+	const label = incomingPullRef ? `Pull from ${incomingPullRef}` : "Remote";
 
 	return (
 		<div>
@@ -569,7 +606,7 @@ function BranchDiffSection({
 						className="size-3 shrink-0 text-muted-foreground"
 						strokeWidth={2}
 					/>
-					<span className="truncate">Remote</span>
+					<span className="truncate">{label}</span>
 				</Button>
 				<ViewToggleButton treeView={treeView} onToggle={onToggleTreeView} />
 				<Badge

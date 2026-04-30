@@ -66,7 +66,7 @@ describe("stabilizeStreamingMessages", () => {
 			throw new Error("expected collapsed-group");
 		}
 		expect(part.tools).toHaveLength(2);
-		expect(part.summary).toBe("Running 2 read-only commands...");
+		expect(part.summary).toBe("Reading 2 files...");
 		expect(part.active).toBe(true);
 	});
 
@@ -80,7 +80,7 @@ describe("stabilizeStreamingMessages", () => {
 						id: "group:cmd1",
 						category: "shell",
 						active: true,
-						summary: "Running 2 read-only commands...",
+						summary: "Reading 2 files...",
 						tools: [
 							toolCall("cmd1", "cat src/App.tsx"),
 							toolCall("cmd2", "sed -n '1,40p' src/lib/api.ts"),
@@ -100,7 +100,7 @@ describe("stabilizeStreamingMessages", () => {
 			throw new Error("expected collapsed-group");
 		}
 		expect(part.tools).toHaveLength(3);
-		expect(part.summary).toBe("Running 3 read-only commands...");
+		expect(part.summary).toBe("Reading 2 files...");
 	});
 
 	it("does not collapse across a text boundary", () => {

@@ -6,7 +6,6 @@ import {
 	Trash2,
 } from "lucide-react";
 import { memo } from "react";
-import { Button } from "@/components/ui/button";
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -27,6 +26,7 @@ export type FolderRowProps = {
 	onOpenInFinder?: (repoId: string) => void;
 	onRemoveProject?: (repoId: string) => void;
 	creatingChat?: boolean;
+	highlighted?: boolean;
 };
 
 export const FolderRow = memo(function FolderRow({
@@ -38,6 +38,7 @@ export const FolderRow = memo(function FolderRow({
 	onOpenInFinder,
 	onRemoveProject,
 	creatingChat,
+	highlighted,
 }: FolderRowProps) {
 	const busy = Boolean(creatingChat);
 	return (
@@ -49,6 +50,7 @@ export const FolderRow = memo(function FolderRow({
 						"group/folder relative flex h-8 select-none items-center gap-1 rounded-md pr-1 pl-1.5 text-[13px] font-semibold tracking-[-0.01em] text-foreground/90 transition-colors",
 						"hover:bg-accent/40 hover:text-foreground",
 						"data-[expanded=true]:text-foreground",
+						highlighted && "pathos-project-added bg-accent/35",
 					)}
 				>
 					<button
@@ -80,15 +82,14 @@ export const FolderRow = memo(function FolderRow({
 						) : null}
 					</button>
 
-					<Button
+					<button
 						type="button"
 						aria-label={`New chat in ${folder.repoName}`}
-						variant="ghost"
-						size="icon-xs"
 						disabled={busy}
 						className={cn(
-							"absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity",
-							"group-hover/folder:opacity-100 hover:text-foreground",
+							"absolute right-1 top-1/2 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity",
+							"group-hover/folder:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+							"disabled:cursor-not-allowed disabled:opacity-60",
 							busy && "opacity-100",
 						)}
 						onClick={(event) => {
@@ -104,7 +105,7 @@ export const FolderRow = memo(function FolderRow({
 						) : (
 							<Plus className="size-3.5" strokeWidth={2.4} />
 						)}
-					</Button>
+					</button>
 				</div>
 			</ContextMenuTrigger>
 			<ContextMenuContent className="min-w-44">

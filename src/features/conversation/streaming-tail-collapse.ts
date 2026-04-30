@@ -4,6 +4,7 @@ import type {
 	ThreadMessageLike,
 	ToolCallPart,
 } from "@/lib/api";
+import { extractShellReadFilePaths } from "@/lib/shell-read-files";
 
 type ToolCategory = "search" | "read" | "shell" | "other";
 type CollapseCategory = "search" | "read" | "shell" | "mixed";
@@ -343,16 +344,46 @@ function buildGroupSummary(tools: ToolCallPart[], active: boolean): string {
 	}
 
 	if (shellTools.length > 0) {
-		const verb =
-			parts.length === 0
-				? active
-					? "Running"
-					: "Ran"
-				: active
-					? "running"
-					: "ran";
-		const plural = shellTools.length > 1 ? "s" : "";
-		parts.push(`${verb} ${shellTools.length} read-only command${plural}`);
+		const shellReadPaths = new Set<string>();
+		let shellReadToolCount = 0;
+		for (const tool of shellTools) {
+			const command = tool.args.command;
+			if (typeof command !== "string") continue;
+			const filePaths = extractShellReadFilePaths(command);
+			if (filePaths.length > 0) shellReadToolCount += 1;
+			for (const filePath of filePaths) {
+				shellReadPaths.add(filePath);
+			}
+		}
+		if (shellReadPaths.size > 0) {
+			const [firstPath] = shellReadPaths;
+			const verb =
+				parts.length === 0
+					? active
+						? "Reading"
+						: "Read"
+					: active
+						? "reading"
+						: "read";
+			if (shellReadPaths.size === 1 && firstPath) {
+				parts.push(`${verb} ${basename(firstPath)}`);
+			} else {
+				parts.push(`${verb} ${shellReadPaths.size} files`);
+			}
+		}
+		const remainingShellCount = shellTools.length - shellReadToolCount;
+		if (remainingShellCount > 0) {
+			const verb =
+				parts.length === 0
+					? active
+						? "Running"
+						: "Ran"
+					: active
+						? "running"
+						: "ran";
+			const plural = remainingShellCount > 1 ? "s" : "";
+			parts.push(`${verb} ${remainingShellCount} read-only command${plural}`);
+		}
 	}
 
 	if (parts.length === 0) {
@@ -383,6 +414,11 @@ function extractFilePath(args: Record<string, unknown>): string | null {
 
 function truncate(text: string, limit: number): string {
 	return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+}
+
+function basename(path: string): string {
+	const normalized = path.replace(/\\/g, "/");
+	return normalized.split("/").filter(Boolean).pop() ?? path;
 }
 
 function isCollapsibleWithArgs(

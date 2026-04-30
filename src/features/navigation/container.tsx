@@ -37,6 +37,8 @@ export const WorkspacesSidebarContainer = memo(
 		const {
 			folders,
 			addingRepository,
+			importingRepository,
+			recentlyAddedRepoId,
 			creatingChatRepoId,
 			isCloneDialogOpen,
 			setIsCloneDialogOpen,
@@ -82,6 +84,8 @@ export const WorkspacesSidebarContainer = memo(
 				selectedSessionId={selectedSessionId}
 				addRepositoryShortcut={addRepositoryShortcut}
 				addingRepository={addingRepository}
+				importingRepository={importingRepository}
+				recentlyAddedRepoId={recentlyAddedRepoId}
 				creatingChatRepoId={creatingChatRepoId}
 				isCloneDialogOpen={isCloneDialogOpen}
 				cloneDefaultDirectory={cloneDefaultDirectory}

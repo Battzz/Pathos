@@ -71,6 +71,123 @@ body {
 	}
 }
 
+.pathos-boot-splash {
+	position: fixed;
+	inset: 0;
+	z-index: 9999;
+	display: grid;
+	place-items: center;
+	overflow: hidden;
+	background: var(--background);
+	opacity: 1;
+	transition:
+		opacity 360ms ease,
+		visibility 360ms ease;
+	visibility: visible;
+}
+
+.pathos-boot-splash[data-visible="false"] {
+	opacity: 0;
+	visibility: hidden;
+}
+
+.pathos-boot-net {
+	opacity: 0.9;
+	transform: scale(1.04);
+	animation: pathos-boot-net-settle 1200ms cubic-bezier(0.22, 0.82, 0.2, 1) both;
+}
+
+.pathos-boot-vignette {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	background:
+		radial-gradient(
+			circle at 50% 48%,
+			transparent 0%,
+			color-mix(in oklch, var(--background) 42%, transparent) 42%,
+			var(--background) 76%
+		),
+		linear-gradient(
+			180deg,
+			color-mix(in oklch, var(--background) 82%, transparent) 0%,
+			transparent 34%,
+			color-mix(in oklch, var(--background) 88%, transparent) 100%
+		);
+}
+
+.pathos-boot-sweep {
+	position: absolute;
+	inset: -18% auto -18% 0;
+	z-index: 1;
+	width: 34%;
+	background: linear-gradient(
+		90deg,
+		transparent,
+		color-mix(in oklch, var(--foreground) 8%, transparent),
+		transparent
+	);
+	filter: blur(22px);
+	opacity: 0.9;
+	transform: translateX(-130%) skewX(-14deg);
+	animation: pathos-boot-sweep 1800ms cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+.pathos-boot-panel {
+	position: relative;
+	z-index: 2;
+	display: grid;
+	justify-items: center;
+	gap: 5px;
+	transform: translateY(-6px);
+	animation: pathos-boot-panel-rise 620ms cubic-bezier(0.22, 0.82, 0.2, 1) both;
+}
+
+.pathos-boot-title {
+	font-size: 15px;
+	font-weight: 560;
+	letter-spacing: 0;
+	color: color-mix(in oklch, var(--foreground) 84%, transparent);
+}
+
+.pathos-boot-subtitle {
+	font-size: 12px;
+	font-weight: 450;
+	letter-spacing: 0;
+	color: color-mix(in oklch, var(--foreground) 48%, transparent);
+}
+
+@keyframes pathos-boot-panel-rise {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(-6px);
+	}
+}
+
+@keyframes pathos-boot-net-settle {
+	from {
+		opacity: 0;
+		transform: scale(1.08);
+	}
+	to {
+		opacity: 0.9;
+		transform: scale(1.04);
+	}
+}
+
+@keyframes pathos-boot-sweep {
+	0% {
+		transform: translateX(-130%) skewX(-14deg);
+	}
+	100% {
+		transform: translateX(390%) skewX(-14deg);
+	}
+}
+
 .identity-net {
 	color: color-mix(in srgb, var(--foreground) 76%, #7dd3fc 24%);
 	opacity: 0.9;
@@ -113,6 +230,44 @@ body {
 
 .identity-net-nodes circle:nth-child(3n) {
 	animation-delay: 1700ms;
+}
+
+.pathos-boot-net .identity-net-line {
+	stroke-dasharray: 10 28;
+	animation-duration: 4600ms;
+}
+
+.pathos-boot-net .identity-net-line-b,
+.pathos-boot-net .identity-net-line-d {
+	animation-duration: 5400ms;
+}
+
+.pathos-boot-net .identity-net-line-c,
+.pathos-boot-net .identity-net-line-e {
+	animation-duration: 3900ms;
+}
+
+.pathos-boot-net .identity-net-nodes circle {
+	animation-duration: 1700ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.pathos-boot-net,
+	.pathos-boot-panel,
+	.pathos-boot-sweep,
+	.pathos-boot-net .identity-net-line,
+	.pathos-boot-net .identity-net-nodes circle {
+		animation: none;
+	}
+
+	.pathos-boot-net {
+		opacity: 0.75;
+		transform: scale(1.04);
+	}
+
+	.pathos-boot-sweep {
+		display: none;
+	}
 }
 
 @keyframes identity-net-drift {
@@ -346,6 +501,58 @@ body {
 
 	to {
 		opacity: 1;
+	}
+}
+
+.pathos-project-added {
+	overflow: hidden;
+	animation: pathos-project-added-pop 760ms cubic-bezier(0.22, 0.82, 0.2, 1)
+		both;
+}
+
+.pathos-project-added::after {
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	pointer-events: none;
+	content: "";
+	background: linear-gradient(
+		90deg,
+		transparent,
+		color-mix(in oklch, var(--foreground) 12%, transparent),
+		transparent
+	);
+	transform: translateX(-120%);
+	animation: pathos-project-added-sweep 920ms ease-out both;
+}
+
+@keyframes pathos-project-added-pop {
+	0% {
+		opacity: 0;
+		transform: translateY(4px) scale(0.98);
+	}
+
+	55% {
+		opacity: 1;
+		transform: translateY(0) scale(1.015);
+	}
+
+	100% {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes pathos-project-added-sweep {
+	to {
+		transform: translateX(120%);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.pathos-project-added,
+	.pathos-project-added::after {
+		animation: none;
 	}
 }
 

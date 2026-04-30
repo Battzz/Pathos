@@ -70,6 +70,8 @@ export function ActiveThreadViewport({
 	workspaceLabel = null,
 	missingScriptTypes = [],
 	onInitializeScript,
+	onRevertMessage,
+	onSubmitEditedMessage,
 }: {
 	hasSession: boolean;
 	onCloneProject?: () => void;
@@ -79,6 +81,11 @@ export function ActiveThreadViewport({
 	workspaceLabel?: string | null;
 	missingScriptTypes?: WorkspaceScriptType[];
 	onInitializeScript?: (scriptType: WorkspaceScriptType) => void;
+	onRevertMessage?: (messageId: string) => void | Promise<void>;
+	onSubmitEditedMessage?: (
+		messageId: string,
+		prompt: string,
+	) => void | Promise<void>;
 }) {
 	const stackRef = useRef<HTMLDivElement | null>(null);
 	const [widthBucket, setWidthBucket] = useState(0);
@@ -133,6 +140,8 @@ export function ActiveThreadViewport({
 					sessionId={pane.sessionId}
 					sending={pane.sending}
 					workspaceLabel={workspaceLabel}
+					onRevertMessage={onRevertMessage}
+					onSubmitEditedMessage={onSubmitEditedMessage}
 				/>
 			</div>
 		</div>
@@ -152,6 +161,8 @@ function ChatThread({
 	sessionId,
 	sending,
 	workspaceLabel,
+	onRevertMessage,
+	onSubmitEditedMessage,
 }: {
 	layoutCacheKey: string;
 	messages: ThreadMessageLike[];
@@ -165,6 +176,11 @@ function ChatThread({
 	sessionId: string;
 	sending: boolean;
 	workspaceLabel?: string | null;
+	onRevertMessage?: (messageId: string) => void | Promise<void>;
+	onSubmitEditedMessage?: (
+		messageId: string,
+		prompt: string,
+	) => void | Promise<void>;
 }) {
 	const threadMessages = messages;
 	const { settings } = useSettings();
@@ -242,11 +258,13 @@ function ChatThread({
 					message={message}
 					previousAssistantMessage={previousAssistantMessage}
 					sessionId={sessionId}
+					onRevertMessage={onRevertMessage}
+					onSubmitEditedMessage={onSubmitEditedMessage}
 					itemIndex={index}
 				/>
 			);
 		},
-		[sessionId, threadMessages],
+		[onRevertMessage, onSubmitEditedMessage, sessionId, threadMessages],
 	);
 
 	return (
@@ -359,6 +377,7 @@ function ConversationViewport({
 				onOpenProject={onOpenProject}
 				providerName={providerName}
 				workspaceLabel={workspaceLabel}
+				sessionCount={hasSession ? 1 : 0}
 			/>
 		</div>
 	);

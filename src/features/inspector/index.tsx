@@ -12,6 +12,7 @@ import type { DiffOpenOptions } from "@/lib/editor-session";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { useWorkspaceInspectorSidebar } from "./hooks/use-inspector";
+import { useScriptStatus } from "./hooks/use-script-status";
 import { useSetupAutoRun } from "./hooks/use-setup-auto-run";
 import { HorizontalResizeHandle, InspectorTabsSection } from "./layout";
 import type { ScriptStatus } from "./script-store";
@@ -63,6 +64,7 @@ export function WorkspaceInspectorSidebar({
 	workspaceId,
 	workspaceRootPath,
 	workspaceTargetBranch,
+	workspaceRemote,
 	workspaceState,
 	repoId,
 	editorMode,
@@ -116,6 +118,18 @@ export function WorkspaceInspectorSidebar({
 
 	const runTabActions =
 		runStatus === "running" ? <OpenDevServerButton urls={runUrls} /> : null;
+	const hasSetupScript = !!repoScripts?.setupScript?.trim();
+	const hasRunScript = !!repoScripts?.runScript?.trim();
+	const setupIconStatus = useScriptStatus(
+		workspaceId ?? null,
+		"setup",
+		hasSetupScript,
+	);
+	const runIconStatus = useScriptStatus(
+		workspaceId ?? null,
+		"run",
+		hasRunScript,
+	);
 
 	// Live list of Terminal sub-tabs for the current workspace, observed at
 	// the sidebar level so each terminal can be rendered as its own tab in
@@ -336,6 +350,7 @@ export function WorkspaceInspectorSidebar({
 				workspaceId={workspaceId ?? null}
 				workspaceRootPath={workspaceRootPath ?? null}
 				workspaceTargetBranch={workspaceTargetBranch ?? null}
+				workspaceRemote={workspaceRemote ?? null}
 				changes={changes}
 				editorMode={editorMode}
 				activeEditorPath={activeEditorPath}
@@ -362,6 +377,8 @@ export function WorkspaceInspectorSidebar({
 				onToggle={handleToggleTabs}
 				activeTab={activeTab}
 				onTabChange={setActiveTab}
+				setupStatus={setupIconStatus}
+				runStatus={runIconStatus}
 				tabActions={runTabActions}
 				terminalInstances={terminalInstances}
 				onAddTerminal={handleAddTerminal}

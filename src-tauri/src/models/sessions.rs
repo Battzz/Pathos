@@ -105,6 +105,72 @@ pub fn list_session_historical_records(session_id: &str) -> Result<Vec<Historica
     list_session_historical_records_with_connection(&connection, session_id)
 }
 
+pub fn truncate_session_messages_after(
+    session_id: &str,
+    message_id: &str,
+    include_selected: bool,
+) -> Result<usize> {
+    let mut connection = db::write_conn()?;
+    let transaction = connection
+        .transaction()
+        .context("Failed to start session rollback transaction")?;
+
+    let selected_rowid: i64 = transaction
+        .query_row(
+            "SELECT rowid FROM session_messages WHERE session_id = ?1 AND id = ?2",
+            rusqlite::params![session_id, message_id],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("Failed to find message {message_id} in session {session_id}"))?;
+
+    let deleted = if include_selected {
+        transaction
+            .execute(
+                "DELETE FROM session_messages WHERE session_id = ?1 AND rowid >= ?2",
+                rusqlite::params![session_id, selected_rowid],
+            )
+            .context("Failed to delete selected and later session messages")?
+    } else {
+        transaction
+            .execute(
+                "DELETE FROM session_messages WHERE session_id = ?1 AND rowid > ?2",
+                rusqlite::params![session_id, selected_rowid],
+            )
+            .context("Failed to delete later session messages")?
+    };
+
+    let last_user_message_at: Option<String> = transaction
+        .query_row(
+            "SELECT MAX(created_at) FROM session_messages WHERE session_id = ?1 AND role = 'user'",
+            [session_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("Failed to recalculate last user message timestamp")?
+        .flatten();
+
+    transaction
+        .execute(
+            r#"
+            UPDATE sessions
+            SET
+              provider_session_id = NULL,
+              status = 'idle',
+              last_user_message_at = ?2,
+              updated_at = datetime('now')
+            WHERE id = ?1
+            "#,
+            rusqlite::params![session_id, last_user_message_at],
+        )
+        .with_context(|| format!("Failed to update session {session_id} after rollback"))?;
+
+    transaction
+        .commit()
+        .context("Failed to commit session rollback transaction")?;
+
+    Ok(deleted)
+}
+
 fn adjacent_visible_session_id(
     transaction: &Transaction<'_>,
     workspace_id: &str,
@@ -428,6 +494,56 @@ pub fn create_session(
         .context("Failed to commit create-session")?;
 
     Ok(CreateSessionResponse { session_id })
+}
+
+fn find_empty_visible_chat_session(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<Option<String>> {
+    connection
+        .query_row(
+            r#"
+            SELECT s.id
+            FROM sessions s
+            JOIN workspaces w ON w.id = s.workspace_id
+            WHERE s.workspace_id = ?1
+              AND COALESCE(s.is_hidden, 0) = 0
+              AND s.action_kind IS NULL
+              AND s.pinned_at IS NULL
+              AND s.last_user_message_at IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id
+              )
+            ORDER BY
+              CASE WHEN w.active_session_id = s.id THEN 0 ELSE 1 END,
+              datetime(s.created_at) DESC
+            LIMIT 1
+            "#,
+            [workspace_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .with_context(|| format!("Failed to find empty chat session for {workspace_id}"))
+}
+
+pub fn reuse_empty_visible_chat_session(workspace_id: &str) -> Result<Option<String>> {
+    let connection = db::write_conn()?;
+
+    let session_id = find_empty_visible_chat_session(&connection, workspace_id)?;
+
+    if let Some(session_id) = session_id {
+        connection
+            .execute(
+                "UPDATE workspaces SET active_session_id = ?1 WHERE id = ?2",
+                (&session_id, workspace_id),
+            )
+            .with_context(|| {
+                format!("Failed to activate empty chat session {session_id} for {workspace_id}")
+            })?;
+        return Ok(Some(session_id));
+    }
+
+    Ok(None)
 }
 
 pub fn delete_empty_visible_chat_sessions(workspace_id: &str) -> Result<usize> {
@@ -1054,6 +1170,34 @@ mod tests {
     }
 
     #[test]
+    fn empty_visible_chat_lookup_prefers_active_draft_session() {
+        let (conn, _dir) = test_db();
+        seed_two_sessions(&conn);
+        conn.execute(
+            "UPDATE workspaces SET active_session_id = 's1' WHERE id = 'w1'",
+            [],
+        )
+        .unwrap();
+
+        assert_eq!(
+            find_empty_visible_chat_session(&conn, "w1").unwrap(),
+            Some("s1".to_string())
+        );
+    }
+
+    #[test]
+    fn empty_visible_chat_lookup_ignores_sessions_with_messages() {
+        let (conn, _dir) = test_db();
+        seed(&conn);
+        conn.execute(
+            "INSERT INTO session_messages (id, session_id, role, content) VALUES ('m1', 's1', 'user', 'hello')",
+            [],
+        ).unwrap();
+
+        assert_eq!(find_empty_visible_chat_session(&conn, "w1").unwrap(), None);
+    }
+
+    #[test]
     fn action_session_title_uses_mr_wording_on_gitlab() {
         let (conn, _dir) = test_db();
         seed(&conn);
@@ -1201,6 +1345,78 @@ mod tests {
             .filter_map(Result::ok)
             .collect();
         assert_eq!(roles, vec!["user", "assistant"]);
+    }
+
+    #[test]
+    fn truncate_session_messages_after_deletes_later_rows_and_clears_provider_resume() {
+        let env = crate::testkit::TestEnv::new("session-rollback-after");
+        let conn = env.db_connection();
+        seed(&conn);
+        conn.execute(
+            "UPDATE sessions SET provider_session_id = 'provider-1', agent_type = 'claude' WHERE id = 's1'",
+            [],
+        )
+        .unwrap();
+        for (id, role, created_at) in [
+            ("m1", "user", "2026-01-01T00:00:00"),
+            ("m2", "assistant", "2026-01-01T00:01:00"),
+            ("m3", "user", "2026-01-01T00:02:00"),
+            ("m4", "assistant", "2026-01-01T00:03:00"),
+        ] {
+            conn.execute(
+                "INSERT INTO session_messages (id, session_id, role, content, created_at, sent_at) VALUES (?1, 's1', ?2, '{}', ?3, ?3)",
+                rusqlite::params![id, role, created_at],
+            )
+            .unwrap();
+        }
+
+        let deleted = truncate_session_messages_after("s1", "m3", false).unwrap();
+        assert_eq!(deleted, 1);
+
+        let ids: Vec<String> = conn
+            .prepare("SELECT id FROM session_messages WHERE session_id = 's1' ORDER BY rowid")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(ids, vec!["m1", "m2", "m3"]);
+
+        let (provider_session_id, last_user_message_at): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT provider_session_id, last_user_message_at FROM sessions WHERE id = 's1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(provider_session_id.is_none());
+        assert_eq!(last_user_message_at.as_deref(), Some("2026-01-01T00:02:00"));
+    }
+
+    #[test]
+    fn truncate_session_messages_after_can_include_selected_row() {
+        let env = crate::testkit::TestEnv::new("session-rollback-include");
+        let conn = env.db_connection();
+        seed(&conn);
+        for id in ["m1", "m2", "m3"] {
+            conn.execute(
+                "INSERT INTO session_messages (id, session_id, role, content) VALUES (?1, 's1', 'user', '{}')",
+                [id],
+            )
+            .unwrap();
+        }
+
+        let deleted = truncate_session_messages_after("s1", "m2", true).unwrap();
+        assert_eq!(deleted, 2);
+
+        let ids: Vec<String> = conn
+            .prepare("SELECT id FROM session_messages WHERE session_id = 's1' ORDER BY rowid")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(ids, vec!["m1"]);
     }
 
     #[test]

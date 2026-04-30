@@ -1062,7 +1062,7 @@ describe("useConversationStreaming", () => {
 			throw new Error("expected collapsed-group");
 		}
 		expect(part.tools).toHaveLength(2);
-		expect(part.summary).toBe("Running 2 read-only commands...");
+		expect(part.summary).toBe("Reading 2 files...");
 
 		rafSpy.mockRestore();
 		cancelSpy.mockRestore();

@@ -8,7 +8,8 @@ import {
 	Search,
 	Terminal,
 } from "lucide-react";
-import { memo, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
 	Reasoning,
 	ReasoningContent,
@@ -155,6 +156,8 @@ export const AssistantToolCall = memo(function AssistantToolCall({
 							/>
 						}
 					/>
+				) : info.fileDisplay === "pill" ? (
+					<FilePill file={info.file} hoverText={info.fullCommand} />
 				) : (
 					<>
 						<img
@@ -595,6 +598,70 @@ const AgentChildrenBlock = memo(function AgentChildrenBlock({
 		</div>
 	);
 }, agentChildrenBlockPropsEqual);
+
+function FilePill({ file, hoverText }: { file: string; hoverText?: string }) {
+	const triggerRef = useRef<HTMLSpanElement>(null);
+	const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+	const [tooltipOpen, setTooltipOpen] = useState(false);
+
+	const show = useCallback(() => {
+		if (!hoverText) return;
+		if (hideTimer.current) {
+			clearTimeout(hideTimer.current);
+			hideTimer.current = null;
+		}
+		if (triggerRef.current) {
+			const rect = triggerRef.current.getBoundingClientRect();
+			setPos({ x: rect.left, y: rect.bottom + 4 });
+			requestAnimationFrame(() => setTooltipOpen(true));
+		}
+	}, [hoverText]);
+
+	const hideDelayed = useCallback(() => {
+		setTooltipOpen(false);
+		hideTimer.current = setTimeout(() => setPos(null), 140);
+	}, []);
+
+	return (
+		<>
+			<span
+				ref={triggerRef}
+				onMouseEnter={show}
+				onMouseLeave={hideDelayed}
+				className="inline-flex cursor-pointer items-center gap-1.5 self-start rounded-md border border-border/60 px-1.5 py-0.5 text-[12px] leading-4 text-muted-foreground transition-colors duration-150 hover:border-muted-foreground/40 hover:bg-accent/40"
+			>
+				<img
+					src={getMaterialFileIcon(file)}
+					alt=""
+					className="size-4 shrink-0"
+				/>
+				<span className="min-w-0 truncate">{file}</span>
+			</span>
+			{pos && hoverText
+				? createPortal(
+						<div
+							role="tooltip"
+							onMouseEnter={show}
+							onMouseLeave={hideDelayed}
+							className={cn(
+								"fixed z-[100] max-w-[min(52rem,90vw)] rounded-md border border-border bg-popover px-2 py-1.5 shadow-xl transition-all duration-150 ease-out",
+								tooltipOpen
+									? "translate-y-0 opacity-100"
+									: "-translate-y-1 opacity-0",
+							)}
+							style={{ left: pos.x, top: pos.y }}
+						>
+							<code className="block truncate font-mono text-[11px] leading-5 text-muted-foreground">
+								{hoverText}
+							</code>
+						</div>,
+						document.body,
+					)
+				: null}
+		</>
+	);
+}
 
 // --- CollapsedToolGroup ---
 

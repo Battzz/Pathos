@@ -49,6 +49,11 @@ type WorkspacePanelProps = {
 	newSessionShortcut?: string | null;
 	missingScriptTypes?: WorkspaceScriptType[];
 	onInitializeScript?: (scriptType: WorkspaceScriptType) => void;
+	onRevertMessage?: (messageId: string) => void | Promise<void>;
+	onSubmitEditedMessage?: (
+		messageId: string,
+		prompt: string,
+	) => void | Promise<void>;
 };
 
 function providerDisplayName(
@@ -90,6 +95,8 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 	newSessionShortcut: _newSessionShortcut,
 	missingScriptTypes = [],
 	onInitializeScript,
+	onRevertMessage,
+	onSubmitEditedMessage,
 }: WorkspacePanelProps) {
 	const selectedSession =
 		sessions.find((session) => session.id === selectedSessionId) ?? null;
@@ -157,6 +164,8 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 							onOpenProject={onOpenProject}
 							missingScriptTypes={missingScriptTypes}
 							onInitializeScript={onInitializeScript}
+							onRevertMessage={onRevertMessage}
+							onSubmitEditedMessage={onSubmitEditedMessage}
 						/>
 					) : loadingWorkspace || loadingSession ? (
 						<ConversationColdPlaceholder />
@@ -165,6 +174,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 							<EmptyState
 								workspaceState={workspace?.state ?? null}
 								hasSession={!!selectedSession}
+								sessionCount={sessions.length}
 								onCloneProject={onCloneProject}
 								onOpenProject={onOpenProject}
 								providerName={selectedProviderName}

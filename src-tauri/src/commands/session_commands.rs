@@ -29,7 +29,12 @@ pub async fn create_chat_session_in_repo(
     let _lock = db::WORKSPACE_FS_MUTATION_LOCK.lock().await;
     let response = run_blocking(move || {
         let workspace_id = workspace_project::get_or_create_project_workspace(&repo_id)?;
-        sessions::delete_empty_visible_chat_sessions(&workspace_id)?;
+        if let Some(session_id) = sessions::reuse_empty_visible_chat_session(&workspace_id)? {
+            return Ok::<_, anyhow::Error>(CreateChatResponse {
+                workspace_id,
+                session_id,
+            });
+        }
         let session = sessions::create_session(&workspace_id, None, permission_mode.as_deref())?;
         Ok::<_, anyhow::Error>(CreateChatResponse {
             workspace_id,
@@ -60,6 +65,18 @@ pub async fn list_session_thread_messages(
     run_blocking(move || {
         let historical = sessions::list_session_historical_records(&session_id)?;
         Ok(pipeline::MessagePipeline::convert_historical(&historical))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn truncate_session_messages_after(
+    session_id: String,
+    message_id: String,
+    include_selected: bool,
+) -> CmdResult<usize> {
+    run_blocking(move || {
+        sessions::truncate_session_messages_after(&session_id, &message_id, include_selected)
     })
     .await
 }

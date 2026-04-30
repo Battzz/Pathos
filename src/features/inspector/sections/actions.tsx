@@ -72,6 +72,13 @@ interface GitStatusItem {
 	};
 }
 
+type ActionsNotification = {
+	label: string;
+	shortLabel: string;
+	rowKey: string;
+	tone: "commit" | "merge" | "pr" | "pull" | "push";
+};
+
 function loadingActionLabel(label: string): string {
 	switch (label) {
 		case "Push":
@@ -218,6 +225,10 @@ export function ActionsSection({
 
 export function ActionsMenu(props: WorkspaceActionsProps) {
 	const model = useWorkspaceActionsModel(props);
+	const notification = model.notification;
+	const triggerLabel = notification
+		? `Open workspace actions: ${notification.label}`
+		: "Open workspace actions";
 
 	return (
 		<DropdownMenu>
@@ -228,11 +239,37 @@ export function ActionsMenu(props: WorkspaceActionsProps) {
 							type="button"
 							variant="ghost"
 							size="xs"
-							aria-label="Open workspace actions"
-							className="text-muted-foreground hover:text-foreground"
+							aria-label={triggerLabel}
+							className={cn(
+								"text-muted-foreground hover:text-foreground",
+								notification && "text-foreground",
+							)}
 						>
-							<ListChecksIcon className="size-3.5" strokeWidth={1.8} />
+							{notification ? (
+								<span className="relative inline-flex size-3.5 shrink-0 items-center justify-center">
+									<ListChecksIcon className="size-3.5" strokeWidth={1.8} />
+									<span
+										aria-hidden="true"
+										className={cn(
+											"absolute -right-0.5 -top-0.5 size-1.5 animate-pulse rounded-full ring-2 ring-background",
+											getNotificationDotClassName(notification.tone),
+										)}
+									/>
+								</span>
+							) : (
+								<ListChecksIcon className="size-3.5" strokeWidth={1.8} />
+							)}
 							<span>Actions</span>
+							{notification ? (
+								<span
+									className={cn(
+										"max-w-[8.5rem] truncate rounded-sm px-1 text-[11px] font-medium transition-[max-width,background-color,color]",
+										getNotificationChipClassName(notification.tone),
+									)}
+								>
+									{notification.shortLabel}
+								</span>
+							) : null}
 							<ChevronDownIcon className="size-3" strokeWidth={2} />
 						</Button>
 					</DropdownMenuTrigger>
@@ -243,6 +280,11 @@ export function ActionsMenu(props: WorkspaceActionsProps) {
 					className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
 				>
 					<span>Actions</span>
+					{notification ? (
+						<span className="text-tooltip-foreground/55">
+							{notification.label}
+						</span>
+					) : null}
 				</TooltipContent>
 			</Tooltip>
 			<DropdownMenuContent
@@ -305,15 +347,35 @@ function useWorkspaceActionsModel({
 	const sortedDeployments = sortActionItems(forgeStatus.deployments);
 	const sortedChecks = sortActionItems(forgeStatus.checks);
 	const actionDisabled = commitButtonState === "busy";
+	const notification = getActionsNotification({
+		changeRequest,
+		changeRequestName,
+		commitButtonMode,
+		commitButtonState,
+		forgeStatus,
+		gitStatus,
+	});
 	const primaryAction =
-		commitButtonMode === "create-pr"
+		commitButtonMode === "create-pr" ||
+		commitButtonMode === "open-pr" ||
+		commitButtonMode === "merge"
 			? {
 					label: getCommitButtonLabel(
-						"create-pr",
+						commitButtonMode,
 						commitButtonState ?? "idle",
 						changeRequestName,
 					),
-					mode: "create-pr" as const,
+					mode: commitButtonMode,
+					rowLabel:
+						commitButtonMode === "merge"
+							? `${changeRequestName} ready to merge`
+							: commitButtonMode === "open-pr"
+								? `${changeRequestName} closed`
+								: `No ${
+										changeRequestName === "PR"
+											? "pull request"
+											: changeRequestName.toLowerCase()
+									}`,
 				}
 			: null;
 	const queueSyncResolutionPrompt = useCallback(
@@ -414,6 +476,7 @@ function useWorkspaceActionsModel({
 		gitRows,
 		handleInsertCheck,
 		handleSync,
+		notification,
 		primaryAction,
 		providerName,
 		reviewRows,
@@ -428,6 +491,64 @@ function useWorkspaceActionsModel({
 
 type WorkspaceActionsModel = ReturnType<typeof useWorkspaceActionsModel>;
 
+function getGitActionRowKey(action: GitStatusItem["action"]): string | null {
+	if (!action) {
+		return null;
+	}
+	if (action.kind === "sync") {
+		return "git:pull";
+	}
+	if (action.mode) {
+		return `git:${action.mode}`;
+	}
+	return null;
+}
+
+function getNotificationRowClassName(tone: ActionsNotification["tone"]) {
+	switch (tone) {
+		case "pull":
+			return "bg-amber-500/10 text-amber-500 hover:bg-amber-500/15";
+		case "commit":
+			return "bg-sky-500/10 text-sky-500 hover:bg-sky-500/15";
+		case "push":
+			return "bg-cyan-500/10 text-cyan-500 hover:bg-cyan-500/15";
+		case "pr":
+			return "bg-violet-500/10 text-violet-500 hover:bg-violet-500/15";
+		case "merge":
+			return "bg-[var(--workspace-pr-open-accent)]/10 text-[var(--workspace-pr-open-accent)] hover:bg-[var(--workspace-pr-open-accent)]/15";
+	}
+}
+
+function getNotificationChipClassName(tone: ActionsNotification["tone"]) {
+	switch (tone) {
+		case "pull":
+			return "bg-amber-500/12 text-amber-500";
+		case "commit":
+			return "bg-sky-500/12 text-sky-500";
+		case "push":
+			return "bg-cyan-500/12 text-cyan-500";
+		case "pr":
+			return "bg-violet-500/12 text-violet-500";
+		case "merge":
+			return "bg-[var(--workspace-pr-open-accent)]/12 text-[var(--workspace-pr-open-accent)]";
+	}
+}
+
+function getNotificationDotClassName(tone: ActionsNotification["tone"]) {
+	switch (tone) {
+		case "pull":
+			return "bg-amber-500";
+		case "commit":
+			return "bg-sky-500";
+		case "push":
+			return "bg-cyan-500";
+		case "pr":
+			return "bg-violet-500";
+		case "merge":
+			return "bg-[var(--workspace-pr-open-accent)]";
+	}
+}
+
 function ActionsRows({
 	model,
 	bottomSpacerHeight = 0,
@@ -440,6 +561,7 @@ function ActionsRows({
 		gitRows,
 		handleInsertCheck,
 		handleSync,
+		notification,
 		primaryAction,
 		reviewRows,
 		sortedChecks,
@@ -458,9 +580,15 @@ function ActionsRows({
 				</span>
 			</div>
 			{primaryAction && (
-				<div className="flex items-center gap-1.5 px-2.5 py-[3px] text-muted-foreground transition-colors hover:bg-accent/60">
+				<div
+					className={cn(
+						"flex items-center gap-1.5 px-2.5 py-[3px] text-muted-foreground transition-colors hover:bg-accent/60",
+						notification?.rowKey === `primary:${primaryAction.mode}` &&
+							getNotificationRowClassName(notification.tone),
+					)}
+				>
 					<StatusIcon status="pending" />
-					<span className="truncate">No pull request</span>
+					<span className="truncate">{primaryAction.rowLabel}</span>
 					<button
 						type="button"
 						onClick={() => {
@@ -498,10 +626,16 @@ function ActionsRows({
 					commitButtonState === "busy";
 				const isSyncActionBusy = action?.kind === "sync" && syncPending;
 				const isActionBusy = isCommitActionBusy || isSyncActionBusy;
+				const rowKey = getGitActionRowKey(action);
 				return (
 					<div
 						key={item.label}
-						className="flex items-center gap-1.5 px-2.5 py-[3px] text-muted-foreground transition-colors hover:bg-accent/60"
+						className={cn(
+							"flex items-center gap-1.5 px-2.5 py-[3px] text-muted-foreground transition-colors hover:bg-accent/60",
+							rowKey &&
+								notification?.rowKey === rowKey &&
+								getNotificationRowClassName(notification.tone),
+						)}
 					>
 						<StatusIcon status={item.status} />
 						<span className="truncate">{item.label}</span>
@@ -752,6 +886,91 @@ function buildGitRows(
 							status: "pending",
 						},
 	];
+}
+
+function getActionsNotification({
+	changeRequest,
+	changeRequestName,
+	commitButtonMode,
+	commitButtonState,
+	forgeStatus,
+	gitStatus,
+}: {
+	changeRequest: ChangeRequestInfo | null;
+	changeRequestName: string;
+	commitButtonMode?: WorkspaceCommitButtonMode;
+	commitButtonState?: CommitButtonState;
+	forgeStatus: ForgeActionStatus;
+	gitStatus: WorkspaceGitActionStatus;
+}): ActionsNotification | null {
+	if (
+		gitStatus.conflictCount === 0 &&
+		gitStatus.syncStatus === "behind" &&
+		gitStatus.behindTargetCount > 0
+	) {
+		return {
+			label: "Pull needed",
+			shortLabel: "Pull",
+			rowKey: "git:pull",
+			tone: "pull",
+		};
+	}
+
+	if (gitStatus.uncommittedCount > 0) {
+		return {
+			label: "Commit and push available",
+			shortLabel: "Commit & push",
+			rowKey: "git:commit-and-push",
+			tone: "commit",
+		};
+	}
+
+	if (
+		gitStatus.pushStatus === "unpublished" ||
+		(gitStatus.aheadOfRemoteCount ?? 0) > 0
+	) {
+		return {
+			label: "Push available",
+			shortLabel: "Push",
+			rowKey: "git:push",
+			tone: "push",
+		};
+	}
+
+	const busy = commitButtonState === "busy";
+	if (
+		!busy &&
+		commitButtonMode === "merge" &&
+		forgeStatus.mergeable !== "UNKNOWN"
+	) {
+		return {
+			label: "Merge available",
+			shortLabel: "Merge",
+			rowKey: "primary:merge",
+			tone: "merge",
+		};
+	}
+
+	const currentChangeRequest = forgeStatus.changeRequest ?? changeRequest;
+	if (!busy && commitButtonMode === "open-pr") {
+		return {
+			label: `Open ${changeRequestName} available`,
+			shortLabel: `Open ${changeRequestName}`,
+			rowKey: "primary:open-pr",
+			tone: "pr",
+		};
+	}
+
+	if (!busy && commitButtonMode === "create-pr" && !currentChangeRequest) {
+		return {
+			label: `Create ${changeRequestName} available`,
+			shortLabel: `Create ${changeRequestName}`,
+			rowKey: "primary:create-pr",
+			tone: "pr",
+		};
+	}
+
+	return null;
 }
 
 function formatSyncTargetRef(

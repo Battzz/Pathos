@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -91,6 +91,7 @@ function renderPanel(
 
 describe("WorkspacePanel", () => {
 	afterEach(() => {
+		cleanup();
 		vi.clearAllMocks();
 	});
 
@@ -127,19 +128,57 @@ describe("WorkspacePanel", () => {
 			selectedSessionId: null,
 		});
 
-		expect(
-			screen.getByRole("heading", { name: "Start or select a session" }),
-		).toBeInTheDocument();
+		expect(screen.getByRole("heading", { name: "pathos" })).toBeInTheDocument();
+		expect(screen.getByText("No sessions yet")).toBeInTheDocument();
 		expect(
 			screen.getByText(
-				"Use New chat in the sidebar to begin work in this workspace, or bring in another repository when you need a fresh project.",
+				"Start a thread to work inside this project, or bring in another repository for something new.",
 			),
 		).toBeInTheDocument();
+		expect(screen.getByText("Sessions")).toBeInTheDocument();
+		expect(screen.getByText("0")).toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "Open project" }),
 		).toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "Clone from URL" }),
+		).toBeInTheDocument();
+	});
+
+	it("renders selected-workspace guidance when sessions exist but none is selected", () => {
+		renderPanel({
+			selectedSessionId: null,
+		});
+
+		expect(screen.getByRole("heading", { name: "pathos" })).toBeInTheDocument();
+		expect(screen.getByText("No session selected")).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"Choose an existing thread from the sidebar, or start a fresh one when you are ready.",
+			),
+		).toBeInTheDocument();
+		expect(screen.getByText("Sessions")).toBeInTheDocument();
+		expect(screen.getByText("1")).toBeInTheDocument();
+	});
+
+	it("renders project picker guidance when no workspace is selected", () => {
+		renderPanel({
+			workspace: null,
+			sessions: [],
+			selectedSessionId: null,
+		});
+
+		expect(
+			screen.getByRole("heading", { name: "Choose a workspace" }),
+		).toBeInTheDocument();
+		expect(screen.getByText("Nothing selected")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("heading", { name: "Pathos" }),
+		).not.toBeInTheDocument();
+		expect(screen.queryByText("First")).not.toBeInTheDocument();
+		expect(screen.queryByText("Then")).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Open project" }),
 		).toBeInTheDocument();
 	});
 

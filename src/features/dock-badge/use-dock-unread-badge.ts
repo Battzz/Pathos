@@ -34,6 +34,7 @@ export function useDockUnreadBadge(): void {
 		try {
 			const win = getCurrentWindow();
 			const nextValue = count > 0 ? count : undefined;
+			const nextLabel = nextValue === undefined ? undefined : String(nextValue);
 			// `undefined` removes the badge on macOS; any positive integer sets
 			// it. macOS renders huge numbers itself (99+), so we don't cap.
 			void win
@@ -41,14 +42,15 @@ export function useDockUnreadBadge(): void {
 				?.catch(() =>
 					// Some macOS dev-runtime combinations appear to ignore the
 					// numeric path while the string badge label still works.
-					win.setBadgeLabel?.(
-						nextValue === undefined ? undefined : String(nextValue),
-					),
+					win.setBadgeLabel?.(nextLabel),
 				)
 				?.catch(() => {
 					// Platforms without dock-badge support (Windows) or a missing
 					// capability should never surface as a user-visible error.
 				});
+			void win.setBadgeLabel?.(nextLabel)?.catch(() => {
+				// Same failure policy as setBadgeCount.
+			});
 		} catch {
 			// Missing Tauri runtime altogether — silently no-op.
 		}

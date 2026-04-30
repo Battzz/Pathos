@@ -10,7 +10,11 @@ import type {
 	WorkspaceDetail,
 	WorkspaceSessionSummary,
 } from "@/lib/api";
-import { createSession, loadRepoScripts } from "@/lib/api";
+import {
+	createSession,
+	loadRepoScripts,
+	truncateSessionMessagesAfter,
+} from "@/lib/api";
 import {
 	pathosQueryKeys,
 	sessionThreadMessagesQueryOptions,
@@ -514,6 +518,51 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 		},
 		[onQueuePendingPromptForSession, selectedSessionIdForPanel],
 	);
+	const refreshRolledBackSession = useCallback(
+		async (sessionId: string) => {
+			await Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: [...pathosQueryKeys.sessionMessages(sessionId), "thread"],
+				}),
+				invalidateWorkspaceQueries(),
+			]);
+		},
+		[invalidateWorkspaceQueries, queryClient],
+	);
+	const handleRevertMessage = useCallback(
+		async (messageId: string) => {
+			if (!selectedSessionIdForPanel) return;
+			await truncateSessionMessagesAfter(
+				selectedSessionIdForPanel,
+				messageId,
+				false,
+			);
+			await refreshRolledBackSession(selectedSessionIdForPanel);
+		},
+		[refreshRolledBackSession, selectedSessionIdForPanel],
+	);
+	const handleSubmitEditedMessage = useCallback(
+		async (messageId: string, prompt: string) => {
+			if (!selectedSessionIdForPanel || !onQueuePendingPromptForSession) {
+				return;
+			}
+			await truncateSessionMessagesAfter(
+				selectedSessionIdForPanel,
+				messageId,
+				true,
+			);
+			await refreshRolledBackSession(selectedSessionIdForPanel);
+			onQueuePendingPromptForSession({
+				sessionId: selectedSessionIdForPanel,
+				prompt,
+			});
+		},
+		[
+			onQueuePendingPromptForSession,
+			refreshRolledBackSession,
+			selectedSessionIdForPanel,
+		],
+	);
 
 	return (
 		<WorkspacePanel
@@ -542,6 +591,8 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			newSessionShortcut={getShortcut(settings.shortcuts, "session.new")}
 			missingScriptTypes={missingScriptTypes}
 			onInitializeScript={handleInitializeScript}
+			onRevertMessage={handleRevertMessage}
+			onSubmitEditedMessage={handleSubmitEditedMessage}
 			changeRequest={workspaceChangeRequest}
 		/>
 	);

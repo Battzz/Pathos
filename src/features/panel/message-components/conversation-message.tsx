@@ -9,11 +9,18 @@ function ConversationMessage({
 	message,
 	previousAssistantMessage,
 	sessionId,
+	onRevertMessage,
+	onSubmitEditedMessage,
 	itemIndex,
 }: {
 	message: RenderedMessage;
 	previousAssistantMessage?: RenderedMessage | null;
 	sessionId: string;
+	onRevertMessage?: (messageId: string) => void | Promise<void>;
+	onSubmitEditedMessage?: (
+		messageId: string,
+		prompt: string,
+	) => void | Promise<void>;
 	itemIndex: number;
 }) {
 	const messageKey = message.id ?? `${message.role}:${itemIndex}`;
@@ -24,7 +31,13 @@ function ConversationMessage({
 	const streaming = message.role === "assistant" && message.streaming === true;
 
 	if (message.role === "user") {
-		return <ChatUserMessage message={message} />;
+		return (
+			<ChatUserMessage
+				message={message}
+				onRevertMessage={onRevertMessage}
+				onSubmitEditedMessage={onSubmitEditedMessage}
+			/>
+		);
 	}
 
 	if (message.role === "assistant") {
@@ -46,6 +59,8 @@ export const MemoConversationMessage = memo(
 			prev.message === next.message &&
 			prev.previousAssistantMessage === next.previousAssistantMessage &&
 			prev.sessionId === next.sessionId &&
+			prev.onRevertMessage === next.onRevertMessage &&
+			prev.onSubmitEditedMessage === next.onSubmitEditedMessage &&
 			prev.itemIndex === next.itemIndex
 		);
 	},

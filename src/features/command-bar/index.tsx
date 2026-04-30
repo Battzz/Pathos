@@ -102,7 +102,7 @@ export function CommandBar({
 			onOpenChange={onOpenChange}
 			title="Command bar"
 			description="Open projects, clone repositories, and navigate Pathos."
-			className="top-1/2 w-[min(60rem,calc(100vw-3rem))] max-w-none -translate-y-1/2 overflow-hidden rounded-2xl! border border-border/80 bg-popover/98 shadow-2xl shadow-black/30 backdrop-blur-xl sm:max-w-none"
+			className="top-1/2 w-[min(660px,calc(100vw-3rem))] max-w-none -translate-y-1/2 overflow-hidden rounded-2xl! border border-border/80 bg-popover/98 shadow-2xl shadow-black/30 backdrop-blur-xl sm:max-w-none"
 		>
 			<Command shouldFilter loop className="rounded-none! bg-transparent p-0">
 				<div className="flex items-center border-b border-border/65 bg-background/40 px-4 py-3">

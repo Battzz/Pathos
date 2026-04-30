@@ -1,4 +1,6 @@
-use anyhow::Context;
+use anyhow::{bail, Context};
+use std::path::Path;
+use std::process::Command;
 
 use crate::{agents::ActionKind, db, rate_limits::throttle::Throttle, settings};
 
@@ -13,6 +15,7 @@ use super::common::{run_blocking, CmdResult};
 const RATE_LIMITS_THROTTLE_SECONDS: i64 = 30;
 static CLAUDE_RATE_LIMITS_THROTTLE: Throttle = Throttle::new(RATE_LIMITS_THROTTLE_SECONDS);
 static CODEX_RATE_LIMITS_THROTTLE: Throttle = Throttle::new(RATE_LIMITS_THROTTLE_SECONDS);
+const NOTIFICATION_SOUND_NAMES: &[&str] = &["Ping", "Glass", "Hero", "Submarine", "Tink"];
 
 #[tauri::command]
 pub async fn get_app_settings() -> CmdResult<std::collections::HashMap<String, String>> {
@@ -52,6 +55,43 @@ pub async fn update_app_settings(
         Ok(())
     })
     .await
+}
+
+#[tauri::command]
+pub async fn play_notification_sound(sound: String) -> CmdResult<()> {
+    run_blocking(move || play_notification_sound_blocking(&sound)).await
+}
+
+fn play_notification_sound_blocking(sound: &str) -> anyhow::Result<()> {
+    if sound == "none" {
+        return Ok(());
+    }
+
+    if !NOTIFICATION_SOUND_NAMES.contains(&sound) {
+        bail!("Unsupported notification sound: {sound}");
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let path = format!("/System/Library/Sounds/{sound}.aiff");
+        if !Path::new(&path).is_file() {
+            bail!("Notification sound file not found: {path}");
+        }
+        let status = Command::new("/usr/bin/afplay")
+            .arg(&path)
+            .status()
+            .context("Failed to play notification sound")?;
+        if !status.success() {
+            bail!("Notification sound playback failed with status {status}");
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = sound;
+    }
+
+    Ok(())
 }
 
 /// Read the account-global Codex rate-limit snapshot. Each call attempts
@@ -138,4 +178,21 @@ pub async fn load_auto_close_opt_in_asked() -> CmdResult<Vec<ActionKind>> {
 #[tauri::command]
 pub async fn save_auto_close_opt_in_asked(kinds: Vec<ActionKind>) -> CmdResult<()> {
     run_blocking(move || settings::save_auto_close_opt_in_asked(&kinds)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::play_notification_sound_blocking;
+
+    #[test]
+    fn notification_sound_none_is_noop() {
+        play_notification_sound_blocking("none").expect("none should be accepted");
+    }
+
+    #[test]
+    fn notification_sound_rejects_unknown_names() {
+        let error = play_notification_sound_blocking("../../../tmp/sound")
+            .expect_err("unknown sounds should be rejected before playback");
+        assert!(error.to_string().contains("Unsupported notification sound"));
+    }
 }
