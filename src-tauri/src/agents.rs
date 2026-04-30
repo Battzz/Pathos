@@ -33,6 +33,7 @@ pub use self::streaming::{
     ActiveStreams, BuildSendMessageParamsInput,
 };
 
+pub use self::persistence::PersistedCustomTag;
 use self::persistence::{
     finalize_session_metadata, persist_error_message, persist_exit_plan_message,
     persist_result_and_finalize, persist_turn_message, persist_user_message,
@@ -182,6 +183,26 @@ pub struct AgentSendRequest {
     /// Workspace-relative paths from the @-mention picker.
     #[serde(default)]
     pub files: Option<Vec<String>>,
+    /// Image paths attached to the prompt (drag/drop, paste). Persisted
+    /// alongside `files` so the chat bubble can render image chips on
+    /// reload without leaking the path into the bubble's plain text.
+    #[serde(default)]
+    pub images: Option<Vec<String>>,
+    /// Composer custom-tag chips (e.g. a large pasted code block). The
+    /// `submitText` is what the model sees inline in the prompt; the
+    /// stored `label` (+ optional `kind`) is what the chat bubble
+    /// renders as a chip on reload.
+    #[serde(default)]
+    pub custom_tags: Option<Vec<AgentSendCustomTag>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSendCustomTag {
+    pub label: String,
+    pub submit_text: String,
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 #[cfg(test)]
@@ -780,7 +801,7 @@ mod tests {
         };
 
         // 1. Persist user message
-        persist_user_message(&conn, &ctx, "Hello", &[]).unwrap();
+        persist_user_message(&conn, &ctx, "Hello", &[], &[], &[]).unwrap();
 
         persist_result_and_finalize(
             &conn,
@@ -866,6 +887,8 @@ mod tests {
             fast_mode: None,
             user_message_id: None,
             files: None,
+            images: None,
+            custom_tags: None,
         };
 
         let resolved = resolve_stream_working_directory(&request).unwrap();
@@ -902,6 +925,8 @@ mod tests {
             fast_mode: None,
             user_message_id: None,
             files: None,
+            images: None,
+            custom_tags: None,
         };
 
         let error = resolve_stream_working_directory(&request).unwrap_err();
@@ -936,7 +961,7 @@ mod tests {
             user_message_id: Uuid::new_v4().to_string(),
         };
 
-        persist_user_message(&conn, &ctx, "Hi", &[]).unwrap();
+        persist_user_message(&conn, &ctx, "Hi", &[], &[], &[]).unwrap();
         persist_result_and_finalize(
             &conn,
             &ctx,
@@ -995,7 +1020,7 @@ mod tests {
         };
 
         // Persist user message
-        persist_user_message(&conn, &ctx, "Do something", &[]).unwrap();
+        persist_user_message(&conn, &ctx, "Do something", &[], &[], &[]).unwrap();
 
         // Persist two intermediate turns
         let turn1 = CollectedTurn {
@@ -1066,7 +1091,7 @@ mod tests {
         };
 
         // 1. Initial prompt persisted via the normal path.
-        persist_user_message(&conn, &ctx, "investigate the bug", &[]).unwrap();
+        persist_user_message(&conn, &ctx, "investigate the bug", &[], &[], &[]).unwrap();
 
         // 2. Drive the accumulator the same way the streaming loop does:
         //    assistant deltas, steer event, more assistant deltas, result.

@@ -24,8 +24,10 @@
 
 import type {
 	CollapsedGroupPart,
+	CustomTagMentionPart,
 	ExtendedMessagePart,
 	FileMentionPart,
+	ImageMentionPart,
 	ImagePart,
 	MessagePart,
 	PlanReviewPart,
@@ -144,6 +146,14 @@ export function partStructurallyEqual(
 		case "file-mention": {
 			const fb = b as FileMentionPart;
 			return a.path === fb.path;
+		}
+		case "image-mention": {
+			const ib = b as ImageMentionPart;
+			return a.path === ib.path;
+		}
+		case "custom-tag-mention": {
+			const cb = b as CustomTagMentionPart;
+			return a.label === cb.label && (a.kind ?? null) === (cb.kind ?? null);
 		}
 		case "plan-review": {
 			const pb = b as PlanReviewPart;

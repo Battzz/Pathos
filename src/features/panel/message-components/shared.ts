@@ -1,6 +1,8 @@
 import type {
 	CollapsedGroupPart,
+	CustomTagMentionPart,
 	FileMentionPart,
+	ImageMentionPart,
 	ImagePart,
 	MessagePart,
 	PlanReviewPart,
@@ -107,6 +109,24 @@ export function isPromptSuggestionPart(
 export function isFileMentionPart(part: unknown): part is FileMentionPart {
 	return (
 		isObj(part) && part.type === "file-mention" && typeof part.path === "string"
+	);
+}
+
+export function isImageMentionPart(part: unknown): part is ImageMentionPart {
+	return (
+		isObj(part) &&
+		part.type === "image-mention" &&
+		typeof part.path === "string"
+	);
+}
+
+export function isCustomTagMentionPart(
+	part: unknown,
+): part is CustomTagMentionPart {
+	return (
+		isObj(part) &&
+		part.type === "custom-tag-mention" &&
+		typeof part.label === "string"
 	);
 }
 

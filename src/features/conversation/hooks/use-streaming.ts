@@ -880,7 +880,12 @@ export function useConversationStreaming({
 			action: "accept" | "decline" | "cancel",
 			content?: Record<string, unknown>,
 		) => {
+			if (!displayedSessionId) return;
 			const contextKey = composerContextKey;
+			const cacheSessionId = displayedSessionId;
+			const resumeBaseSnapshot =
+				readSessionThread(queryClient, cacheSessionId) ?? [];
+
 			setSendErrorsByContext((current) => ({
 				...current,
 				[contextKey]: null,
@@ -906,9 +911,227 @@ export function useConversationStreaming({
 					next.add(contextKey);
 					return next;
 				});
+
+				const stopSessionId = displayedSessionId;
+				setActiveSessionByContext((current) => ({
+					...current,
+					[contextKey]: {
+						stopSessionId,
+						provider: elicitation.provider,
+					},
+				}));
+
+				let frameId: number | null = null;
+				let baseMessages: ThreadMessageLike[] = [];
+				let pendingPartial: ThreadMessageLike | null = null;
+				let needsFlush = false;
+
+				const changesRefreshInterval = window.setInterval(() => {
+					void queryClient.invalidateQueries({
+						queryKey: ["workspaceChanges"],
+					});
+				}, 3_000);
+
+				const flushStreamMessages = () => {
+					frameId = null;
+					if (!needsFlush) return;
+					needsFlush = false;
+
+					const rendered = pendingPartial
+						? stabilizeStreamingMessages([...baseMessages, pendingPartial])
+						: baseMessages;
+					const nextMessages = [...resumeBaseSnapshot, ...rendered];
+					queryClient.setQueryData<ThreadMessageLike[]>(
+						sessionThreadCacheKey(cacheSessionId),
+						(prev) => shareMessages(prev ?? [], nextMessages),
+					);
+				};
+
+				const scheduleFlush = () => {
+					needsFlush = true;
+					if (frameId !== null) return;
+					frameId = window.requestAnimationFrame(() => flushStreamMessages());
+				};
+
+				const cleanup = () => {
+					window.clearInterval(changesRefreshInterval);
+					if (frameId !== null) {
+						window.cancelAnimationFrame(frameId);
+						frameId = null;
+					}
+				};
+
+				await startAgentMessageStream(
+					{
+						provider: elicitation.provider,
+						modelId: elicitation.modelId,
+						prompt: "",
+						resumeOnly: true,
+						sessionId: elicitation.providerSessionId,
+						pathosSessionId: displayedSessionId,
+						workingDirectory: elicitation.workingDirectory,
+					},
+					(event) => {
+						if (event.kind === "update") {
+							baseMessages = event.messages;
+							pendingPartial = null;
+							scheduleFlush();
+							return;
+						}
+
+						if (event.kind === "streamingPartial") {
+							pendingPartial = event.message;
+							scheduleFlush();
+							return;
+						}
+
+						if (event.kind === "permissionRequest") {
+							rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
+							appendPendingPermission(contextKey, {
+								permissionId: event.permissionId,
+								toolName: event.toolName,
+								toolInput: event.toolInput,
+								title: event.title,
+								description: event.description,
+							});
+							return;
+						}
+
+						if (event.kind === "planCaptured") {
+							rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
+							setPlanReviewActive(contextKey);
+							return;
+						}
+
+						if (event.kind === "elicitationRequest") {
+							rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
+							const nextElicitation = buildPendingElicitation(
+								event,
+								elicitation.modelId,
+							);
+							if (!nextElicitation) {
+								setSendErrorsByContext((current) => ({
+									...current,
+									[contextKey]:
+										"Unable to continue elicitation: missing elicitationId or modelId.",
+								}));
+								return;
+							}
+							applyElicitationEvent(contextKey, nextElicitation);
+							return;
+						}
+
+						if (event.kind === "deferredToolUse") {
+							rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
+							const nextDeferred = buildPendingDeferredTool(
+								event,
+								elicitation.modelId,
+							);
+							if (frameId !== null) {
+								window.cancelAnimationFrame(frameId);
+								frameId = null;
+							}
+							flushStreamMessages();
+							cleanup();
+							refreshSessionThreadFromDb(cacheSessionId);
+							if (!nextDeferred) {
+								setSendErrorsByContext((current) => ({
+									...current,
+									[contextKey]:
+										"Unable to continue deferred tool: missing modelId.",
+								}));
+								clearSendingState(contextKey);
+								return;
+							}
+							applyDeferredToolEvent(contextKey, nextDeferred);
+							return;
+						}
+
+						if (event.kind === "done" || event.kind === "aborted") {
+							if (frameId !== null) {
+								window.cancelAnimationFrame(frameId);
+								frameId = null;
+							}
+							flushStreamMessages();
+							cleanup();
+							clearPendingPermissions(contextKey);
+							clearPendingElicitation(contextKey);
+							clearFastPrelude(contextKey);
+
+							if (event.kind === "done") {
+								const sid = event.sessionId ?? displayedSessionId;
+								if (sid && displayedWorkspaceId) {
+									onSessionCompletedRef.current?.(sid, displayedWorkspaceId);
+								}
+							} else if (event.kind === "aborted") {
+								const sid = event.sessionId ?? displayedSessionId;
+								if (sid && displayedWorkspaceId) {
+									onSessionAbortedRef.current?.(sid, displayedWorkspaceId);
+								}
+							}
+
+							void queryClient.invalidateQueries({
+								queryKey: ["workspaceChanges"],
+							});
+
+							setLiveSessionsByContext((current) => ({
+								...current,
+								[contextKey]: {
+									provider: event.provider,
+									providerSessionId:
+										event.sessionId ??
+										current[contextKey]?.providerSessionId ??
+										null,
+								},
+							}));
+							clearSendingState(contextKey);
+
+							if (event.persisted) {
+								void invalidateConversationQueries(displayedWorkspaceId, null);
+							}
+							return;
+						}
+
+						if (event.kind === "error") {
+							cleanup();
+							clearPendingPermissions(contextKey);
+							clearPendingElicitation(contextKey);
+							if (event.internal) {
+								pushToast(
+									"Something went wrong. Please try again.",
+									"Error",
+									"destructive",
+								);
+							}
+							setSendErrorsByContext((current) => ({
+								...current,
+								[contextKey]:
+									event.internal || event.persisted ? null : event.message,
+							}));
+							clearSendingState(contextKey);
+
+							if (event.persisted) {
+								void invalidateConversationQueries(
+									displayedWorkspaceId,
+									displayedSessionId,
+								);
+							}
+						}
+					},
+				);
 			} catch (error) {
 				console.error("[conversation] elicitation response:", error);
-				const errorMsg = error instanceof Error ? error.message : String(error);
+				const { code, message: errorMsg } = extractError(
+					error,
+					"Failed to resume agent stream.",
+				);
+				if (isRecoverableByPurge(code) && displayedWorkspaceId) {
+					showWorkspaceBrokenToast({
+						workspaceId: displayedWorkspaceId,
+						pushToast,
+						queryClient,
+					});
+				}
 				setElicitationResponsePendingByContext((current) => ({
 					...current,
 					[contextKey]: false,
@@ -917,15 +1140,27 @@ export function useConversationStreaming({
 					...current,
 					[contextKey]: errorMsg,
 				}));
+				clearSendingState(contextKey);
 				pushToast(errorMsg, "Unable to answer request", "destructive");
 			}
 		},
 		[
+			applyDeferredToolEvent,
+			applyElicitationEvent,
+			appendPendingPermission,
+			clearFastPrelude,
 			clearPendingElicitation,
+			clearPendingPermissions,
+			clearSendingState,
 			composerContextKey,
+			displayedSessionId,
 			displayedWorkspaceId,
+			invalidateConversationQueries,
 			pushToast,
+			queryClient,
+			refreshSessionThreadFromDb,
 			rememberInteractionWorkspace,
+			setPlanReviewActive,
 		],
 	);
 
@@ -1354,6 +1589,8 @@ export function useConversationStreaming({
 					text: trimmedPrompt,
 					createdAt: new Date().toISOString(),
 					files: filePaths,
+					images: imagePaths,
+					customTags,
 				});
 				const rollback = appendUserMessage(
 					queryClient,
@@ -1457,6 +1694,8 @@ export function useConversationStreaming({
 				text: trimmedPrompt,
 				createdAt: now,
 				files: filePaths,
+				images: imagePaths,
+				customTags,
 			});
 			let titleSeed: string | null = null;
 			let insertedOptimisticProjectChat = false;
@@ -1610,6 +1849,12 @@ export function useConversationStreaming({
 						fastMode,
 						userMessageId,
 						files: filePaths,
+						images: imagePaths,
+						customTags: customTags.map((tag) => ({
+							label: tag.label,
+							submitText: tag.submitText,
+							kind: tag.preview?.kind ?? null,
+						})),
 					},
 					(event) => {
 						if (event.kind === "update") {

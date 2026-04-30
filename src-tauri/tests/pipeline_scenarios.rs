@@ -184,6 +184,39 @@ fn user_prompt_files_array_present_but_empty() {
 }
 
 #[test]
+fn user_prompt_with_image_attachment() {
+    // Drag/drop image: the `images` array carries the path and the
+    // composer inlined `@<path>` into the prompt body. The adapter
+    // should split the text on the @-marker and emit an ImageMention
+    // chip in place — even when the path contains spaces, since
+    // matching is exact-substring (not regex).
+    let msgs = vec![user_prompt_with_attachments(
+        "u1",
+        "check @/tmp/Screenshot 2026-04-30.png im seeing that the text is trucked",
+        &[],
+        &["/tmp/Screenshot 2026-04-30.png"],
+        &[],
+    )];
+    assert_yaml_snapshot!(run_normalized(msgs));
+}
+
+#[test]
+fn user_prompt_with_custom_tag_attachment() {
+    // Composer custom-tag chip (e.g. a large pasted code block). The
+    // `submitText` is what the model sees inline in the prompt; the
+    // adapter strips that segment from rendered text and emits a
+    // CustomTagMention chip carrying just the human-friendly label.
+    let msgs = vec![user_prompt_with_attachments(
+        "u1",
+        "look at --PASTED--TICKET--BODY-- and fix it",
+        &[],
+        &[],
+        &[("Pasted ticket", "--PASTED--TICKET--BODY--", Some("text"))],
+    )];
+    assert_yaml_snapshot!(run_normalized(msgs));
+}
+
+#[test]
 fn user_prompt_steer_flag_renders_as_user() {
     // A steer prompt is a regular user turn with `steer: true` added to
     // the JSON payload. The adapter should ignore the flag for rendering

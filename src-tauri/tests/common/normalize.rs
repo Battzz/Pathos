@@ -93,6 +93,13 @@ pub enum NormPart {
     FileMention {
         path: String,
     },
+    ImageMention {
+        path: String,
+    },
+    CustomTagMention {
+        label: String,
+        kind: Option<String>,
+    },
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -246,6 +253,11 @@ fn normalize_basic(part: &MessagePart) -> NormPart {
                 .collect(),
         },
         MessagePart::FileMention { path, .. } => NormPart::FileMention { path: path.clone() },
+        MessagePart::ImageMention { path, .. } => NormPart::ImageMention { path: path.clone() },
+        MessagePart::CustomTagMention { label, kind, .. } => NormPart::CustomTagMention {
+            label: label.clone(),
+            kind: kind.clone(),
+        },
     }
 }
 

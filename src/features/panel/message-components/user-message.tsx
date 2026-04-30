@@ -5,9 +5,10 @@ import {
 	PencilLine,
 	RotateCcw,
 	SendHorizontal,
+	StickyNote,
 	X,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
 	createFilePreviewLoader,
@@ -23,76 +24,12 @@ import {
 	serializeMessageForClipboard,
 } from "./copy-message";
 import type { RenderedMessage } from "./shared";
-import { isFileMentionPart, isTextPart } from "./shared";
-
-const USER_FILE_RE = /@(\/\S+)(?=\s|$)/gi;
-const IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp|ico)$/i;
-
-type UserContentSegment =
-	| { type: "text"; value: string }
-	| { type: "image"; value: string }
-	| { type: "file"; value: string };
-
-function splitUserContent(text: string): UserContentSegment[] {
-	const segments: UserContentSegment[] = [];
-	let lastIndex = 0;
-	for (const match of text.matchAll(USER_FILE_RE)) {
-		const matchIndex = match.index ?? 0;
-		const before = text.slice(lastIndex, matchIndex);
-		if (before) {
-			segments.push({ type: "text", value: before });
-		}
-		const filePath = match[1];
-		segments.push({
-			type: IMAGE_EXT_RE.test(filePath) ? "image" : "file",
-			value: filePath,
-		});
-		lastIndex = matchIndex + match[0].length;
-	}
-	const after = text.slice(lastIndex);
-	if (after) {
-		segments.push({ type: "text", value: after });
-	}
-	return segments;
-}
-
-const UserTextInline = memo(function UserTextInline({
-	text,
-}: {
-	text: string;
-}) {
-	const segments = useMemo(() => splitUserContent(text), [text]);
-	if (
-		!segments.some(
-			(segment) => segment.type === "image" || segment.type === "file",
-		)
-	) {
-		return <>{text}</>;
-	}
-	return (
-		<>
-			{segments.map((segment, index) => {
-				if (segment.type === "image") {
-					return (
-						<BubbleImageBadge
-							key={`${segment.value}-${index}`}
-							path={segment.value}
-						/>
-					);
-				}
-				if (segment.type === "file") {
-					return (
-						<BubbleFileBadge
-							key={`${segment.value}-${index}`}
-							path={segment.value}
-						/>
-					);
-				}
-				return <span key={index}>{segment.value}</span>;
-			})}
-		</>
-	);
-});
+import {
+	isCustomTagMentionPart,
+	isFileMentionPart,
+	isImageMentionPart,
+	isTextPart,
+} from "./shared";
 
 function BubbleFileBadge({ path }: { path: string }) {
 	const fileName = basename(path);
@@ -125,6 +62,31 @@ function BubbleImageBadge({ path }: { path: string }) {
 			}
 			label={fileName}
 			preview={{ kind: "image", title: fileName, path }}
+		/>
+	);
+}
+
+function BubbleCustomTagBadge({
+	label,
+	kind,
+}: {
+	label: string;
+	kind?: string | null;
+}) {
+	return (
+		<InlineBadge
+			nonSelectable={false}
+			icon={
+				<StickyNote
+					className={
+						kind === "code"
+							? "size-3.5 shrink-0 text-chart-2"
+							: "size-3.5 shrink-0 text-muted-foreground"
+					}
+					strokeWidth={1.8}
+				/>
+			}
+			label={label}
 		/>
 	);
 }
@@ -250,23 +212,8 @@ export function ChatUserMessage({
 						className="group/edit relative w-full origin-top animate-in fade-in slide-in-from-bottom-1 overflow-hidden rounded-lg border border-primary/30 bg-card shadow-[0_0_0_1px_var(--color-primary)/0.04,0_8px_24px_-12px_var(--color-primary)/0.18] ring-1 ring-primary/10 backdrop-blur-sm duration-150"
 						style={{ fontSize: `${settings.fontSize}px` }}
 					>
-						{/* Left accent — a revision mark */}
-						<div
-							aria-hidden="true"
-							className="pointer-events-none absolute inset-y-0 left-0 w-[2px] bg-gradient-to-b from-primary/0 via-primary/70 to-primary/0"
-						/>
-
-						{/* Eyebrow: status + character count */}
-						<div className="flex items-center justify-between gap-3 px-4 pt-2.5 pb-1">
-							<div className="flex items-center gap-1.5">
-								<span className="relative flex size-1.5 items-center justify-center">
-									<span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/50" />
-									<span className="relative inline-flex size-1.5 rounded-full bg-primary" />
-								</span>
-								<span className="font-mono text-[10px] uppercase leading-none tracking-[0.18em] text-primary/80">
-									Revising
-								</span>
-							</div>
+						{/* Eyebrow: character count */}
+						<div className="flex items-center justify-end gap-3 px-4 pt-2.5 pb-1">
 							<span className="font-mono text-[10px] tabular-nums leading-none text-muted-foreground/60">
 								{draft.length.toLocaleString()}
 								<span className="text-muted-foreground/30"> ch</span>
@@ -359,10 +306,22 @@ export function ChatUserMessage({
 						<p className="whitespace-pre-wrap break-words">
 							{parts.map((part, index) => {
 								if (isTextPart(part)) {
-									return <UserTextInline key={index} text={part.text} />;
+									return <span key={index}>{part.text}</span>;
 								}
 								if (isFileMentionPart(part)) {
 									return <BubbleFileBadge key={index} path={part.path} />;
+								}
+								if (isImageMentionPart(part)) {
+									return <BubbleImageBadge key={index} path={part.path} />;
+								}
+								if (isCustomTagMentionPart(part)) {
+									return (
+										<BubbleCustomTagBadge
+											key={index}
+											label={part.label}
+											kind={part.kind ?? null}
+										/>
+									);
 								}
 								return null;
 							})}

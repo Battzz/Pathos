@@ -213,6 +213,27 @@ pub enum MessagePart {
     /// Inline file reference from the composer's @-mention picker.
     #[serde(rename = "file-mention", rename_all = "camelCase")]
     FileMention { id: String, path: String },
+
+    /// Inline image reference from a drop / paste in the composer. The
+    /// chat bubble renders this as a chip; the underlying `@<path>` and
+    /// the actual image bytes still travel inline through the prompt
+    /// string + sidecar, but persistence carries the path explicitly so
+    /// historical reload can reproduce the chip even when the bubble
+    /// text has been stripped of mentions.
+    #[serde(rename = "image-mention", rename_all = "camelCase")]
+    ImageMention { id: String, path: String },
+
+    /// Inline custom-tag reference for things like a large pasted code
+    /// block that the composer collapses into a badge. The chat bubble
+    /// renders only the badge label — the verbatim `submit_text` stays
+    /// out of the bubble's plain text.
+    #[serde(rename = "custom-tag-mention", rename_all = "camelCase")]
+    CustomTagMention {
+        id: String,
+        label: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        kind: Option<String>,
+    },
 }
 
 impl MessagePart {
@@ -227,7 +248,9 @@ impl MessagePart {
             | Self::TodoList { id, .. }
             | Self::Image { id, .. }
             | Self::PromptSuggestion { id, .. }
-            | Self::FileMention { id, .. } => id,
+            | Self::FileMention { id, .. }
+            | Self::ImageMention { id, .. }
+            | Self::CustomTagMention { id, .. } => id,
             Self::ToolCall { tool_call_id, .. } => tool_call_id,
             Self::PlanReview { tool_use_id, .. } => tool_use_id,
         }

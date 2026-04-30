@@ -7,13 +7,28 @@ use crate::sessions::mark_session_read_in_transaction;
 
 use super::ExchangeContext;
 
+/// Persisted form of a composer custom-tag (e.g. a large pasted code
+/// block that the composer collapsed into a chip). The `submit_text`
+/// stays inline in the prompt body so the model still sees it; the
+/// stored `label` (+ optional `kind`) is what the chat bubble renders
+/// as a chip on reload.
+#[derive(Debug, Clone)]
+pub struct PersistedCustomTag {
+    pub label: String,
+    pub submit_text: String,
+    pub kind: Option<String>,
+}
+
 /// Persist the user's prompt as the first message of the exchange.
-/// Wraps as `{"type":"user_prompt","text":"...","files":[...]}`.
+/// Wraps as `{"type":"user_prompt","text":"...","files":[...],
+/// "images":[...],"customTags":[{"label","submitText","kind"}]}`.
 pub(super) fn persist_user_message(
     conn: &Connection,
     ctx: &ExchangeContext,
     prompt: &str,
     files: &[String],
+    images: &[String],
+    custom_tags: &[PersistedCustomTag],
 ) -> Result<()> {
     let now = current_timestamp_string()?;
     let user_message_id = ctx.user_message_id.clone();
@@ -26,6 +41,36 @@ pub(super) fn persist_user_message(
             files
                 .iter()
                 .map(|path| serde_json::Value::String(path.clone()))
+                .collect(),
+        );
+    }
+    if !images.is_empty() {
+        payload["images"] = serde_json::Value::Array(
+            images
+                .iter()
+                .map(|path| serde_json::Value::String(path.clone()))
+                .collect(),
+        );
+    }
+    if !custom_tags.is_empty() {
+        payload["customTags"] = serde_json::Value::Array(
+            custom_tags
+                .iter()
+                .map(|tag| {
+                    let mut obj = serde_json::Map::new();
+                    obj.insert(
+                        "label".to_string(),
+                        serde_json::Value::String(tag.label.clone()),
+                    );
+                    obj.insert(
+                        "submitText".to_string(),
+                        serde_json::Value::String(tag.submit_text.clone()),
+                    );
+                    if let Some(kind) = &tag.kind {
+                        obj.insert("kind".to_string(), serde_json::Value::String(kind.clone()));
+                    }
+                    serde_json::Value::Object(obj)
+                })
                 .collect(),
         );
     }
@@ -384,7 +429,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         make_messages_table(&conn);
         let ctx = test_exchange_context();
-        persist_user_message(&conn, &ctx, "fix bug X", &[]).unwrap();
+        persist_user_message(&conn, &ctx, "fix bug X", &[], &[], &[]).unwrap();
 
         let (role, content, id): (String, String, String) = conn
             .query_row(
@@ -418,7 +463,7 @@ mod tests {
         make_messages_table(&conn);
         let ctx = test_exchange_context();
         let files = vec!["a.rs".to_string(), "b.rs".to_string()];
-        persist_user_message(&conn, &ctx, "refactor", &files).unwrap();
+        persist_user_message(&conn, &ctx, "refactor", &files, &[], &[]).unwrap();
 
         let content: String = conn
             .query_row(

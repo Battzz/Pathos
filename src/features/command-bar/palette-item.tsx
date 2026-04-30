@@ -75,12 +75,18 @@ export function PaletteItem({
 				) : null}
 			</span>
 			{trailing ? (
-				<span className="ml-auto flex shrink-0 items-center gap-2 text-[11.5px] font-medium text-muted-foreground/70 tabular-nums">
+				<span
+					data-slot="command-shortcut"
+					className="ml-auto flex shrink-0 items-center gap-2 text-[11.5px] font-medium text-muted-foreground/70 tabular-nums"
+				>
 					{trailing}
 				</span>
 			) : null}
 			{shortcut ? (
-				<span className="ml-auto flex shrink-0 items-center">
+				<span
+					data-slot="command-shortcut"
+					className="ml-auto flex shrink-0 items-center"
+				>
 					<InlineShortcutDisplay hotkey={shortcut} />
 				</span>
 			) : null}

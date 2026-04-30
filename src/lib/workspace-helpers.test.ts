@@ -406,6 +406,50 @@ describe("splitTextWithFiles", () => {
 			{ type: "file-mention", id: "m1:mention:0", path: "src/lib/api.ts" },
 		]);
 	});
+
+	it("emits image-mention parts for image paths even with spaces", () => {
+		const result = splitTextWithFiles(
+			"check @/tmp/Screenshot 2026-04-30.png trucked text",
+			[],
+			"m1",
+			["/tmp/Screenshot 2026-04-30.png"],
+		);
+		expect(result).toEqual([
+			{ type: "text", id: "m1:txt:0", text: "check " },
+			{
+				type: "image-mention",
+				id: "m1:mention:0",
+				path: "/tmp/Screenshot 2026-04-30.png",
+			},
+			{ type: "text", id: "m1:txt:1", text: " trucked text" },
+		]);
+	});
+
+	it("emits custom-tag-mention parts and strips submitText from rendered text", () => {
+		const result = splitTextWithFiles(
+			"prefix --PASTED-CONTENT-- suffix",
+			[],
+			"m1",
+			[],
+			[
+				{
+					label: "Pasted text",
+					submitText: "--PASTED-CONTENT--",
+					kind: "text",
+				},
+			],
+		);
+		expect(result).toEqual([
+			{ type: "text", id: "m1:txt:0", text: "prefix " },
+			{
+				type: "custom-tag-mention",
+				id: "m1:mention:0",
+				label: "Pasted text",
+				kind: "text",
+			},
+			{ type: "text", id: "m1:txt:1", text: " suffix" },
+		]);
+	});
 });
 
 describe("findModelOption", () => {

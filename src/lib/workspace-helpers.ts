@@ -576,10 +576,23 @@ export function findModelOption(
 	);
 }
 
+export type LiveCustomTag = {
+	label: string;
+	submitText: string;
+	kind?: string | null;
+};
+
+type Mention =
+	| { kind: "file"; path: string }
+	| { kind: "image"; path: string }
+	| { kind: "custom-tag"; label: string; tagKind?: string | null };
+
 /**
- * Split `text` on `@<path>` substrings (longer paths win on overlap),
- * returning interleaved Text and FileMention parts. Mirrors the Rust
- * `split_user_text_with_files` so optimistic and persisted renders match.
+ * Split `text` on `@<file>`, `@<image>`, and `customTag.submitText`
+ * substrings (longer needles win on overlap), returning interleaved
+ * Text / FileMention / ImageMention / CustomTagMention parts. Mirrors
+ * the Rust `split_user_text_with_files` so optimistic and persisted
+ * renders match.
  *
  * `msgId` namespaces the per-part ids to match the Rust side's
  * `{msgId}:txt:N` / `{msgId}:mention:N` scheme so optimistic ids survive
@@ -589,24 +602,50 @@ export function splitTextWithFiles(
 	text: string,
 	files: readonly string[],
 	msgId: string,
+	images: readonly string[] = [],
+	customTags: readonly LiveCustomTag[] = [],
 ): MessagePart[] {
 	const textId = (idx: number): string => `${msgId}:txt:${idx}`;
 	const mentionId = (idx: number): string => `${msgId}:mention:${idx}`;
-	if (files.length === 0 || text.length === 0) {
+	if (
+		(files.length === 0 && images.length === 0 && customTags.length === 0) ||
+		text.length === 0
+	) {
 		return [{ type: "text", id: textId(0), text }];
 	}
-	const sorted = [...files].sort((a, b) => b.length - a.length);
-	const matches: { start: number; end: number; path: string }[] = [];
-	for (const file of sorted) {
+	const needles: { needle: string; mention: Mention }[] = [];
+	for (const file of files) {
 		if (!file) continue;
-		const needle = `@${file}`;
+		needles.push({ needle: `@${file}`, mention: { kind: "file", path: file } });
+	}
+	for (const image of images) {
+		if (!image) continue;
+		needles.push({
+			needle: `@${image}`,
+			mention: { kind: "image", path: image },
+		});
+	}
+	for (const tag of customTags) {
+		if (!tag.submitText) continue;
+		needles.push({
+			needle: tag.submitText,
+			mention: {
+				kind: "custom-tag",
+				label: tag.label,
+				tagKind: tag.kind ?? null,
+			},
+		});
+	}
+	needles.sort((a, b) => b.needle.length - a.needle.length);
+	const matches: { start: number; end: number; mention: Mention }[] = [];
+	for (const { needle, mention } of needles) {
 		let searchStart = 0;
 		while (true) {
 			const idx = text.indexOf(needle, searchStart);
 			if (idx === -1) break;
 			const end = idx + needle.length;
 			const overlaps = matches.some((m) => !(end <= m.start || idx >= m.end));
-			if (!overlaps) matches.push({ start: idx, end, path: file });
+			if (!overlaps) matches.push({ start: idx, end, mention });
 			searchStart = end;
 		}
 	}
@@ -624,11 +663,19 @@ export function splitTextWithFiles(
 				text: text.slice(cursor, m.start),
 			});
 		}
-		parts.push({
-			type: "file-mention",
-			id: mentionId(mentionSeq++),
-			path: m.path,
-		});
+		const id = mentionId(mentionSeq++);
+		if (m.mention.kind === "file") {
+			parts.push({ type: "file-mention", id, path: m.mention.path });
+		} else if (m.mention.kind === "image") {
+			parts.push({ type: "image-mention", id, path: m.mention.path });
+		} else {
+			parts.push({
+				type: "custom-tag-mention",
+				id,
+				label: m.mention.label,
+				kind: m.mention.tagKind ?? null,
+			});
+		}
 		cursor = m.end;
 	}
 	if (cursor < text.length) {
@@ -644,18 +691,22 @@ export function createLiveThreadMessage({
 	text,
 	createdAt,
 	files = [],
+	images = [],
+	customTags = [],
 }: {
 	id: string;
 	role: "user" | "assistant" | "system";
 	text: string;
 	createdAt: string;
 	files?: readonly string[];
+	images?: readonly string[];
+	customTags?: readonly LiveCustomTag[];
 }): ThreadMessageLike {
 	return {
 		role,
 		id,
 		createdAt,
-		content: splitTextWithFiles(text, files, id),
+		content: splitTextWithFiles(text, files, id, images, customTags),
 	};
 }
 

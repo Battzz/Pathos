@@ -283,7 +283,37 @@ fn convert_flat(messages: &[IntermediateMessage]) -> Vec<ThreadMessageLike> {
                         .collect()
                 })
                 .unwrap_or_default();
-            let parts = grouping::split_user_text_with_files(&text, &files, &msg.id);
+            let images: Vec<String> = parsed
+                .and_then(|p| p.get("images"))
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let custom_tags: Vec<grouping::UserCustomTag> = parsed
+                .and_then(|p| p.get("customTags"))
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_object())
+                        .filter_map(|obj| {
+                            let label = obj.get("label").and_then(Value::as_str)?.to_string();
+                            let submit_text =
+                                obj.get("submitText").and_then(Value::as_str)?.to_string();
+                            let kind = obj.get("kind").and_then(Value::as_str).map(str::to_string);
+                            Some(grouping::UserCustomTag {
+                                label,
+                                submit_text,
+                                kind,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let parts =
+                grouping::split_user_text_with_files(&text, &files, &images, &custom_tags, &msg.id);
             result.push(ThreadMessageLike {
                 role: MessageRole::User,
                 id: Some(msg.id.clone()),

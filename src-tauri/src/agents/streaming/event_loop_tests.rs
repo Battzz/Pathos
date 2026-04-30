@@ -109,6 +109,10 @@ fn fingerprint_message(msg: &ThreadMessageLike) -> MessageFingerprint {
             ExtendedMessagePart::Basic(MessagePart::TodoList { .. }) => "todo-list".into(),
             ExtendedMessagePart::Basic(MessagePart::Image { .. }) => "image".into(),
             ExtendedMessagePart::Basic(MessagePart::FileMention { .. }) => "file-mention".into(),
+            ExtendedMessagePart::Basic(MessagePart::ImageMention { .. }) => "image-mention".into(),
+            ExtendedMessagePart::Basic(MessagePart::CustomTagMention { .. }) => {
+                "custom-tag-mention".into()
+            }
             ExtendedMessagePart::Basic(MessagePart::PromptSuggestion { .. }) => {
                 "prompt-suggestion".into()
             }

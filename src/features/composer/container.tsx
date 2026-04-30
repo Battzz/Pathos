@@ -52,6 +52,8 @@ import type { DeferredToolResponseHandler } from "./deferred-tool";
 import type { AddDirPickerEntry } from "./editor/add-dir/typeahead-plugin";
 import type { ElicitationResponseHandler } from "./elicitation";
 import { WorkspaceComposer } from "./index";
+import { PinnedTodoList } from "./pinned-todos";
+import { useLatestTodoList } from "./pinned-todos/use-latest-todo-list";
 import { SubmitQueueList } from "./submit-queue-list";
 
 const EMPTY_MODEL_SECTIONS: AgentModelSection[] = [];
@@ -242,6 +244,7 @@ export const WorkspaceComposerContainer = memo(
 	}: WorkspaceComposerContainerProps) {
 		const queryClient = useQueryClient();
 		const { settings } = useSettings();
+		const latestTodoList = useLatestTodoList(displayedSessionId);
 		const modelSectionsQuery = useQuery(agentModelSectionsQueryOptions());
 		const workspaceDetailQuery = useQuery({
 			...workspaceDetailQueryOptions(displayedWorkspaceId ?? "__none__"),
@@ -851,13 +854,14 @@ export const WorkspaceComposerContainer = memo(
 				) : null}
 
 				<div className="relative z-10">
-					<div className="pointer-events-none absolute inset-x-0 bottom-[calc(100%-1px)] z-20 flex justify-center">
+					<div className="pointer-events-none absolute inset-x-0 bottom-[calc(100%-1px)] z-20 flex flex-col items-stretch">
 						<SubmitQueueList
 							items={queueItems}
 							onSteer={(id) => onSteerQueued?.(id)}
 							onRemove={(id) => onRemoveQueued?.(id)}
 							disabled={composerUnavailable}
 						/>
+						{latestTodoList ? <PinnedTodoList part={latestTodoList} /> : null}
 					</div>
 					<WorkspaceComposer
 						contextKey={composerContextKey}

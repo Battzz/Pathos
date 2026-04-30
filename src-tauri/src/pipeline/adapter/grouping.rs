@@ -80,42 +80,86 @@ pub(super) fn convert_user_message(
     }
 }
 
-/// Split `text` on `@<path>` substrings (longer paths win on overlap),
-/// returning interleaved Text and FileMention parts.
+/// Persisted custom-tag descriptor used by the user-prompt splitter.
+/// Mirrors the shape stored in the `user_prompt.customTags` JSON array.
+pub(crate) struct UserCustomTag {
+    pub label: String,
+    pub submit_text: String,
+    pub kind: Option<String>,
+}
+
+#[derive(Clone)]
+enum MentionKind {
+    File(String),
+    Image(String),
+    CustomTag { label: String, kind: Option<String> },
+}
+
+/// Split `text` on `@<file>`, `@<image>`, and `customTag.submit_text`
+/// substrings (longer needles win on overlap), returning an interleaved
+/// sequence of `Text`, `FileMention`, `ImageMention`, and
+/// `CustomTagMention` parts so the chat bubble renders chips for
+/// attachments rather than leaking the underlying paths or pasted
+/// content into plain text.
 pub(crate) fn split_user_text_with_files(
     text: &str,
     files: &[String],
+    images: &[String],
+    custom_tags: &[UserCustomTag],
     msg_id: &str,
 ) -> Vec<MessagePart> {
     let text_id = |idx: usize| format!("{msg_id}:txt:{idx}");
     let mention_id = |idx: usize| format!("{msg_id}:mention:{idx}");
 
-    if files.is_empty() || text.is_empty() {
+    if (files.is_empty() && images.is_empty() && custom_tags.is_empty()) || text.is_empty() {
         return vec![MessagePart::Text {
             id: text_id(0),
             text: text.to_string(),
         }];
     }
 
-    let mut sorted_files: Vec<&String> = files.iter().collect();
-    sorted_files.sort_by_key(|f| std::cmp::Reverse(f.len()));
-
-    // (start_byte, end_byte, path) — kept non-overlapping by construction.
-    let mut matches: Vec<(usize, usize, String)> = Vec::new();
-    for file in &sorted_files {
+    // Build a needles list — longer first so overlapping shorter
+    // prefixes (e.g. `@/dir` vs `@/dir/file.png`) prefer the long
+    // match. `(needle, kind)` pairs.
+    let mut needles: Vec<(String, MentionKind)> = Vec::new();
+    for file in files {
         if file.is_empty() {
             continue;
         }
-        let needle = format!("@{file}");
+        needles.push((format!("@{file}"), MentionKind::File(file.clone())));
+    }
+    for image in images {
+        if image.is_empty() {
+            continue;
+        }
+        needles.push((format!("@{image}"), MentionKind::Image(image.clone())));
+    }
+    for tag in custom_tags {
+        if tag.submit_text.is_empty() {
+            continue;
+        }
+        needles.push((
+            tag.submit_text.clone(),
+            MentionKind::CustomTag {
+                label: tag.label.clone(),
+                kind: tag.kind.clone(),
+            },
+        ));
+    }
+    needles.sort_by_key(|(needle, _)| std::cmp::Reverse(needle.len()));
+
+    // (start_byte, end_byte, kind) — kept non-overlapping by construction.
+    let mut matches: Vec<(usize, usize, MentionKind)> = Vec::new();
+    for (needle, kind) in &needles {
         let mut search_start = 0usize;
-        while let Some(rel) = text[search_start..].find(&needle) {
+        while let Some(rel) = text[search_start..].find(needle.as_str()) {
             let abs_start = search_start + rel;
             let abs_end = abs_start + needle.len();
             let overlaps = matches
                 .iter()
                 .any(|(s, e, _)| !(abs_end <= *s || abs_start >= *e));
             if !overlaps {
-                matches.push((abs_start, abs_end, (*file).clone()));
+                matches.push((abs_start, abs_end, kind.clone()));
             }
             search_start = abs_end;
         }
@@ -133,7 +177,7 @@ pub(crate) fn split_user_text_with_files(
     let mut parts: Vec<MessagePart> = Vec::new();
     let mut cursor = 0usize;
     let mut text_seq = 0usize;
-    for (mention_seq, (start, end, path)) in matches.into_iter().enumerate() {
+    for (mention_seq, (start, end, kind)) in matches.into_iter().enumerate() {
         if cursor < start {
             let chunk = &text[cursor..start];
             if !chunk.is_empty() {
@@ -144,9 +188,13 @@ pub(crate) fn split_user_text_with_files(
                 text_seq += 1;
             }
         }
-        parts.push(MessagePart::FileMention {
-            id: mention_id(mention_seq),
-            path,
+        let id = mention_id(mention_seq);
+        parts.push(match kind {
+            MentionKind::File(path) => MessagePart::FileMention { id, path },
+            MentionKind::Image(path) => MessagePart::ImageMention { id, path },
+            MentionKind::CustomTag { label, kind } => {
+                MessagePart::CustomTagMention { id, label, kind }
+            }
         });
         cursor = end;
     }

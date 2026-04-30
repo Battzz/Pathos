@@ -146,6 +146,8 @@ fn part_type(part: &pathos_lib::pipeline::types::ExtendedMessagePart) -> &'stati
         ExtendedMessagePart::Basic(MessagePart::Image { .. }) => "image",
         ExtendedMessagePart::Basic(MessagePart::PromptSuggestion { .. }) => "prompt-suggestion",
         ExtendedMessagePart::Basic(MessagePart::FileMention { .. }) => "file-mention",
+        ExtendedMessagePart::Basic(MessagePart::ImageMention { .. }) => "image-mention",
+        ExtendedMessagePart::Basic(MessagePart::CustomTagMention { .. }) => "custom-tag-mention",
         ExtendedMessagePart::Basic(MessagePart::PlanReview { .. }) => "plan-review",
         ExtendedMessagePart::CollapsedGroup(_) => "collapsed-group",
     }

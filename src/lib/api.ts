@@ -155,6 +155,21 @@ export type AgentSendRequest = {
 	userMessageId?: string | null;
 	/** Workspace-relative paths from the @-mention picker. */
 	files?: string[] | null;
+	/** Image paths attached via drag/drop or paste. Persisted alongside
+	 *  `files` so the chat bubble renders image chips on reload without
+	 *  leaking the path into the bubble's plain text. */
+	images?: string[] | null;
+	/** Composer custom-tag chips (e.g. a large pasted code block). The
+	 *  `submitText` is what the model sees inline in the prompt; the
+	 *  stored `label` (+ optional `kind`) is what the chat bubble
+	 *  renders as a chip on reload. */
+	customTags?: AgentSendCustomTag[] | null;
+};
+
+export type AgentSendCustomTag = {
+	label: string;
+	submitText: string;
+	kind?: string | null;
 };
 
 export type WorkspaceSummary = {
@@ -2056,6 +2071,17 @@ export type FileMentionPart = {
 	id: string;
 	path: string;
 };
+export type ImageMentionPart = {
+	type: "image-mention";
+	id: string;
+	path: string;
+};
+export type CustomTagMentionPart = {
+	type: "custom-tag-mention";
+	id: string;
+	label: string;
+	kind?: string | null;
+};
 export type PlanReviewAllowedPrompt = {
 	tool: string;
 	prompt: string;
@@ -2077,6 +2103,8 @@ export type MessagePart =
 	| ImagePart
 	| PromptSuggestionPart
 	| FileMentionPart
+	| ImageMentionPart
+	| CustomTagMentionPart
 	| PlanReviewPart;
 
 export type CollapsedGroupPart = {

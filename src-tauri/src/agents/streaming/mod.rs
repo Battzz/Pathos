@@ -190,6 +190,18 @@ pub(super) fn stream_via_sidecar(
     let fast_mode = request.fast_mode.unwrap_or(false);
     let user_message_id_copy = request.user_message_id.clone();
     let files_copy = request.files.clone().unwrap_or_default();
+    let images_copy = request.images.clone().unwrap_or_default();
+    let custom_tags_copy: Vec<crate::agents::PersistedCustomTag> = request
+        .custom_tags
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|tag| crate::agents::PersistedCustomTag {
+            label: tag.label,
+            submit_text: tag.submit_text,
+            kind: tag.kind,
+        })
+        .collect();
     let resume_only = request.resume_only;
     let sidecar_session_id_copy = sidecar_session_id.clone();
     let rid = request_id.clone();
@@ -255,7 +267,14 @@ pub(super) fn stream_via_sidecar(
                     if resume_only {
                         exchange_ctx = Some(ctx);
                     } else {
-                        match persist_user_message(&conn, &ctx, &prompt_copy, &files_copy) {
+                        match persist_user_message(
+                            &conn,
+                            &ctx,
+                            &prompt_copy,
+                            &files_copy,
+                            &images_copy,
+                            &custom_tags_copy,
+                        ) {
                             Ok(()) => {
                                 tracing::debug!(rid = %rid, "User message persisted to DB");
                                 exchange_ctx = Some(ctx);

@@ -1,0 +1,16 @@
+---
+source: tests/pipeline_scenarios.rs
+expression: run_normalized(msgs)
+---
+- role: user
+  id: msg-1
+  content_length: 3
+  content:
+    - type: text
+      text: "check "
+    - type: image-mention
+      path: /tmp/Screenshot 2026-04-30.png
+    - type: text
+      text: " im seeing that the text is trucked"
+  status: ~
+  streaming: ~

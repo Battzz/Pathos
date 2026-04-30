@@ -58,6 +58,48 @@ pub fn user_prompt_with_files(id: &str, text: &str, files: &[&str]) -> Historica
     make_record(id, "user", &serde_json::to_string(&parsed).unwrap())
 }
 
+/// Post-migration user prompt carrying drag/drop image paths and (optionally)
+/// composer custom-tag chips. Mirrors what `persist_user_message` writes when
+/// the composer attaches images or pasted-text custom tags.
+pub fn user_prompt_with_attachments(
+    id: &str,
+    text: &str,
+    files: &[&str],
+    images: &[&str],
+    custom_tags: &[(&str, &str, Option<&str>)],
+) -> HistoricalRecord {
+    let mut parsed = json!({
+        "type": "user_prompt",
+        "text": text,
+    });
+    if !files.is_empty() {
+        parsed["files"] = json!(files);
+    }
+    if !images.is_empty() {
+        parsed["images"] = json!(images);
+    }
+    if !custom_tags.is_empty() {
+        parsed["customTags"] = Value::Array(
+            custom_tags
+                .iter()
+                .map(|(label, submit_text, kind)| {
+                    let mut obj = serde_json::Map::new();
+                    obj.insert("label".to_string(), Value::String((*label).to_string()));
+                    obj.insert(
+                        "submitText".to_string(),
+                        Value::String((*submit_text).to_string()),
+                    );
+                    if let Some(k) = kind {
+                        obj.insert("kind".to_string(), Value::String((*k).to_string()));
+                    }
+                    Value::Object(obj)
+                })
+                .collect(),
+        );
+    }
+    make_record(id, "user", &serde_json::to_string(&parsed).unwrap())
+}
+
 /// Mid-turn steer prompt. Same shape as `user_prompt` but with the
 /// `steer: true` marker written by `persist_steer_message`.
 pub fn user_prompt_steer(id: &str, text: &str) -> HistoricalRecord {
