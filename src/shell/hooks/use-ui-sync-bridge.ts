@@ -6,6 +6,7 @@ import { pathosQueryKeys } from "@/lib/query-client";
 type Options = {
 	queryClient: QueryClient;
 	processPendingCliSends: () => Promise<void> | void;
+	openChat: (workspaceId: string, sessionId: string) => void;
 	reloadSettings: () => Promise<void> | void;
 	refreshGithubIdentity: () => Promise<void> | void;
 };
@@ -188,24 +189,42 @@ function handleUiMutation(
 		case "pendingCliSendQueued":
 			void options.processPendingCliSends();
 			return;
+		case "openChatRequested":
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.workspaceGroups,
+			});
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.repositoryFolders,
+			});
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.workspaceDetail(event.workspaceId),
+			});
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.workspaceSessions(event.workspaceId),
+			});
+			options.openChat(event.workspaceId, event.sessionId);
+			return;
 	}
 }
 
 export function useUiSyncBridge({
 	queryClient,
 	processPendingCliSends,
+	openChat,
 	reloadSettings,
 	refreshGithubIdentity,
 }: Options) {
 	const processPendingCliSendsRef = useRef(processPendingCliSends);
+	const openChatRef = useRef(openChat);
 	const reloadSettingsRef = useRef(reloadSettings);
 	const refreshGithubIdentityRef = useRef(refreshGithubIdentity);
 
 	useEffect(() => {
 		processPendingCliSendsRef.current = processPendingCliSends;
+		openChatRef.current = openChat;
 		reloadSettingsRef.current = reloadSettings;
 		refreshGithubIdentityRef.current = refreshGithubIdentity;
-	}, [processPendingCliSends, refreshGithubIdentity, reloadSettings]);
+	}, [openChat, processPendingCliSends, refreshGithubIdentity, reloadSettings]);
 
 	useEffect(() => {
 		let disposed = false;
@@ -217,6 +236,8 @@ export function useUiSyncBridge({
 
 			handleUiMutation(event, queryClient, {
 				processPendingCliSends: () => processPendingCliSendsRef.current(),
+				openChat: (workspaceId, sessionId) =>
+					openChatRef.current(workspaceId, sessionId),
 				reloadSettings: () => reloadSettingsRef.current(),
 				refreshGithubIdentity: () => refreshGithubIdentityRef.current(),
 			});

@@ -14,6 +14,7 @@ import {
 	Sparkles,
 	Terminal,
 } from "lucide-react";
+import { GithubBrandIcon } from "@/components/brand-icon";
 import { extractShellReadFilePaths } from "@/lib/shell-read-files";
 import type { FileChangeInfo, ToolInfo } from "./shared";
 import { basename, isObj, str, truncate } from "./shared";
@@ -28,13 +29,14 @@ export function getToolInfo(
 	input: Record<string, unknown> | null,
 ): ToolInfo {
 	if (name.startsWith("mcp__")) {
-		const segments = name.split("__");
-		const server = segments[1] ?? "mcp";
-		const tool = segments.slice(2).join("__") || name;
+		const mcpInfo = parseMcpToolName(name);
+		if (mcpInfo?.provider === "github") {
+			return githubToolInfo(mcpInfo.tool, input ?? {});
+		}
 		return {
-			action: tool,
+			action: mcpInfo?.tool ?? name,
 			icon: <Plug className="size-3.5 text-chart-2" strokeWidth={1.8} />,
-			detail: `via ${server}`,
+			detail: `via ${mcpInfo?.server ?? "mcp"}`,
 		};
 	}
 
@@ -304,4 +306,110 @@ export function getToolInfo(
 	}
 
 	return { action: name, icon: fallbackIcon };
+}
+
+function parseMcpToolName(
+	name: string,
+): { server: string; tool: string; provider?: "github" } | null {
+	const segments = name.split("__").filter(Boolean);
+	if (segments[0] !== "mcp" || segments.length < 3) {
+		return null;
+	}
+	const providerIndex = segments.findIndex(
+		(segment) => segment.toLowerCase() === "github",
+	);
+	if (providerIndex >= 0) {
+		const tool =
+			segments.slice(providerIndex + 1).join("__") || segments.at(-1);
+		return {
+			server: segments.slice(1, providerIndex).join("__") || "github",
+			tool: tool ?? name,
+			provider: "github",
+		};
+	}
+	return {
+		server: segments[1] ?? "mcp",
+		tool: segments.slice(2).join("__") || name,
+	};
+}
+
+function githubToolInfo(
+	rawToolName: string,
+	input: Record<string, unknown>,
+): ToolInfo {
+	const toolName = rawToolName.replace(/^_+/, "");
+	const action = githubActionLabel(toolName);
+	const detail = githubDetail(input);
+	return {
+		action,
+		icon: <GithubBrandIcon className={neutralToolIconClassName} />,
+		detail,
+	};
+}
+
+function githubActionLabel(toolName: string): string {
+	const parts = toolName.split("_").filter(Boolean);
+	if (parts[0] === "github") {
+		parts.shift();
+	}
+	if (parts.length === 0) {
+		return "GitHub";
+	}
+	const [verb = "", ...rest] = parts;
+	const object = rest
+		.join(" ")
+		.replace(/\bpr\b/g, "PR")
+		.replace(/\brepo\b/g, "repo")
+		.replace(/\burl\b/g, "URL")
+		.replace(/\bid\b/g, "ID");
+	const verbLabel =
+		{
+			add: "Add",
+			check: "Check",
+			close: "Close",
+			compare: "Compare",
+			convert: "Convert",
+			create: "Create",
+			delete: "Delete",
+			dismiss: "Dismiss",
+			download: "Download",
+			enable: "Enable",
+			fetch: "Fetch",
+			get: "Get",
+			label: "Label",
+			list: "List",
+			lock: "Lock",
+			mark: "Mark",
+			merge: "Merge",
+			remove: "Remove",
+			reply: "Reply",
+			request: "Request",
+			resolve: "Resolve",
+			search: "Search",
+			unlock: "Unlock",
+			unresolve: "Unresolve",
+			update: "Update",
+		}[verb] ?? titleCase(verb);
+	return object ? `${verbLabel} ${object}` : verbLabel;
+}
+
+function githubDetail(input: Record<string, unknown>): string | undefined {
+	const repo = str(input.repo_full_name) ?? str(input.repository_full_name);
+	const prNumber =
+		typeof input.pr_number === "number" ? `#${input.pr_number}` : null;
+	const issueNumber =
+		typeof input.issue_number === "number"
+			? `issue #${input.issue_number}`
+			: null;
+	const query = str(input.query);
+	const path = str(input.path);
+	const title = str(input.title);
+	const parts = [repo, prNumber ?? issueNumber, title, path, query].filter(
+		Boolean,
+	);
+	return parts.length > 0 ? truncate(parts.join(" "), 60) : undefined;
+}
+
+function titleCase(value: string): string {
+	return value ? `${value[0]!.toUpperCase()}${value.slice(1)}` : value;
 }

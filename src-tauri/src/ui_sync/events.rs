@@ -44,6 +44,10 @@ pub enum UiMutationEvent {
         model_id: Option<String>,
         permission_mode: Option<String>,
     },
+    OpenChatRequested {
+        workspace_id: String,
+        session_id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,6 +115,10 @@ mod tests {
                 model_id: None,
                 permission_mode: None,
             },
+            UiMutationEvent::OpenChatRequested {
+                workspace_id: "w".into(),
+                session_id: "s".into(),
+            },
         ];
         for event in cases {
             let s = serde_json::to_string(&event).unwrap();
@@ -166,6 +174,18 @@ mod tests {
         assert_eq!(json["workspaceId"], "w");
         assert_eq!(json["sessionId"], "s");
         assert_eq!(json["prompt"], "hello");
+    }
+
+    #[test]
+    fn open_chat_requested_serializes_selection_ids() {
+        let event = UiMutationEvent::OpenChatRequested {
+            workspace_id: "w".into(),
+            session_id: "s".into(),
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["type"], "openChatRequested");
+        assert_eq!(json["workspaceId"], "w");
+        assert_eq!(json["sessionId"], "s");
     }
 
     #[test]

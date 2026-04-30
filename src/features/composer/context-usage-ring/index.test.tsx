@@ -59,6 +59,7 @@ function BridgeHost({
 	useUiSyncBridge({
 		queryClient,
 		processPendingCliSends: vi.fn(),
+		openChat: vi.fn(),
 		reloadSettings: vi.fn(),
 		refreshGithubIdentity: vi.fn(),
 	});

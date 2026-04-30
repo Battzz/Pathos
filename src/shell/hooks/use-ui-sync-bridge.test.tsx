@@ -43,6 +43,7 @@ describe("useUiSyncBridge", () => {
 			useUiSyncBridge({
 				queryClient,
 				processPendingCliSends: vi.fn(),
+				openChat: vi.fn(),
 				reloadSettings: vi.fn(),
 				refreshGithubIdentity: vi.fn(),
 			}),
@@ -85,6 +86,7 @@ describe("useUiSyncBridge", () => {
 			useUiSyncBridge({
 				queryClient,
 				processPendingCliSends,
+				openChat: vi.fn(),
 				reloadSettings: vi.fn(),
 				refreshGithubIdentity: vi.fn(),
 			}),
@@ -106,6 +108,37 @@ describe("useUiSyncBridge", () => {
 		});
 	});
 
+	it("selects a chat requested by the CLI shorthand", async () => {
+		const queryClient = makeClient();
+		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+		const openChat = vi.fn();
+
+		renderHook(() =>
+			useUiSyncBridge({
+				queryClient,
+				processPendingCliSends: vi.fn(),
+				openChat,
+				reloadSettings: vi.fn(),
+				refreshGithubIdentity: vi.fn(),
+			}),
+		);
+
+		act(() => {
+			capturedSubscription?.({
+				type: "openChatRequested",
+				workspaceId: "workspace-1",
+				sessionId: "session-1",
+			});
+		});
+
+		await waitFor(() => {
+			expect(openChat).toHaveBeenCalledWith("workspace-1", "session-1");
+		});
+		expect(invalidateQueries).toHaveBeenCalledWith({
+			queryKey: pathosQueryKeys.workspaceSessions("workspace-1"),
+		});
+	});
+
 	it("invalidates forge detection when forge state changes", async () => {
 		const queryClient = makeClient();
 		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
@@ -114,6 +147,7 @@ describe("useUiSyncBridge", () => {
 			useUiSyncBridge({
 				queryClient,
 				processPendingCliSends: vi.fn(),
+				openChat: vi.fn(),
 				reloadSettings: vi.fn(),
 				refreshGithubIdentity: vi.fn(),
 			}),
@@ -147,6 +181,7 @@ describe("useUiSyncBridge", () => {
 			useUiSyncBridge({
 				queryClient,
 				processPendingCliSends: vi.fn(),
+				openChat: vi.fn(),
 				reloadSettings: vi.fn(),
 				refreshGithubIdentity: vi.fn(),
 			}),
@@ -181,6 +216,7 @@ describe("useUiSyncBridge", () => {
 			useUiSyncBridge({
 				queryClient,
 				processPendingCliSends: vi.fn(),
+				openChat: vi.fn(),
 				reloadSettings,
 				refreshGithubIdentity: vi.fn(),
 			}),

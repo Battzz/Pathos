@@ -3,8 +3,12 @@ import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin";
-import type { LexicalEditor } from "lexical";
-import { $getRoot } from "lexical";
+import {
+	$getRoot,
+	$isElementNode,
+	$isTextNode,
+	type LexicalEditor,
+} from "lexical";
 import {
 	ArrowUp,
 	Check,
@@ -187,6 +191,37 @@ function onEditorError(error: Error) {
 	console.error("[Composer Lexical]", error);
 }
 
+function getLastTextNode(rootElement: HTMLElement): Text | null {
+	const nodeFilter = rootElement.ownerDocument.defaultView?.NodeFilter;
+	if (!nodeFilter) return null;
+	const walker = rootElement.ownerDocument.createTreeWalker(
+		rootElement,
+		nodeFilter.SHOW_TEXT,
+	);
+	let lastText: Text | null = null;
+	while (walker.nextNode()) {
+		const node = walker.currentNode;
+		if (node.textContent) {
+			lastText = node as Text;
+		}
+	}
+	return lastText;
+}
+
+function focusRootElementAtEnd(rootElement: HTMLElement) {
+	rootElement.focus({ preventScroll: true });
+	const lastText = getLastTextNode(rootElement);
+	if (!lastText) return;
+	const selection = rootElement.ownerDocument.defaultView?.getSelection();
+	if (!selection) return;
+	const offset = lastText.textContent?.length ?? 0;
+	const range = rootElement.ownerDocument.createRange();
+	range.setStart(lastText, offset);
+	range.setEnd(lastText, offset);
+	selection.removeAllRanges();
+	selection.addRange(range);
+}
+
 export const WorkspaceComposer = memo(function WorkspaceComposer({
 	contextKey,
 	onSubmit,
@@ -262,6 +297,33 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	useEffect(() => {
 		const handleFocusComposer = () => {
 			if (disabled) return;
+			const editor = editorRef.current;
+			if (editor) {
+				editor.update(
+					() => {
+						const root = $getRoot();
+						const lastText = root.getLastDescendant();
+						if ($isTextNode(lastText)) {
+							const offset = lastText.getTextContentSize();
+							lastText.select(offset, offset);
+							return;
+						}
+						const lastChild = root.getLastChild();
+						if ($isElementNode(lastChild)) {
+							lastChild.selectEnd();
+							return;
+						}
+						root.selectEnd();
+					},
+					{
+						onUpdate: () => {
+							const rootElement = editor.getRootElement();
+							if (rootElement) focusRootElementAtEnd(rootElement);
+						},
+					},
+				);
+				return;
+			}
 			composerRootRef.current
 				?.querySelector<HTMLElement>("[contenteditable='true']")
 				?.focus();

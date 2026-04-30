@@ -105,7 +105,7 @@ describe("AssistantToolCall — Task subagent children rendering", () => {
 			/>,
 		);
 		expect(queryByText("ls -la")).toBeInTheDocument();
-		expect(queryByText("cat README.md")).toBeInTheDocument();
+		expect(queryByText("README.md")).toBeInTheDocument();
 	});
 
 	/**

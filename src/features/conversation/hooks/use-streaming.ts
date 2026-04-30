@@ -21,6 +21,7 @@ import type {
 	AgentModelOption,
 	RepositoryFolder,
 	ThreadMessageLike,
+	WorkspaceSessionSummary,
 } from "@/lib/api";
 import {
 	generateSessionTitle,
@@ -331,15 +332,18 @@ export function useConversationStreaming({
 
 			queryClient.setQueryData(
 				pathosQueryKeys.workspaceSessions(workspaceId),
-				(current: Array<Record<string, unknown>> | undefined) =>
-					(current ?? []).map((candidate) =>
-						candidate.id === sessionId
-							? {
-									...candidate,
-									agentType,
-									lastUserMessageAt: now,
-								}
-							: candidate,
+				(current: WorkspaceSessionSummary[] | undefined) =>
+					sortChatsForSidebar(
+						(current ?? []).map((candidate) =>
+							candidate.id === sessionId
+								? {
+										...candidate,
+										agentType,
+										lastUserMessageAt: now,
+										updatedAt: now,
+									}
+								: candidate,
+						),
 					),
 			);
 			queryClient.setQueryData(
@@ -435,16 +439,18 @@ export function useConversationStreaming({
 
 			queryClient.setQueryData(
 				pathosQueryKeys.workspaceSessions(workspaceId),
-				(current: Array<Record<string, unknown>> | undefined) =>
-					(current ?? []).map((candidate) =>
-						candidate.id === sessionId
-							? {
-									...candidate,
-									agentType,
-									lastUserMessageAt: now,
-									updatedAt: now,
-								}
-							: candidate,
+				(current: WorkspaceSessionSummary[] | undefined) =>
+					sortChatsForSidebar(
+						(current ?? []).map((candidate) =>
+							candidate.id === sessionId
+								? {
+										...candidate,
+										agentType,
+										lastUserMessageAt: now,
+										updatedAt: now,
+									}
+								: candidate,
+						),
 					),
 			);
 			queryClient.setQueryData<RepositoryFolder[] | undefined>(

@@ -1,6 +1,6 @@
 ---
 name: pathos-cli
-description: Use the Pathos CLI to remote-control Pathos from the terminal. Use when the user asks to inspect Pathos data/settings, manage repositories/workspaces/sessions/files, send prompts to agents, list models, use GitHub integration, inspect scripts, migrate from Conductor, run Pathos as an MCP server, generate shell completions, quit a running app, check/install/update the Pathos CLI beta, install/update Pathos skills through the beta app flow, or needs the Pathos command reference.
+description: Use the Pathos CLI to remote-control Pathos from the terminal. Use when the user asks to inspect Pathos data/settings, manage repositories/workspaces/sessions/files, open a folder with `pathos .`, send prompts to agents, list models, use GitHub integration, inspect scripts, run Pathos as an MCP server, generate shell completions, quit a running app, check/install/update the Pathos CLI beta, install/update Pathos skills through the beta app flow, or needs the Pathos command reference.
 ---
 
 # Pathos CLI
@@ -56,6 +56,13 @@ When creating workspaces, prefer explicit repo names and concise purpose labels:
 
 ```bash
 pathos workspace new --repo pathos
+```
+
+Use the folder shorthand to register the current folder if needed, open Pathos,
+and create a new project chat:
+
+```bash
+pathos .
 ```
 
 ### Inspect Sessions And Files

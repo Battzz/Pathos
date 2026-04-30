@@ -28,8 +28,12 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "DIR")]
     pub data_dir: Option<String>,
 
+    /// Open Pathos on this folder, registering it as a project if needed.
+    #[arg(value_name = "PATH")]
+    pub path: Option<String>,
+
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -80,11 +84,6 @@ pub enum Commands {
     Scripts {
         #[command(subcommand)]
         action: ScriptsAction,
-    },
-    /// Migrate from Pathos v1 (Conductor).
-    Conductor {
-        #[command(subcommand)]
-        action: ConductorAction,
     },
     /// Shell completion scripts.
     Completions {
@@ -641,20 +640,6 @@ pub enum ScriptsAction {
 }
 
 // ---------------------------------------------------------------------------
-// conductor
-// ---------------------------------------------------------------------------
-
-#[derive(Subcommand)]
-pub enum ConductorAction {
-    /// Report whether a Conductor data source is available locally.
-    Status,
-    /// List repositories discovered in the Conductor data source.
-    Repos,
-    /// List workspaces discovered in the Conductor data source.
-    Workspaces,
-}
-
-// ---------------------------------------------------------------------------
 // completions
 // ---------------------------------------------------------------------------
 
@@ -665,4 +650,27 @@ pub enum CompletionShell {
     Fish,
     Powershell,
     Elvish,
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::{Cli, Commands};
+
+    #[test]
+    fn parses_folder_open_shorthand() {
+        let cli = Cli::parse_from(["pathos", "."]);
+
+        assert_eq!(cli.path.as_deref(), Some("."));
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn parses_subcommands_without_treating_them_as_paths() {
+        let cli = Cli::parse_from(["pathos", "repo", "list"]);
+
+        assert!(cli.path.is_none());
+        assert!(matches!(cli.command, Some(Commands::Repo { .. })));
+    }
 }

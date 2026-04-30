@@ -5,7 +5,7 @@ Captured from `pathos --help`.
 ```text
 Remote-control Pathos from the terminal. Works against the same SQLite database the desktop app uses — run commands even while the app is running.
 
-Usage: pathos [OPTIONS] <COMMAND>
+Usage: pathos [OPTIONS] [PATH] [COMMAND]
 
 Commands:
   data         Data directory, database, and mode info
@@ -17,13 +17,16 @@ Commands:
   send         Send a prompt to an AI agent
   models       List available AI models
   github       GitHub integration — auth, PR lookup, merge
-  scripts      Inspect repo-level setup/run/archive scripts
-  conductor    Migrate from Pathos v1 (Conductor)
+  scripts      Inspect repo-level setup/run scripts
   completions  Shell completion scripts
   cli-status   Report whether the current Pathos CLI entrypoint is installed to PATH and which data mode it uses
   quit         Ask a running Pathos app to quit (noop when it isn't running)
   mcp          Run as an MCP (Model Context Protocol) server over stdio
   help         Print this message or the help of the given subcommand(s)
+
+Arguments:
+  [PATH]
+          Open Pathos on this folder, registering it as a project if needed
 
 Options:
       --json

@@ -7,15 +7,15 @@
 //! # Architecture
 //!
 //! Each command domain gets its own sub-module (`repo`, `workspace`,
-//! `session`, `files`, `send`, `github`, `settings`, `scripts`,
-//! `conductor`, `system`, `data`). Shared helpers live in `output` (JSON
+//! `session`, `files`, `send`, `github`, `settings`, `scripts`, `system`,
+//! `data`). Shared helpers live in `output` (JSON
 //! / human formatting) and `refs` (UUID / name disambiguation).
 
 pub mod args;
-mod conductor;
 mod data;
 mod files;
 mod github;
+mod open;
 mod output;
 mod refs;
 mod repo;
@@ -87,7 +87,15 @@ fn dispatch(cli: &Cli) -> Result<()> {
     ensure_ready()?;
 
     use args::Commands as C;
-    match &cli.command {
+    if let Some(path) = cli.path.as_deref() {
+        return open::open_path(path, cli);
+    }
+
+    let Some(command) = &cli.command else {
+        anyhow::bail!("Missing command. Run `pathos --help` for usage.");
+    };
+
+    match command {
         C::Data { action } => data::dispatch(action, cli),
         C::Completions { shell } => system::completions(*shell),
         C::CliStatus => system::cli_status(cli),
@@ -101,7 +109,6 @@ fn dispatch(cli: &Cli) -> Result<()> {
         C::Models { action } => send::dispatch_models(action, cli),
         C::Github { action } => github::dispatch(action, cli),
         C::Scripts { action } => scripts::dispatch(action, cli),
-        C::Conductor { action } => conductor::dispatch(action, cli),
         C::Mcp => crate::mcp::run_mcp_server(),
     }
 }

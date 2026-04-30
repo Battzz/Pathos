@@ -120,6 +120,10 @@ pub fn classify_tool(raw_name: &str) -> ToolCategory {
         return ToolCategory::Read;
     }
 
+    if let Some(category) = classify_github_mcp_tool(&normalized) {
+        return category;
+    }
+
     // MCP tool prefix matching: mcp__server__tool_name
     if let Some(rest) = normalized.strip_prefix("mcp__") {
         if let Some(pos) = rest.find("__") {
@@ -157,6 +161,34 @@ pub fn classify_tool(raw_name: &str) -> ToolCategory {
     }
 
     ToolCategory::Other
+}
+
+fn classify_github_mcp_tool(normalized: &str) -> Option<ToolCategory> {
+    let segments: Vec<&str> = normalized
+        .split("__")
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    if segments.first().copied() != Some("mcp") {
+        return None;
+    }
+    let github_index = segments.iter().position(|segment| *segment == "github")?;
+    let tool = segments.get(github_index + 1)?;
+    let tool = tool.strip_prefix('_').unwrap_or(tool);
+    let tool = tool.strip_prefix("github_").unwrap_or(tool);
+
+    if tool.starts_with("search") {
+        return Some(ToolCategory::Search);
+    }
+    if tool.starts_with("fetch")
+        || tool.starts_with("get")
+        || tool.starts_with("list")
+        || tool.starts_with("check")
+        || tool.starts_with("compare")
+        || tool.starts_with("download")
+    {
+        return Some(ToolCategory::Read);
+    }
+    None
 }
 
 /// Whether a tool call can be collapsed into a read/search group.
@@ -463,6 +495,26 @@ mod tests {
         assert_eq!(
             classify_tool("mcp__github__github_get_issue"),
             ToolCategory::Read
+        );
+    }
+
+    #[test]
+    fn classify_github_connector_commands() {
+        assert_eq!(
+            classify_tool("mcp__codex_apps__github___search_prs"),
+            ToolCategory::Search
+        );
+        assert_eq!(
+            classify_tool("mcp__codex_apps__github___fetch_pr"),
+            ToolCategory::Read
+        );
+        assert_eq!(
+            classify_tool("mcp__codex_apps__github___list_pr_changed_filenames"),
+            ToolCategory::Read
+        );
+        assert_eq!(
+            classify_tool("mcp__codex_apps__github___merge_pull_request"),
+            ToolCategory::Other
         );
     }
 

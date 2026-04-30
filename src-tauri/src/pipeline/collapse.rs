@@ -55,6 +55,12 @@ fn extract_file_path(args: &Value) -> Option<&str> {
     None
 }
 
+fn is_github_tool(tool_name: &str) -> bool {
+    tool_name
+        .split("__")
+        .any(|segment| segment.eq_ignore_ascii_case("github"))
+}
+
 /// Build a human-readable summary for a collapsed group.
 ///
 /// Follows Claude Code TUI's `getSearchReadSummaryText` format:
@@ -122,32 +128,58 @@ pub fn build_group_summary(tools: &[MessagePart], active: bool) -> String {
     // Read summary
     if !read_tools.is_empty() {
         let mut paths = std::collections::HashSet::new();
+        let mut github_read_count = 0;
         for t in &read_tools {
-            if let MessagePart::ToolCall { args, .. } = t {
+            if let MessagePart::ToolCall {
+                tool_name, args, ..
+            } = t
+            {
+                if is_github_tool(tool_name) {
+                    github_read_count += 1;
+                    continue;
+                }
                 if let Some(p) = extract_file_path(args) {
                     paths.insert(p);
                 }
             }
         }
 
-        let count = if paths.is_empty() {
-            read_tools.len()
-        } else {
-            paths.len()
-        };
-        let verb = if parts.is_empty() {
-            if active {
-                "Reading"
+        let plain_read_count = read_tools.len().saturating_sub(github_read_count);
+        if plain_read_count > 0 {
+            let count = if paths.is_empty() {
+                plain_read_count
             } else {
-                "Read"
-            }
-        } else if active {
-            "reading"
-        } else {
-            "read"
-        };
-        let plural = if count > 1 { "s" } else { "" };
-        parts.push(format!("{verb} {count} file{plural}"));
+                paths.len()
+            };
+            let verb = if parts.is_empty() {
+                if active {
+                    "Reading"
+                } else {
+                    "Read"
+                }
+            } else if active {
+                "reading"
+            } else {
+                "read"
+            };
+            let plural = if count > 1 { "s" } else { "" };
+            parts.push(format!("{verb} {count} file{plural}"));
+        }
+        if github_read_count > 0 {
+            let verb = if parts.is_empty() {
+                if active {
+                    "Reading"
+                } else {
+                    "Read"
+                }
+            } else if active {
+                "reading"
+            } else {
+                "read"
+            };
+            let plural = if github_read_count > 1 { "s" } else { "" };
+            parts.push(format!("{verb} {github_read_count} GitHub item{plural}"));
+        }
     }
 
     // Shell summary

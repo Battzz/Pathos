@@ -158,7 +158,7 @@ fn new(workspace_ref: &str, plan: bool, action_kind: Option<&str>, cli: &Cli) ->
         None => None,
     };
     let permission_mode = if plan { Some("plan") } else { None };
-    let response = sessions::create_session(&workspace_id, kind, permission_mode)?;
+    let response = sessions::create_session(&workspace_id, kind, None, permission_mode)?;
     notify_ui_event(UiMutationEvent::SessionListChanged {
         workspace_id: workspace_id.clone(),
     });

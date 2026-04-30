@@ -109,8 +109,19 @@ describe("summarizeToolCall", () => {
 
 	it("strips the mcp__ prefix and shows server tool name", () => {
 		expect(summarizeToolCall(tool("mcp__github__search_repos"))).toBe(
-			"MCP search_repos",
+			"GitHub search repos",
 		);
+	});
+
+	it("formats GitHub connector tools", () => {
+		expect(
+			summarizeToolCall(
+				tool("mcp__codex_apps__github___fetch_pr", {
+					repo_full_name: "acme/widgets",
+					pr_number: 42,
+				}),
+			),
+		).toBe("GitHub fetch PR acme/widgets #42");
 	});
 
 	it("falls back to the raw tool name for unknown tools", () => {

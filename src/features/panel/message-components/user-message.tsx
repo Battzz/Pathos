@@ -247,9 +247,32 @@ export function ChatUserMessage({
 			>
 				{editing ? (
 					<div
-						className="w-full overflow-hidden rounded-lg border border-border/70 bg-card/90 shadow-sm"
+						className="group/edit relative w-full origin-top animate-in fade-in slide-in-from-bottom-1 overflow-hidden rounded-lg border border-primary/30 bg-card shadow-[0_0_0_1px_var(--color-primary)/0.04,0_8px_24px_-12px_var(--color-primary)/0.18] ring-1 ring-primary/10 backdrop-blur-sm duration-150"
 						style={{ fontSize: `${settings.fontSize}px` }}
 					>
+						{/* Left accent — a revision mark */}
+						<div
+							aria-hidden="true"
+							className="pointer-events-none absolute inset-y-0 left-0 w-[2px] bg-gradient-to-b from-primary/0 via-primary/70 to-primary/0"
+						/>
+
+						{/* Eyebrow: status + character count */}
+						<div className="flex items-center justify-between gap-3 px-4 pt-2.5 pb-1">
+							<div className="flex items-center gap-1.5">
+								<span className="relative flex size-1.5 items-center justify-center">
+									<span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/50" />
+									<span className="relative inline-flex size-1.5 rounded-full bg-primary" />
+								</span>
+								<span className="font-mono text-[10px] uppercase leading-none tracking-[0.18em] text-primary/80">
+									Revising
+								</span>
+							</div>
+							<span className="font-mono text-[10px] tabular-nums leading-none text-muted-foreground/60">
+								{draft.length.toLocaleString()}
+								<span className="text-muted-foreground/30"> ch</span>
+							</span>
+						</div>
+
 						<textarea
 							ref={editorRef}
 							value={draft}
@@ -264,39 +287,68 @@ export function ChatUserMessage({
 									handleCancelEdit();
 								}
 							}}
-							className="block max-h-[42vh] min-h-28 w-full resize-y border-0 bg-transparent px-3 py-2.5 leading-7 text-foreground outline-none placeholder:text-muted-foreground/45"
+							className="block max-h-[42vh] min-h-28 w-full resize-y border-0 bg-transparent px-4 pt-1 pb-3 leading-7 text-foreground outline-none placeholder:text-muted-foreground/45"
 							aria-label="Edit message"
+							placeholder="Refine your message…"
 							disabled={reverting}
 						/>
-						<div className="flex h-9 items-center justify-end gap-1 border-border/60 border-t bg-muted/25 px-2">
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon-xs"
-								aria-label="Cancel edit"
-								onClick={handleCancelEdit}
-								disabled={reverting}
-								className="size-6 text-muted-foreground hover:text-foreground"
-							>
-								<X className="size-3.5" strokeWidth={1.8} />
-							</Button>
-							<Button
-								type="button"
-								variant="default"
-								size="icon-xs"
-								aria-label="Send edited message"
-								onClick={() => {
-									void handleSubmitEdit();
-								}}
-								disabled={reverting || draft.trim().length === 0}
-								className="size-6 text-primary-foreground"
-							>
-								{reverting ? (
-									<Check className="size-3.5" strokeWidth={2} />
-								) : (
-									<SendHorizontal className="size-3.5" strokeWidth={2} />
-								)}
-							</Button>
+
+						<div className="flex items-center justify-between gap-3 border-border/50 border-t bg-muted/20 px-3 py-2">
+							<div className="hidden items-center gap-2 font-mono text-[10.5px] tabular-nums text-muted-foreground/60 sm:flex">
+								<span className="inline-flex items-center gap-1">
+									<kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded-[3px] border border-border/70 bg-card px-1 text-[10px] leading-none text-foreground/70 shadow-[0_1px_0_var(--color-border)]">
+										⌘
+									</kbd>
+									<kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded-[3px] border border-border/70 bg-card px-1 text-[10px] leading-none text-foreground/70 shadow-[0_1px_0_var(--color-border)]">
+										↵
+									</kbd>
+									<span className="text-muted-foreground/55">save</span>
+								</span>
+								<span className="text-muted-foreground/25">·</span>
+								<span className="inline-flex items-center gap-1">
+									<kbd className="inline-flex h-4 items-center justify-center rounded-[3px] border border-border/70 bg-card px-1 text-[10px] leading-none text-foreground/70 shadow-[0_1px_0_var(--color-border)]">
+										esc
+									</kbd>
+									<span className="text-muted-foreground/55">cancel</span>
+								</span>
+							</div>
+							<div className="flex items-center gap-1.5 sm:ml-auto">
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									aria-label="Cancel edit"
+									onClick={handleCancelEdit}
+									disabled={reverting}
+									className="h-7 gap-1 px-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+								>
+									<X className="size-3" strokeWidth={2} />
+									Cancel
+								</Button>
+								<Button
+									type="button"
+									variant="default"
+									size="sm"
+									aria-label="Send edited message"
+									onClick={() => {
+										void handleSubmitEdit();
+									}}
+									disabled={reverting || draft.trim().length === 0}
+									className="h-7 gap-1.5 px-2.5 font-mono text-[11px] uppercase tracking-wider text-primary-foreground"
+								>
+									{reverting ? (
+										<>
+											<Check className="size-3" strokeWidth={2.4} />
+											Sending
+										</>
+									) : (
+										<>
+											<SendHorizontal className="size-3" strokeWidth={2.4} />
+											Rewind &amp; Send
+										</>
+									)}
+								</Button>
+							</div>
 						</div>
 					</div>
 				) : (

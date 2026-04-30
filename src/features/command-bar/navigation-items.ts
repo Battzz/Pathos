@@ -15,6 +15,17 @@ export type NavigationItem = {
 	sessionId: string | null;
 };
 
+export type RecentChatItem = {
+	id: string;
+	value: string;
+	title: string;
+	detail: string;
+	workspaceId: string;
+	sessionId: string;
+	status: string;
+	timestamp: string | null;
+};
+
 export function buildNavigationItems(
 	repositoryFolders: RepositoryFolder[],
 ): NavigationItem[] {
@@ -43,12 +54,54 @@ export function buildNavigationItems(
 	});
 }
 
+export function buildRecentChatItems(
+	repositoryFolders: RepositoryFolder[],
+): RecentChatItem[] {
+	return repositoryFolders
+		.flatMap((folder) => {
+			const projectChats = folder.chats.map((chat) =>
+				recentChatItem(folder, chat, folder.repoName),
+			);
+			const workspaceChats = folder.workspaces.flatMap((workspace) =>
+				workspace.sessions.map((chat) =>
+					recentChatItem(folder, chat, workspace.title),
+				),
+			);
+
+			return [...projectChats, ...workspaceChats];
+		})
+		.sort((a, b) => timestampValue(b.timestamp) - timestampValue(a.timestamp));
+}
+
 export function sessionDetail(session: WorkspaceSessionSummary) {
 	const parts = [
 		session.model,
 		session.status === "idle" ? null : session.status,
 	];
 	return parts.filter(Boolean).join(" · ");
+}
+
+function recentChatItem(
+	folder: RepositoryFolder,
+	chat: RepositoryFolderChat,
+	location: string,
+): RecentChatItem {
+	const title = chat.title || "Untitled chat";
+	const timestamp =
+		chat.lastUserMessageAt ?? chat.updatedAt ?? chat.createdAt ?? null;
+	return {
+		id: `recent-${chat.sessionId}`,
+		value: `recent chat session ${folder.repoName} ${location} ${title} ${chat.status}`,
+		title,
+		detail:
+			location === folder.repoName
+				? folder.repoName
+				: `${location} · ${folder.repoName}`,
+		workspaceId: chat.workspaceId,
+		sessionId: chat.sessionId,
+		status: chat.status,
+		timestamp,
+	};
 }
 
 function chatNavigationItem(
@@ -90,4 +143,10 @@ function workspaceSubtitle(workspace: WorkspaceRow) {
 		workspace.branch ? `branch ${workspace.branch}` : null,
 	];
 	return parts.filter(Boolean).join(" · ");
+}
+
+function timestampValue(timestamp: string | null) {
+	if (!timestamp) return 0;
+	const value = Date.parse(timestamp);
+	return Number.isNaN(value) ? 0 : value;
 }

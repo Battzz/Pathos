@@ -45,7 +45,7 @@ vi.mock("@/components/ui/tooltip", () => ({
 	}: {
 		children: React.ReactNode;
 		asChild?: boolean;
-	}) => (asChild ? <>{children}</> : <span>{children}</span>),
+	}) => (asChild ? children : <span>{children}</span>),
 }));
 
 vi.mock("./composer-editor/plugins/file-mention-plugin", () => ({
@@ -203,6 +203,49 @@ function createUrlElicitation(): PendingElicitation {
 describe("WorkspaceComposer", () => {
 	afterEach(() => {
 		openerMocks.openUrl.mockReset();
+	});
+
+	it("focus event places the caret at the end of existing text", async () => {
+		const queryClient = createPathosQueryClient();
+
+		render(
+			<QueryClientProvider client={queryClient}>
+				<WorkspaceComposer
+					contextKey="session:focus-end"
+					onSubmit={vi.fn()}
+					disabled={false}
+					submitDisabled={false}
+					sending={false}
+					selectedModelId="opus-1m"
+					modelSections={MODEL_SECTIONS}
+					onSelectModel={vi.fn()}
+					provider="claude"
+					effortLevel="high"
+					onSelectEffort={vi.fn()}
+					permissionMode="acceptEdits"
+					onChangePermissionMode={vi.fn()}
+					restoreDraft="Review the diff"
+					restoreImages={[]}
+					restoreFiles={[]}
+					restoreCustomTags={[]}
+				/>
+			</QueryClientProvider>,
+		);
+
+		const editor = await screen.findByLabelText("Workspace input");
+		await waitFor(() => {
+			expect(editor.textContent).toBe("Review the diff");
+		});
+
+		window.dispatchEvent(new Event("pathos:focus-composer"));
+
+		await waitFor(() => {
+			expect(editor).toHaveFocus();
+			const selection = window.getSelection();
+			expect(selection?.anchorNode?.textContent).toBe("Review the diff");
+			expect(selection?.anchorOffset).toBe("Review the diff".length);
+			expect(selection?.focusOffset).toBe("Review the diff".length);
+		});
 	});
 
 	it("renders custom tag insertions as badges and expands them on submit", async () => {

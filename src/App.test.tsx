@@ -79,14 +79,16 @@ describe("App", () => {
 		fireEvent.mouseMove(window, { clientX: 360 });
 
 		await waitFor(() => {
-			expect(sidebar).toHaveStyle({ width: "360px" });
-			expect(resizeHandle).toHaveAttribute("aria-valuenow", "360");
+			expect(sidebar.parentElement).toHaveStyle({
+				"--pathos-sidebar-width": "360px",
+			});
 		});
 
 		fireEvent.mouseUp(window);
 
 		await waitFor(() => {
 			expect(document.body.style.cursor).toBe("");
+			expect(resizeHandle).toHaveAttribute("aria-valuenow", "360");
 		});
 
 		expect(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)).toBe("360");
@@ -135,8 +137,10 @@ describe("App", () => {
 		render(<App />);
 		await screen.findByRole("main", { name: "Application shell" });
 
-		expect(screen.getByLabelText("Workspace sidebar")).toHaveStyle({
-			width: "404px",
+		expect(
+			screen.getByLabelText("Workspace sidebar").parentElement,
+		).toHaveStyle({
+			"--pathos-sidebar-width": "404px",
 		});
 		expect(
 			screen.getByRole("separator", { name: "Resize sidebar" }),

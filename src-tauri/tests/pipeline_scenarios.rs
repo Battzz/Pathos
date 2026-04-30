@@ -1254,6 +1254,47 @@ fn codex_mcp_tool_call_renders_as_tool_call() {
 }
 
 #[test]
+fn codex_github_mcp_read_commands_collapse() {
+    let fetch_pr = json!({
+        "type": "item.completed",
+        "item": {
+            "id": "gh_1",
+            "type": "mcp_tool_call",
+            "server": "codex_apps",
+            "tool": "github___fetch_pr",
+            "arguments": {"repo_full_name": "acme/widgets", "pr_number": 42},
+            "status": "completed",
+            "result": {"title": "Fix widgets"}
+        }
+    });
+    let list_files = json!({
+        "type": "item.completed",
+        "item": {
+            "id": "gh_2",
+            "type": "mcp_tool_call",
+            "server": "codex_apps",
+            "tool": "github___list_pr_changed_filenames",
+            "arguments": {"repo_full_name": "acme/widgets", "pr_number": 42},
+            "status": "completed",
+            "result": ["src/widget.ts"]
+        }
+    });
+    let msgs = vec![
+        make_record(
+            "gh1",
+            "assistant",
+            &serde_json::to_string(&fetch_pr).unwrap(),
+        ),
+        make_record(
+            "gh2",
+            "assistant",
+            &serde_json::to_string(&list_files).unwrap(),
+        ),
+    ];
+    assert_yaml_snapshot!(run_normalized(msgs));
+}
+
+#[test]
 fn codex_turn_completed_with_duration_shows_result_label() {
     let parsed = json!({
         "type": "turn/completed",

@@ -1,18 +1,28 @@
+import type { LucideIcon } from "lucide-react";
 import {
+	Beaker,
+	CircleUser,
 	CornerDownLeft,
+	Cpu,
+	Download,
 	ExternalLink,
 	FolderOpen,
 	GitBranch,
+	GitMerge,
 	Globe,
+	ImportIcon,
+	Keyboard,
 	MessageSquare,
+	PaintBucket,
 	PanelLeft,
 	PanelRight,
 	Plus,
 	Search,
 	Settings,
 	SquarePen,
+	Wrench,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
 	Command,
 	CommandDialog,
@@ -20,7 +30,6 @@ import {
 	CommandGroup,
 	CommandInput,
 	CommandList,
-	CommandSeparator,
 } from "@/components/ui/command";
 import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type { RepositoryFolder, WorkspaceSessionSummary } from "@/lib/api";
@@ -28,8 +37,8 @@ import {
 	requestCloneProject,
 	requestOpenProject,
 } from "@/lib/project-action-events";
-import { buildNavigationItems, sessionDetail } from "./navigation-items";
-import { MutedItem, PaletteItem } from "./palette-item";
+import { buildNavigationItems, buildRecentChatItems } from "./navigation-items";
+import { PaletteItem, type Segment } from "./palette-item";
 
 type CommandBarProps = {
 	open: boolean;
@@ -44,7 +53,7 @@ type CommandBarProps = {
 	onSelectChat: (workspaceId: string, sessionId: string) => void;
 	onSelectSession: (sessionId: string) => void;
 	onCreateSession: () => void;
-	onOpenSettings: (section?: "shortcuts") => void;
+	onOpenSettings: (section?: string) => void;
 	onToggleLeftSidebar: () => void;
 	onToggleRightSidebar: () => void;
 	onFocusComposer: () => void;
@@ -59,6 +68,75 @@ type CommandBarProps = {
 		toggleLeftSidebar: string | null;
 		toggleRightSidebar: string | null;
 	};
+};
+
+const SETTINGS_SECTIONS: ReadonlyArray<{
+	key: string;
+	label: string;
+	icon: LucideIcon;
+	keywords?: string;
+}> = [
+	{
+		key: "general",
+		label: "General",
+		icon: Settings,
+		keywords: "notifications usage stats confirm",
+	},
+	{
+		key: "appearance",
+		label: "Appearance",
+		icon: PaintBucket,
+		keywords: "theme font dark light",
+	},
+	{
+		key: "model",
+		label: "Models",
+		icon: Cpu,
+		keywords: "default model commit provider api keys",
+	},
+	{
+		key: "shortcuts",
+		label: "Shortcuts",
+		icon: Keyboard,
+		keywords: "keyboard hotkeys bindings",
+	},
+	{ key: "git", label: "Git", icon: GitMerge, keywords: "branch prefix vcs" },
+	{
+		key: "experimental",
+		label: "Experimental",
+		icon: Beaker,
+		keywords: "cli install lab features",
+	},
+	{
+		key: "import",
+		label: "Import",
+		icon: ImportIcon,
+		keywords: "conductor migrate",
+	},
+	{
+		key: "developer",
+		label: "Developer",
+		icon: Wrench,
+		keywords: "dev tools internal",
+	},
+	{
+		key: "account",
+		label: "Account",
+		icon: CircleUser,
+		keywords: "github auth login workspace",
+	},
+];
+
+type Entry = {
+	id: string;
+	value: string;
+	icon: LucideIcon;
+	segments: Segment[];
+	shortcut?: string | null;
+	trailing?: React.ReactNode;
+	active?: boolean;
+	disabled?: boolean;
+	onSelect: () => void;
 };
 
 export function CommandBar({
@@ -81,203 +159,377 @@ export function CommandBar({
 	onOpenWorkspaceInEditor,
 	shortcuts,
 }: CommandBarProps) {
+	const [search, setSearch] = useState("");
+
+	useEffect(() => {
+		if (!open) setSearch("");
+	}, [open]);
+
 	const navigationItems = useMemo(
 		() => buildNavigationItems(repositoryFolders),
+		[repositoryFolders],
+	);
+	const recentChatItems = useMemo(
+		() => buildRecentChatItems(repositoryFolders),
 		[repositoryFolders],
 	);
 	const currentWorkspace = navigationItems.find(
 		(item) => item.workspaceId === currentWorkspaceId,
 	);
-	const visibleSessions = currentWorkspaceSessions.filter(
-		(session) => !session.isHidden,
-	);
+	const visibleSessions = currentWorkspaceSessions.filter((s) => !s.isHidden);
+
 	const run = (action: () => void) => {
 		onOpenChange(false);
 		action();
 	};
+
+	const entries = useMemo<Entry[]>(() => {
+		const out: Entry[] = [];
+
+		// 1. Quick actions — always near the top so they're discoverable.
+		out.push({
+			id: "action-focus-composer",
+			value: "action focus chat input composer prompt",
+			icon: SquarePen,
+			segments: [
+				{ label: "Action", primary: true },
+				{ label: "Focus chat input" },
+			],
+			shortcut: shortcuts.focusComposer,
+			onSelect: () => run(onFocusComposer),
+		});
+		out.push({
+			id: "action-toggle-left",
+			value: "action toggle left sidebar navigation",
+			icon: PanelLeft,
+			segments: [
+				{ label: "Action", primary: true },
+				{ label: "Toggle left sidebar" },
+			],
+			shortcut: shortcuts.toggleLeftSidebar,
+			onSelect: () => run(onToggleLeftSidebar),
+		});
+		out.push({
+			id: "action-toggle-right",
+			value: "action toggle right sidebar inspector",
+			icon: PanelRight,
+			segments: [
+				{ label: "Action", primary: true },
+				{ label: "Toggle right sidebar" },
+			],
+			shortcut: shortcuts.toggleRightSidebar,
+			onSelect: () => run(onToggleRightSidebar),
+		});
+		out.push({
+			id: "action-open-editor",
+			value: "action open project editor default app",
+			icon: ExternalLink,
+			segments: [
+				{ label: "Action", primary: true },
+				{ label: "Open project in default editor" },
+			],
+			shortcut: shortcuts.openWorkspaceInEditor,
+			disabled: !canOpenWorkspace,
+			onSelect: () => run(onOpenWorkspaceInEditor),
+		});
+
+		// 2. Project actions
+		out.push({
+			id: "project-open",
+			value: "project open local folder add",
+			icon: FolderOpen,
+			segments: [
+				{ label: "Project", primary: true },
+				{ label: "Open local folder" },
+			],
+			shortcut: shortcuts.openProject,
+			onSelect: () => run(requestOpenProject),
+		});
+		out.push({
+			id: "project-clone",
+			value: "project clone repository git url",
+			icon: Globe,
+			segments: [
+				{ label: "Project", primary: true },
+				{ label: "Clone repository" },
+			],
+			onSelect: () => run(requestCloneProject),
+		});
+		if (canCreateSession) {
+			out.push({
+				id: "project-new-session",
+				value: "project new session chat",
+				icon: Plus,
+				segments: [
+					{ label: "Project", primary: true },
+					{ label: currentWorkspace?.title ?? "Current" },
+					{ label: "New session" },
+				],
+				shortcut: shortcuts.newSession,
+				onSelect: () => run(onCreateSession),
+			});
+		}
+
+		// 3. Sessions in the current project
+		for (const session of visibleSessions) {
+			out.push({
+				id: `current-session-${session.id}`,
+				value: `chat session current ${session.title} ${session.model ?? ""} ${session.status} ${currentWorkspace?.title ?? ""}`,
+				icon: MessageSquare,
+				segments: [
+					{ label: "Chat", primary: true },
+					...(currentWorkspace ? [{ label: currentWorkspace.title }] : []),
+					{ label: session.title || "Untitled session" },
+				],
+				active: session.id === currentSessionId,
+				trailing: (
+					<span>
+						{formatRelativeTime(session.lastUserMessageAt ?? session.updatedAt)}
+					</span>
+				),
+				onSelect: () => run(() => onSelectSession(session.id)),
+			});
+		}
+
+		// 4. Recent chats across all projects
+		for (const item of recentChatItems) {
+			// Skip duplicates already shown under "current project sessions"
+			if (
+				item.workspaceId === currentWorkspaceId &&
+				visibleSessions.some((s) => s.id === item.sessionId)
+			) {
+				continue;
+			}
+			out.push({
+				id: `recent-${item.id}`,
+				value: item.value,
+				icon: MessageSquare,
+				segments: [
+					{ label: "Chat", primary: true },
+					{ label: item.detail },
+					{ label: item.title },
+				],
+				active: item.sessionId === currentSessionId,
+				trailing: <span>{formatRelativeTime(item.timestamp)}</span>,
+				onSelect: () =>
+					run(() => onSelectChat(item.workspaceId, item.sessionId)),
+			});
+		}
+
+		// 5. All projects (workspaces) — for jumping
+		for (const item of navigationItems) {
+			if (!item.workspaceId || item.sessionId) continue;
+			out.push({
+				id: `project-jump-${item.id}`,
+				value: `project workspace ${item.value}`,
+				icon: GitBranch,
+				segments: [{ label: "Project", primary: true }, { label: item.title }],
+				active: item.workspaceId === currentWorkspaceId && !currentSessionId,
+				trailing: item.detail ? <span>{item.detail}</span> : undefined,
+				onSelect: () => {
+					if (!item.workspaceId) return;
+					run(() => onSelectWorkspace(item.workspaceId as string));
+				},
+			});
+		}
+
+		// 6. Pathos CLI install — surfaces a buried Experimental panel action
+		out.push({
+			id: "cli-install",
+			value: "install pathos cli command line shell terminal experimental",
+			icon: Download,
+			segments: [{ label: "Pathos", primary: true }, { label: "Install CLI" }],
+			onSelect: () => run(() => onOpenSettings("experimental")),
+		});
+
+		// 7. Settings — root + every section
+		out.push({
+			id: "settings-root",
+			value: "settings preferences open",
+			icon: Settings,
+			segments: [{ label: "Settings", primary: true }],
+			shortcut: shortcuts.settings,
+			onSelect: () => run(() => onOpenSettings()),
+		});
+		for (const section of SETTINGS_SECTIONS) {
+			out.push({
+				id: `settings-${section.key}`,
+				value: `settings ${section.key} ${section.label} ${section.keywords ?? ""}`,
+				icon: section.icon,
+				segments: [
+					{ label: "Settings", primary: true },
+					{ label: section.label },
+				],
+				onSelect: () => run(() => onOpenSettings(section.key)),
+			});
+		}
+
+		return out;
+	}, [
+		canCreateSession,
+		canOpenWorkspace,
+		currentSessionId,
+		currentWorkspace,
+		currentWorkspaceId,
+		navigationItems,
+		onCreateSession,
+		onFocusComposer,
+		onOpenSettings,
+		onOpenWorkspaceInEditor,
+		onSelectChat,
+		onSelectSession,
+		onSelectWorkspace,
+		onToggleLeftSidebar,
+		onToggleRightSidebar,
+		recentChatItems,
+		shortcuts,
+		visibleSessions,
+	]);
+
+	const scopeLabel = currentWorkspace?.title ?? "no project";
 
 	return (
 		<CommandDialog
 			open={open}
 			onOpenChange={onOpenChange}
 			title="Command bar"
-			description="Open projects, clone repositories, and navigate Pathos."
-			className="top-1/2 w-[min(660px,calc(100vw-3rem))] max-w-none -translate-y-1/2 overflow-hidden rounded-2xl! border border-border/80 bg-popover/98 shadow-2xl shadow-black/30 backdrop-blur-xl sm:max-w-none"
+			description="Run commands, jump to chats, and open projects."
+			className="top-[16%] w-[min(720px,calc(100vw-2rem))] max-w-none translate-y-0 overflow-hidden rounded-xl! border border-border/60 bg-popover/95 shadow-[0_28px_70px_-14px_rgba(0,0,0,0.6)] backdrop-blur-2xl sm:max-w-none"
 		>
 			<Command shouldFilter loop className="rounded-none! bg-transparent p-0">
-				<div className="flex items-center border-b border-border/65 bg-background/40 px-4 py-3">
+				{/* Header — borderless search, the surface IS the input */}
+				<div className="px-4 pt-3 pb-2">
 					<CommandInput
 						autoFocus
-						placeholder="Search for projects and commands..."
+						value={search}
+						onValueChange={setSearch}
+						placeholder="Search commands, chats, projects..."
 						wrapperClassName="min-w-0 flex-1 p-0"
-						inputGroupClassName="h-9! border-transparent bg-transparent shadow-none! *:data-[slot=input-group-addon]:pl-2!"
-						className="h-9 text-[17px] font-medium placeholder:text-muted-foreground/85"
+						inputGroupClassName="h-11! border-transparent! bg-transparent! shadow-none! ring-0! *:data-[slot=input-group-addon]:pl-1!"
+						className="h-11 text-[15px] font-medium tracking-[-0.005em] placeholder:text-muted-foreground/50"
 					/>
 				</div>
-				<CommandList className="max-h-[min(26rem,58vh)] px-3 py-2.5">
+				<div className="mx-2 h-px bg-border/40" />
+				<CommandList className="min-h-[20rem] max-h-[min(30rem,60vh)] scroll-py-2 px-2 py-2">
 					<CommandEmpty>
-						<div className="flex flex-col items-center gap-2 py-7 text-muted-foreground">
-							<Search className="size-5" strokeWidth={1.7} />
-							<span>No matching commands</span>
+						<div className="flex flex-col items-center gap-2.5 py-12 text-muted-foreground/60">
+							<Search className="size-4 opacity-70" strokeWidth={1.5} />
+							<span className="text-[12px] font-medium tracking-[-0.005em]">
+								No matching commands
+							</span>
 						</div>
 					</CommandEmpty>
-
-					<CommandGroup
-						heading="Projects"
-						className="py-1.5 **:[[cmdk-group-heading]]:px-1 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-[12px] **:[[cmdk-group-heading]]:font-semibold **:[[cmdk-group-heading]]:tracking-normal **:[[cmdk-group-items]]:grid **:[[cmdk-group-items]]:gap-0.5"
-					>
-						<PaletteItem
-							value="open project local folder add repository"
-							icon={FolderOpen}
-							title="Open project"
-							detail="Add a local folder"
-							shortcut={shortcuts.openProject}
-							onSelect={() => run(requestOpenProject)}
-						/>
-						<PaletteItem
-							value="clone project repository url git"
-							icon={Globe}
-							title="Clone repository"
-							detail="Clone from a Git URL"
-							onSelect={() => run(requestCloneProject)}
-						/>
-					</CommandGroup>
-
-					<CommandSeparator className="my-1" />
-
-					<CommandGroup
-						heading="Navigation"
-						className="py-1.5 **:[[cmdk-group-heading]]:px-1 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-[12px] **:[[cmdk-group-heading]]:font-semibold **:[[cmdk-group-heading]]:tracking-normal **:[[cmdk-group-items]]:grid **:[[cmdk-group-items]]:gap-0.5"
-					>
-						{navigationItems.map((item) => (
+					<CommandGroup className="p-0 **:[[cmdk-group-items]]:grid **:[[cmdk-group-items]]:gap-px">
+						{entries.map((entry) => (
 							<PaletteItem
-								key={item.id}
-								value={item.value}
-								icon={GitBranch}
-								title={item.title}
-								detail={item.detail}
-								active={
-									item.workspaceId === currentWorkspaceId &&
-									(!item.sessionId || item.sessionId === currentSessionId)
-								}
-								disabled={!item.workspaceId}
-								onSelect={() =>
-									run(() => {
-										if (!item.workspaceId) return;
-										if (item.sessionId) {
-											onSelectChat(item.workspaceId, item.sessionId);
-											return;
-										}
-										onSelectWorkspace(item.workspaceId);
-									})
-								}
+								key={entry.id}
+								value={entry.value}
+								icon={entry.icon}
+								segments={entry.segments}
+								shortcut={entry.shortcut}
+								active={entry.active}
+								disabled={entry.disabled}
+								trailing={entry.trailing}
+								onSelect={entry.onSelect}
 							/>
 						))}
-						{navigationItems.length === 0 ? (
-							<MutedItem text="No projects yet" />
-						) : null}
-					</CommandGroup>
-
-					{currentWorkspace ? (
-						<CommandGroup
-							heading={`${currentWorkspace.title} Sessions`}
-							className="py-1.5 **:[[cmdk-group-heading]]:px-1 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-[12px] **:[[cmdk-group-heading]]:font-semibold **:[[cmdk-group-heading]]:tracking-normal **:[[cmdk-group-items]]:grid **:[[cmdk-group-items]]:gap-0.5"
-						>
-							{canCreateSession ? (
-								<PaletteItem
-									value="new session chat"
-									icon={Plus}
-									title="New session"
-									detail="Start another chat in this project"
-									shortcut={shortcuts.newSession}
-									onSelect={() => run(onCreateSession)}
-								/>
-							) : null}
-							{visibleSessions.slice(0, 8).map((session) => (
-								<PaletteItem
-									key={session.id}
-									value={`session chat ${session.title} ${session.model ?? ""} ${session.status}`}
-									icon={MessageSquare}
-									title={session.title || "Untitled session"}
-									detail={sessionDetail(session)}
-									active={session.id === currentSessionId}
-									onSelect={() => run(() => onSelectSession(session.id))}
-								/>
-							))}
-							{visibleSessions.length === 0 ? (
-								<MutedItem text="No sessions in this project" />
-							) : null}
-						</CommandGroup>
-					) : null}
-
-					<CommandSeparator className="my-1" />
-
-					<CommandGroup
-						heading="Actions"
-						className="py-1.5 **:[[cmdk-group-heading]]:px-1 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-[12px] **:[[cmdk-group-heading]]:font-semibold **:[[cmdk-group-heading]]:tracking-normal **:[[cmdk-group-items]]:grid **:[[cmdk-group-items]]:gap-0.5"
-					>
-						<PaletteItem
-							value="focus chat input composer prompt"
-							icon={SquarePen}
-							title="Focus chat input"
-							detail="Jump back to the composer"
-							shortcut={shortcuts.focusComposer}
-							onSelect={() => run(onFocusComposer)}
-						/>
-						<PaletteItem
-							value="open workspace editor default app"
-							icon={ExternalLink}
-							title="Open project in default app"
-							detail="Use your preferred editor"
-							shortcut={shortcuts.openWorkspaceInEditor}
-							disabled={!canOpenWorkspace}
-							onSelect={() => run(onOpenWorkspaceInEditor)}
-						/>
-						<PaletteItem
-							value="toggle left sidebar"
-							icon={PanelLeft}
-							title="Toggle left sidebar"
-							shortcut={shortcuts.toggleLeftSidebar}
-							onSelect={() => run(onToggleLeftSidebar)}
-						/>
-						<PaletteItem
-							value="toggle right inspector sidebar"
-							icon={PanelRight}
-							title="Toggle right sidebar"
-							shortcut={shortcuts.toggleRightSidebar}
-							onSelect={() => run(onToggleRightSidebar)}
-						/>
-						<PaletteItem
-							value="settings shortcuts customize keyboard command bar"
-							icon={Settings}
-							title="Customize shortcuts"
-							detail="Change command bar and navigation keys"
-							shortcut={shortcuts.openCommandBar}
-							onSelect={() => run(() => onOpenSettings("shortcuts"))}
-						/>
-						<PaletteItem
-							value="open settings preferences"
-							icon={Settings}
-							title="Open settings"
-							shortcut={shortcuts.settings}
-							onSelect={() => run(() => onOpenSettings())}
-						/>
 					</CommandGroup>
 				</CommandList>
-				<div className="flex min-h-10 items-center justify-end gap-4 border-t border-border/65 bg-background/45 px-4 text-[12px] font-semibold text-muted-foreground">
-					<span className="flex items-center gap-2 text-foreground">
-						Open
-						<CornerDownLeft className="size-4 text-muted-foreground" />
-					</span>
-					<span className="h-4 w-px bg-border" />
-					{shortcuts.openCommandBar ? (
-						<span className="hidden shrink-0 items-center gap-2 sm:flex">
-							<span>Actions</span>
-							<InlineShortcutDisplay hotkey={shortcuts.openCommandBar} />
-						</span>
-					) : null}
+				{/* Footer — scope chips on the left, kbd legend on the right */}
+				<div className="flex min-h-10 items-center justify-between gap-4 border-t border-border/40 bg-background/35 px-3 py-1.5">
+					<div className="flex min-w-0 items-center gap-1.5">
+						<ScopePill>Global</ScopePill>
+						<ScopePill muted>{scopeLabel}</ScopePill>
+					</div>
+					<div className="flex items-center gap-3 text-[11px] font-medium text-muted-foreground/80">
+						<FooterHint label="Execute">
+							<KbdGlyph>
+								<CornerDownLeft className="size-2.5" strokeWidth={2.25} />
+							</KbdGlyph>
+						</FooterHint>
+						<FooterHint label="Close">
+							<KbdGlyph>esc</KbdGlyph>
+						</FooterHint>
+						{shortcuts.openCommandBar ? (
+							<>
+								<span className="hidden h-3 w-px bg-border/50 sm:block" />
+								<span className="hidden items-center sm:flex">
+									<InlineShortcutDisplay hotkey={shortcuts.openCommandBar} />
+								</span>
+							</>
+						) : null}
+					</div>
 				</div>
 			</Command>
 		</CommandDialog>
 	);
+}
+
+function ScopePill({
+	children,
+	muted = false,
+}: {
+	children: React.ReactNode;
+	muted?: boolean;
+}) {
+	return (
+		<span
+			className={cnPill(muted)}
+			// Tabular for tidy alignment when scope is a numeric id
+			style={{ fontVariantNumeric: "tabular-nums" }}
+		>
+			{children}
+		</span>
+	);
+}
+
+function cnPill(muted: boolean) {
+	const base =
+		"inline-flex h-6 items-center rounded-md border px-2 text-[11px] font-medium tracking-[-0.005em]";
+	return muted
+		? `${base} border-border/35 bg-transparent text-muted-foreground/75`
+		: `${base} border-border/55 bg-background/55 text-foreground/85`;
+}
+
+function FooterHint({
+	label,
+	children,
+}: {
+	label: string;
+	children: React.ReactNode;
+}) {
+	return (
+		<span className="flex items-center gap-1.5">
+			{children}
+			<span className="tracking-tight">{label}</span>
+		</span>
+	);
+}
+
+function KbdGlyph({ children }: { children: React.ReactNode }) {
+	return (
+		<kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] border border-border/55 bg-background/60 px-1 font-mono text-[10.5px] font-medium text-foreground/85">
+			{children}
+		</kbd>
+	);
+}
+
+function formatRelativeTime(timestamp: string | null) {
+	if (!timestamp) return "";
+	const value = Date.parse(timestamp);
+	if (Number.isNaN(value)) return "";
+	const diffSeconds = Math.max(0, Math.floor((Date.now() - value) / 1000));
+	if (diffSeconds < 60) return "now";
+	const diffMinutes = Math.floor(diffSeconds / 60);
+	if (diffMinutes < 60) return `${diffMinutes}m`;
+	const diffHours = Math.floor(diffMinutes / 60);
+	if (diffHours < 24) return `${diffHours}h`;
+	const diffDays = Math.floor(diffHours / 24);
+	if (diffDays < 7) return `${diffDays}d`;
+	const diffWeeks = Math.floor(diffDays / 7);
+	if (diffWeeks < 5) return `${diffWeeks}w`;
+	return new Intl.DateTimeFormat(undefined, {
+		month: "short",
+		day: "numeric",
+	}).format(new Date(value));
 }

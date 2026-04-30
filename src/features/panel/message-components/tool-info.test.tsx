@@ -13,6 +13,27 @@ describe("getToolInfo — Skill", () => {
 	});
 });
 
+describe("getToolInfo — GitHub MCP", () => {
+	it("renders GitHub connector fetch commands with repository detail", () => {
+		const info = getToolInfo("mcp__codex_apps__github___fetch_pr", {
+			repo_full_name: "acme/widgets",
+			pr_number: 42,
+		});
+		expect(info.action).toBe("Fetch PR");
+		expect(info.detail).toBe("acme/widgets #42");
+		expect(info.icon).not.toBeNull();
+	});
+
+	it("renders GitHub connector mutations without raw MCP prefixes", () => {
+		const info = getToolInfo("mcp__codex_apps__github___merge_pull_request", {
+			repository_full_name: "acme/widgets",
+			pr_number: 42,
+		});
+		expect(info.action).toBe("Merge pull request");
+		expect(info.detail).toBe("acme/widgets #42");
+	});
+});
+
 describe("getToolInfo — WebSearch", () => {
 	it("search action shows query", () => {
 		const info = getToolInfo("WebSearch", {

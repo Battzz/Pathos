@@ -2130,6 +2130,9 @@ function AppShell({
 	useUiSyncBridge({
 		queryClient,
 		processPendingCliSends,
+		openChat: (workspaceId, sessionId) => {
+			handleSelectChat(workspaceId, sessionId);
+		},
 		reloadSettings: () => {
 			window.dispatchEvent(new Event(SETTINGS_RELOAD_EVENT));
 		},

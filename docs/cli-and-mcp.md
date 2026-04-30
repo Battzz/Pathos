@@ -30,6 +30,7 @@ The debug build reads `~/pathos-dev/` — same database as `bun run dev`.
 
 ```bash
 pathos data info
+pathos .
 pathos repo list
 pathos repo add /path/to/repo
 pathos workspace list
@@ -41,6 +42,9 @@ pathos send --workspace pathos/earth "Refactor the auth module"
 ```
 
 Debug builds use the same commands under `pathos-dev`.
+
+`pathos .` opens Pathos on the current folder, registers that folder as a
+project if it is not already known, and starts a new project chat.
 
 `--json` on any command outputs machine-readable JSON. `--data-dir <path>` overrides the data directory.
 

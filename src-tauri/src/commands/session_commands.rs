@@ -39,7 +39,8 @@ pub async fn create_chat_session_in_repo(
                 session_id,
             });
         }
-        let session = sessions::create_session(&workspace_id, None, permission_mode.as_deref())?;
+        let session =
+            sessions::create_session(&workspace_id, None, None, permission_mode.as_deref())?;
         Ok::<_, anyhow::Error>(CreateChatResponse {
             workspace_id,
             session_id: session.session_id,
@@ -177,10 +178,16 @@ async fn rollback_live_provider_session(
 pub async fn create_session(
     workspace_id: String,
     action_kind: Option<ActionKind>,
+    model_id: Option<String>,
     permission_mode: Option<String>,
 ) -> CmdResult<sessions::CreateSessionResponse> {
     run_blocking(move || {
-        sessions::create_session(&workspace_id, action_kind, permission_mode.as_deref())
+        sessions::create_session(
+            &workspace_id,
+            action_kind,
+            model_id.as_deref(),
+            permission_mode.as_deref(),
+        )
     })
     .await
 }

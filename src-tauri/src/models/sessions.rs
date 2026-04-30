@@ -75,7 +75,9 @@ pub fn list_workspace_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessio
             ORDER BY
               CASE WHEN s.pinned_at IS NULL THEN 1 ELSE 0 END,
               datetime(s.pinned_at) DESC,
-              datetime(s.created_at) ASC
+              datetime(COALESCE(s.last_user_message_at, s.updated_at, s.created_at)) DESC,
+              datetime(s.created_at) DESC,
+              s.id DESC
             "#,
     )?;
 
@@ -526,15 +528,17 @@ fn default_session_title_for_action_kind_with_workspace(
 pub fn create_session(
     workspace_id: &str,
     action_kind: Option<ActionKind>,
+    model_id: Option<&str>,
     permission_mode: Option<&str>,
 ) -> Result<CreateSessionResponse> {
     let mut connection = db::write_conn()?;
 
-    // `model` is left NULL on create: the frontend owns model selection via
-    // `settings.defaultModelId` (kept valid by `useEnsureDefaultModel`), and
-    // the value gets persisted into `sessions.model` by the agent streaming
-    // finalizer on the first message. Reading settings here would be a
-    // redundant second source of truth.
+    // Most sessions leave `model` NULL on create: the frontend owns default
+    // model selection, and streaming persists the actual model after the first
+    // message. Action sessions may pass an explicit model so the newly
+    // selected chat renders the same model that will be used for its queued
+    // prompt.
+    let initial_model = model_id.map(str::trim).filter(|model| !model.is_empty());
     let default_effort = settings::load_setting_value("app.default_effort")
         .ok()
         .flatten()
@@ -570,7 +574,7 @@ pub fn create_session(
         .execute(
             r#"
             INSERT INTO sessions (id, workspace_id, status, title, permission_mode, action_kind, model, effort_level)
-            VALUES (?1, ?2, 'idle', ?3, ?4, ?5, NULL, ?6)
+            VALUES (?1, ?2, 'idle', ?3, ?4, ?5, ?6, ?7)
             "#,
             (
                 &session_id,
@@ -578,6 +582,7 @@ pub fn create_session(
                 &title,
                 permission_mode.unwrap_or("default"),
                 action_kind,
+                initial_model,
                 &default_effort,
             ),
         )
@@ -1149,6 +1154,61 @@ mod tests {
             "INSERT INTO sessions (id, workspace_id, status, title, created_at, updated_at) VALUES ('s3', 'w1', 'idle', 'Third Session', '2026-01-03T00:00:00', '2026-01-03T00:00:00')",
             [],
         ).unwrap();
+    }
+
+    #[test]
+    fn list_workspace_sessions_orders_by_recent_user_activity() {
+        let env = crate::testkit::TestEnv::new("sessions-order-by-activity");
+        let conn = env.db_connection();
+        seed_three_sessions(&conn);
+        conn.execute(
+            "UPDATE sessions SET last_user_message_at = '2026-01-20T00:00:00', updated_at = '2026-01-20T00:00:00' WHERE id = 's1'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE sessions SET last_user_message_at = '2026-01-10T00:00:00', updated_at = '2026-01-10T00:00:00' WHERE id = 's2'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE sessions SET last_user_message_at = NULL, updated_at = '2026-01-30T00:00:00' WHERE id = 's3'",
+            [],
+        )
+        .unwrap();
+
+        let sessions = list_workspace_sessions("w1").unwrap();
+        let session_ids = sessions
+            .iter()
+            .map(|session| session.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(session_ids, vec!["s3", "s1", "s2"]);
+    }
+
+    #[test]
+    fn list_workspace_sessions_keeps_pinned_sessions_first() {
+        let env = crate::testkit::TestEnv::new("sessions-order-pinned-first");
+        let conn = env.db_connection();
+        seed_three_sessions(&conn);
+        conn.execute(
+            "UPDATE sessions SET pinned_at = '2026-01-05T00:00:00', updated_at = '2026-01-05T00:00:00' WHERE id = 's1'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE sessions SET last_user_message_at = '2026-01-30T00:00:00', updated_at = '2026-01-30T00:00:00' WHERE id = 's3'",
+            [],
+        )
+        .unwrap();
+
+        let sessions = list_workspace_sessions("w1").unwrap();
+        let session_ids = sessions
+            .iter()
+            .map(|session| session.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(session_ids, vec!["s1", "s3", "s2"]);
     }
 
     fn get_active_session_id(conn: &Connection, workspace_id: &str) -> Option<String> {

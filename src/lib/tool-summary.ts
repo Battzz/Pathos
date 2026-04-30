@@ -47,11 +47,68 @@ export function summarizeToolCall(part: ToolCallPart): string {
 			return "Updating todos";
 		default: {
 			if (part.toolName.startsWith("mcp__")) {
-				const segments = part.toolName.split("__");
-				const tool = segments.slice(2).join("__") || part.toolName;
-				return `MCP ${tool}`;
+				const parsed = parseMcpToolName(part.toolName);
+				if (parsed?.provider === "github") {
+					return summarizeGithubTool(parsed.tool, args);
+				}
+				return `MCP ${parsed?.tool ?? part.toolName}`;
 			}
 			return part.toolName;
 		}
 	}
+}
+
+function parseMcpToolName(
+	name: string,
+): { tool: string; provider?: "github" } | null {
+	const segments = name.split("__").filter(Boolean);
+	if (segments[0] !== "mcp" || segments.length < 3) {
+		return null;
+	}
+	const providerIndex = segments.findIndex(
+		(segment) => segment.toLowerCase() === "github",
+	);
+	if (providerIndex >= 0) {
+		return {
+			tool:
+				segments.slice(providerIndex + 1).join("__") || segments.at(-1) || name,
+			provider: "github",
+		};
+	}
+	return { tool: segments.slice(2).join("__") || name };
+}
+
+function summarizeGithubTool(
+	rawToolName: string,
+	args: Record<string, unknown>,
+): string {
+	const toolName = rawToolName.replace(/^_+/, "");
+	const repo =
+		typeof args.repo_full_name === "string"
+			? args.repo_full_name
+			: typeof args.repository_full_name === "string"
+				? args.repository_full_name
+				: null;
+	const pr = typeof args.pr_number === "number" ? ` #${args.pr_number}` : "";
+	const query = typeof args.query === "string" ? ` "${args.query}"` : "";
+	const target = repo ? ` ${repo}${pr}` : pr;
+	return `GitHub ${githubActionLabel(toolName)}${target || query}`;
+}
+
+function githubActionLabel(toolName: string): string {
+	const parts = toolName.split("_").filter(Boolean);
+	if (parts[0] === "github") {
+		parts.shift();
+	}
+	if (parts.length === 0) {
+		return "command";
+	}
+	const [verb = "", ...rest] = parts;
+	const object = rest
+		.join(" ")
+		.replace(/\bpr\b/g, "PR")
+		.replace(/\brepo\b/g, "repo")
+		.replace(/\burl\b/g, "URL")
+		.replace(/\bid\b/g, "ID");
+	return object ? `${verb} ${object}` : verb;
 }

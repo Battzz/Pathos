@@ -366,6 +366,7 @@ export function useWorkspaceCommitLifecycle({
 			try {
 				const { sessionId } = await createSession(workspaceId, {
 					actionKind: mode,
+					modelId: commitActionModelId,
 				});
 				const repoPreferences = selectedRepoId
 					? await loadRepoPreferences(selectedRepoId)

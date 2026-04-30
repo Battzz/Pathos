@@ -1,0 +1,17 @@
+---
+source: tests/pipeline_scenarios.rs
+expression: run_normalized(msgs)
+---
+- role: assistant
+  id: msg-1
+  content_length: 1
+  content:
+    - type: collapsed-group
+      category: read
+      tools_count: 2
+      active: false
+      summary: Read 2 GitHub items
+  status:
+    type: complete
+    reason: stop
+  streaming: ~

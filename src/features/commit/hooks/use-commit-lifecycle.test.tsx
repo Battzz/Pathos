@@ -200,6 +200,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 
 		expect(apiMocks.createSession).toHaveBeenCalledWith("workspace-1", {
 			actionKind: "create-pr",
+			modelId: "gpt-5.4-mini",
 		});
 		expect(result.current.pendingPromptForSession).toMatchObject({
 			sessionId: "session-action",

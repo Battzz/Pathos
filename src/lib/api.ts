@@ -1212,6 +1212,11 @@ export type UiMutationEvent =
 			prompt: string;
 			modelId: string | null;
 			permissionMode: string | null;
+	  }
+	| {
+			type: "openChatRequested";
+			workspaceId: string;
+			sessionId: string;
 	  };
 
 export async function listenGitBranchChanged(
@@ -2378,12 +2383,14 @@ export async function createSession(
 	workspaceId: string,
 	options?: {
 		actionKind?: ActionKind | null;
+		modelId?: string | null;
 		permissionMode?: string | null;
 	},
 ): Promise<CreateSessionResponse> {
 	return invoke<CreateSessionResponse>("create_session", {
 		workspaceId,
 		actionKind: options?.actionKind ?? null,
+		modelId: options?.modelId ?? null,
 		permissionMode: options?.permissionMode ?? null,
 	});
 }

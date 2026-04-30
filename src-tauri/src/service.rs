@@ -148,6 +148,7 @@ pub fn send_message(
                 create_session(
                     &workspace_id,
                     None,
+                    params.model.as_deref(),
                     params
                         .permission_mode
                         .as_deref()
@@ -721,7 +722,7 @@ mod tests {
         )
         .unwrap();
 
-        let response = create_session("w1", None, Some("plan")).unwrap();
+        let response = create_session("w1", None, None, Some("plan")).unwrap();
         let permission_mode: String = conn
             .query_row(
                 "SELECT permission_mode FROM sessions WHERE id = ?1",
@@ -752,7 +753,7 @@ mod tests {
         .unwrap();
 
         let response =
-            create_session("w1", Some(crate::agents::ActionKind::CreatePr), None).unwrap();
+            create_session("w1", Some(crate::agents::ActionKind::CreatePr), None, None).unwrap();
         let title: String = conn
             .query_row(
                 "SELECT title FROM sessions WHERE id = ?1",
@@ -762,5 +763,41 @@ mod tests {
             .unwrap();
 
         assert_eq!(title, "Create PR");
+    }
+
+    #[test]
+    fn create_action_session_stores_initial_model() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let _dir = TestDataDir::new("create-session-action-model");
+
+        let db_path = crate::data_dir::db_path().unwrap();
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute(
+            "INSERT INTO repos (id, name, root_path) VALUES ('r1', 'test-repo', '/tmp/test-repo')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, repository_id, directory_name, state, status) VALUES ('w1', 'r1', 'test-dir', 'ready', 'in-progress')",
+            [],
+        )
+        .unwrap();
+
+        let response = create_session(
+            "w1",
+            Some(crate::agents::ActionKind::CommitAndPush),
+            Some("gpt-5.4-mini"),
+            None,
+        )
+        .unwrap();
+        let model: Option<String> = conn
+            .query_row(
+                "SELECT model FROM sessions WHERE id = ?1",
+                [response.session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(model.as_deref(), Some("gpt-5.4-mini"));
     }
 }
