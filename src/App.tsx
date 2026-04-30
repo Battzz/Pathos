@@ -2274,7 +2274,7 @@ function AppShell({
 															pushWorkspaceToast={pushWorkspaceToast}
 														/>
 													</div>
-													<div className="absolute right-[12px] top-[6px] z-20 flex items-center gap-[2px]">
+													<div className="absolute right-[12px] top-[11px] z-20 flex items-center gap-[2px]">
 														<AppUpdateButton status={appUpdateStatus} />
 														<Tooltip>
 															<TooltipTrigger asChild>

@@ -1,12 +1,10 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Check, Copy, RefreshCw } from "lucide-react";
 import { useCallback, useState } from "react";
-import pathosLogoSrc from "@/assets/pathos-logo-light.png";
-import bannerHtml from "@/assets/render-banner.html?raw";
+import { AnimatedIdentityNet } from "@/components/animated-identity-net";
 import { GithubBrandIcon } from "@/components/brand-icon";
 import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";
 import { Button } from "@/components/ui/button";
-import { TypingAnimation } from "@/components/ui/typing-animation";
 import type { GithubIdentityState } from "./types";
 
 export function GithubIdentityGate({
@@ -53,13 +51,7 @@ export function GithubIdentityGate({
 			aria-label="GitHub identity gate"
 			className="relative h-screen overflow-hidden bg-background font-sans text-foreground antialiased"
 		>
-			<iframe
-				title="Pathos branding animation"
-				srcDoc={bannerHtml}
-				aria-hidden
-				tabIndex={-1}
-				className="pointer-events-none absolute inset-0 z-0 h-full w-full border-0 bg-transparent opacity-[0.02]"
-			/>
+			<AnimatedIdentityNet />
 			<div
 				aria-label="GitHub identity gate drag region"
 				className="absolute inset-x-0 top-0 z-20 flex h-11 items-center"
@@ -71,15 +63,8 @@ export function GithubIdentityGate({
 
 			<div className="relative z-10 flex h-full items-center justify-center px-6">
 				<div className="flex w-full max-w-md flex-col items-center">
-					<img
-						src={pathosLogoSrc}
-						alt="Pathos"
-						draggable={false}
-						className="size-18 rounded-[11px] opacity-90"
-					/>
-
 					{identityState.status === "pending" ? (
-						<div className="mt-10 flex w-full max-w-[15rem] flex-col items-center gap-4">
+						<div className="flex w-full max-w-[15rem] flex-col items-center gap-4">
 							<Button
 								variant="outline"
 								size="lg"
@@ -113,7 +98,7 @@ export function GithubIdentityGate({
 							</Button>
 						</div>
 					) : identityState.status === "unconfigured" ? (
-						<div className="mt-10 flex w-full max-w-md flex-col items-center gap-3 text-center">
+						<div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
 							<div className="space-y-1">
 								<h1 className="text-lg font-semibold text-foreground">
 									GitHub account connection is not configured
@@ -128,16 +113,16 @@ export function GithubIdentityGate({
 							</Button>
 						</div>
 					) : identityState.status === "checking" ? (
-						<div className="mt-10 inline-flex items-center justify-center gap-2 text-sm text-muted-foreground">
+						<div className="inline-flex items-center justify-center gap-2 text-sm text-muted-foreground">
 							<RefreshCw className="size-4 animate-spin" strokeWidth={1.8} />
 							Restoring your last session
 						</div>
 					) : (
-						<div className="mt-10 flex justify-center">
+						<div className="flex justify-center">
 							<Button
 								onClick={onConnectGithub}
 								size="lg"
-								className="hover:bg-primary/90"
+								className="h-11 border border-white/12 bg-foreground px-5 text-background shadow-[0_14px_42px_rgba(255,255,255,0.08)] hover:bg-foreground/90"
 							>
 								<GithubBrandIcon size={16} data-icon="inline-start" />
 								{identityState.status === "error"
@@ -148,31 +133,6 @@ export function GithubIdentityGate({
 					)}
 				</div>
 			</div>
-
-			<figure className="absolute inset-x-0 bottom-16 z-10 flex items-baseline justify-center gap-2 px-6">
-				<span
-					aria-hidden
-					className="font-serif text-3xl leading-none text-muted-foreground/40"
-				>
-					&ldquo;
-				</span>
-				<blockquote className="whitespace-nowrap font-serif text-lg italic leading-snug text-foreground/70">
-					<TypingAnimation
-						text={[
-							{ text: "AI made me 10x. " },
-							{
-								text: "Pathos",
-								className: "font-bold text-foreground",
-							},
-							{
-								text: " takes me 100x. Goodbye, handcrafted code. 👋",
-							},
-						]}
-						duration={55}
-						delay={400}
-					/>
-				</blockquote>
-			</figure>
 		</main>
 	);
 }

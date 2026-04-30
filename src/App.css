@@ -61,6 +61,69 @@ body {
 	}
 }
 
+.identity-net {
+	color: color-mix(in srgb, var(--foreground) 76%, #7dd3fc 24%);
+	opacity: 0.9;
+	filter: drop-shadow(
+		0 0 18px color-mix(in srgb, var(--foreground) 8%, transparent)
+	);
+}
+
+.identity-net-line {
+	fill: none;
+	stroke: url("#identity-net-line");
+	stroke-width: 1.1;
+	stroke-linecap: round;
+	stroke-dasharray: 8 18;
+	animation: identity-net-drift 16s linear infinite;
+}
+
+.identity-net-line-b,
+.identity-net-line-d {
+	animation-duration: 22s;
+	animation-direction: reverse;
+}
+
+.identity-net-line-c,
+.identity-net-line-e {
+	animation-duration: 19s;
+}
+
+.identity-net-nodes circle {
+	fill: currentColor;
+	opacity: 0.26;
+	transform-box: fill-box;
+	transform-origin: center;
+	animation: identity-net-pulse 4.8s ease-in-out infinite;
+}
+
+.identity-net-nodes circle:nth-child(2n) {
+	animation-delay: 900ms;
+}
+
+.identity-net-nodes circle:nth-child(3n) {
+	animation-delay: 1700ms;
+}
+
+@keyframes identity-net-drift {
+	to {
+		stroke-dashoffset: -220;
+	}
+}
+
+@keyframes identity-net-pulse {
+	0%,
+	100% {
+		opacity: 0.18;
+		transform: scale(0.92);
+	}
+
+	50% {
+		opacity: 0.42;
+		transform: scale(1.32);
+	}
+}
+
 /* Onboarding (editorial) shared chrome animations.
    Used by intro-preview, every step shell, and the splash.
    Animations only run when an ancestor has `.editorial-active`,

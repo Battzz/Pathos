@@ -116,7 +116,7 @@ describe("WorkspacePanel", () => {
 		expect(screen.getByTestId("codex-icon")).toBeInTheDocument();
 	});
 
-	it("renders project onboarding copy when no session exists", () => {
+	it("renders session guidance when no session exists", () => {
 		renderPanel({
 			workspace: {
 				...WORKSPACE,
@@ -128,11 +128,11 @@ describe("WorkspacePanel", () => {
 		});
 
 		expect(
-			screen.getByRole("heading", { name: "Bring a project into Pathos" }),
+			screen.getByRole("heading", { name: "Start or select a session" }),
 		).toBeInTheDocument();
 		expect(
 			screen.getByText(
-				"Open a local codebase or clone a remote repository to begin a focused workspace.",
+				"Use New chat in the sidebar to begin work in this workspace, or bring in another repository when you need a fresh project.",
 			),
 		).toBeInTheDocument();
 		expect(

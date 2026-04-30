@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
  * Reserves horizontal space for the OS window controls so header content
  * does not overlap them.
  *
- * - macOS: traffic lights sit on the left at (16, 24). `side="left"` renders
+ * - macOS: traffic lights sit on the left at (12, 25). `side="left"` renders
  *   the spacer; `side="right"` renders nothing.
  * - Windows / Linux: minimize / maximize / close sit on the right.
  *   `side="right"` renders the spacer; `side="left"` renders nothing.
