@@ -22,14 +22,11 @@ type ScriptStatusIconProps = {
  * Success / failure reuse the Git-actions PR accent tokens (open-accent
  * green, closed-accent red) so status semantics stay consistent across
  * the inspector. `no-script` and `idle` stay muted — they're neutral
- * states, not alerts. `running` uses the Pathos H logo animation.
+ * states, not alerts. `running` uses the Pathos logo animation.
  */
 export function ScriptStatusIcon({ state, className }: ScriptStatusIconProps) {
 	switch (state) {
 		case "running":
-			// PathosLogoAnimated is a div with lottie-rendered SVG inside;
-			// no text or label, so it's already silent to screen readers —
-			// no aria-hidden needed (and the component doesn't forward it).
 			return (
 				<PathosLogoAnimated
 					size={11}
