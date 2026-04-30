@@ -215,17 +215,16 @@ describe("App GitHub identity states", () => {
 		expect(
 			await screen.findByRole("main", { name: "Pathos onboarding" }),
 		).toBeInTheDocument();
-		expect(
-			screen.getByLabelText("Pathos workspace preview"),
-		).toBeInTheDocument();
-		expect(screen.getByText("Auth feature plan")).toBeInTheDocument();
-		expect(screen.getByText("Actions")).toBeInTheDocument();
+		expect(screen.getByLabelText("Welcome to Pathos")).toBeInTheDocument();
+		expect(screen.getByText("AI generates the code.")).toBeInTheDocument();
 		expect(apiMocks.loadGithubIdentitySession).not.toHaveBeenCalled();
 		expect(
 			screen.queryByRole("main", { name: "GitHub identity gate" }),
 		).not.toBeInTheDocument();
 
-		await user.click(screen.getByRole("button", { name: "Explore" }));
+		await user.click(
+			await screen.findByRole("button", { name: "Explore" }, { timeout: 2500 }),
+		);
 
 		expect(
 			await screen.findByRole("main", { name: "Pathos onboarding" }),

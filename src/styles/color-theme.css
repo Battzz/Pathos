@@ -111,6 +111,7 @@
 	--terminal-bright-cyan: oklch(0.55 0.09 192);
 	--terminal-bright-white: oklch(0.95 0 0);
 	--radius: 0.625rem;
+	--editorial-accent: oklch(0.55 0.2 295);
 }
 
 .dark {
@@ -222,4 +223,5 @@
 	--terminal-bright-magenta: oklch(0.78 0.12 310);
 	--terminal-bright-cyan: oklch(0.84 0.07 192);
 	--terminal-bright-white: oklch(0.985 0 0);
+	--editorial-accent: oklch(0.74 0.14 295);
 }

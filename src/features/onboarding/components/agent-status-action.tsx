@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button";
+import { ArrowRight } from "lucide-react";
 import type { AgentLoginProvider } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { AgentLoginStatus } from "../types";
@@ -22,14 +22,8 @@ export function AgentStatusAction({
 	}
 
 	return (
-		<Button
+		<button
 			type="button"
-			size="sm"
-			className={cn(
-				"group h-7 shrink-0 px-2 text-xs",
-				waiting &&
-					"bg-muted-foreground/70 text-background hover:bg-primary hover:text-primary-foreground",
-			)}
 			title={waiting ? "Restart setup" : undefined}
 			onMouseEnter={() => {
 				onPrimeLogin?.(provider);
@@ -40,15 +34,25 @@ export function AgentStatusAction({
 			onClick={() => {
 				onStartLogin?.(provider);
 			}}
-		>
-			{waiting ? (
-				<>
-					<span className="group-hover:hidden">Waiting...</span>
-					<span className="hidden group-hover:inline">Restart</span>
-				</>
-			) : (
-				"Log in"
+			className={cn(
+				"group/action inline-flex cursor-pointer items-center gap-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.32em] text-foreground/85 transition-colors duration-500 ease-[cubic-bezier(.16,1,.3,1)] hover:text-foreground",
+				waiting && "text-foreground/95",
 			)}
-		</Button>
+		>
+			<span className="transition-transform duration-700 ease-[cubic-bezier(.16,1,.3,1)] group-hover/action:translate-x-0.5">
+				{waiting ? (
+					<>
+						<span className="group-hover/action:hidden">Waiting…</span>
+						<span className="hidden group-hover/action:inline">Restart</span>
+					</>
+				) : (
+					"Log in"
+				)}
+			</span>
+			<ArrowRight
+				className="size-3 transition-transform duration-700 ease-[cubic-bezier(.16,1,.3,1)] group-hover/action:translate-x-1"
+				strokeWidth={1.5}
+			/>
+		</button>
 	);
 }

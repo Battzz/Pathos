@@ -1,8 +1,18 @@
 import { ArrowRight } from "lucide-react";
 import pathosLogoSrc from "@/assets/pathos-logo-light.png";
-import { Button } from "@/components/ui/button";
-import { PathosOnboardingMockup } from "../mockup";
+import { cn } from "@/lib/utils";
 import type { OnboardingStep } from "../types";
+import { Atmosphere, MetaLine, RuleSegment } from "./editorial-chrome";
+
+const REVEAL = {
+	rule: 60,
+	topMeta: 220,
+	greek: 340,
+	wordmark: 460,
+	tagline: 760,
+	cta: 1020,
+	footer: 1180,
+} as const;
 
 export function IntroPreview({
 	step,
@@ -11,96 +21,130 @@ export function IntroPreview({
 	step: OnboardingStep;
 	onNext: () => void;
 }) {
+	const isActive = step === "intro";
+
 	return (
-		<div
-			aria-hidden={step !== "intro"}
-			className={`relative z-10 grid h-full items-center gap-12 px-14 pt-10 pb-12 transition-[grid-template-columns] duration-700 ease-[cubic-bezier(.22,.82,.2,1)] max-lg:grid-cols-1 max-lg:content-center max-lg:gap-8 max-lg:px-8 ${
-				step === "intro"
-					? "grid-cols-[minmax(280px,0.6fr)_minmax(580px,1.4fr)]"
-					: "grid-cols-[minmax(360px,0.84fr)_minmax(460px,1.16fr)]"
-			}`}
+		<section
+			aria-label="Welcome to Pathos"
+			aria-hidden={!isActive}
+			className={cn(
+				"absolute inset-0 z-10 flex flex-col overflow-hidden bg-background text-foreground",
+				"transition-none",
+				isActive
+					? "editorial-active editorial-instant translate-y-0 opacity-100 blur-0"
+					: "pointer-events-none translate-y-0 opacity-0 blur-0",
+			)}
 		>
-			<section
-				className={`flex min-w-0 flex-col items-start transition-transform duration-1000 ease-[cubic-bezier(.22,.82,.2,1)] ${step !== "intro" ? "pointer-events-none -translate-x-[58vw]" : "translate-x-0"}`}
-			>
-				<img
-					src={pathosLogoSrc}
-					alt="Pathos"
-					draggable={false}
-					className="size-14 rounded-[10px] opacity-95"
-				/>
-				<h1 className="mt-7 text-[2.625rem] font-semibold leading-[1.1] tracking-normal text-foreground max-lg:text-3xl">
-					Hi, Pathos!
-				</h1>
-				<p className="mt-6 max-w-md text-base font-medium leading-7 text-muted-foreground">
-					AI generates the code. Pathos is where you orchestrate, review, and
-					ship it.
-				</p>
+			<Atmosphere />
 
-				<Button
-					type="button"
-					size="lg"
-					onClick={onNext}
-					className="mt-7 h-10 gap-2 px-3.5 text-[0.875rem]"
-				>
-					Explore
-					<ArrowRight data-icon="inline-end" className="size-4" />
-				</Button>
-			</section>
+			<header className="relative z-10 flex shrink-0 items-center justify-between gap-8 px-12 pl-32 pt-14">
+				<MetaLine delay={REVEAL.topMeta}>
+					<RuleSegment align="start" delay={REVEAL.rule} />
+					<span>Pathos · Edition I</span>
+				</MetaLine>
+				<MetaLine align="end" delay={REVEAL.topMeta}>
+					<span>Local · Yours · Offline</span>
+					<RuleSegment align="end" delay={REVEAL.rule} />
+				</MetaLine>
+			</header>
 
-			<section
-				aria-label="Pathos preview"
-				className={`relative flex min-h-[560px] min-w-0 items-center justify-center transition-transform duration-1000 ease-[cubic-bezier(.22,.82,.2,1)] max-lg:hidden ${
-					step === "skills"
-						? "translate-x-[28vw] translate-y-0"
-						: step === "repoImport"
-							? "translate-x-[28vw] translate-y-0"
-							: step === "completeTransition"
-								? "translate-x-[52vw] -translate-y-[18vh] opacity-0"
-								: step === "conductorTransition"
-									? "translate-x-[44vw] -translate-y-[12vh] opacity-0"
-									: step === "corner"
-										? "-translate-x-[86vw] translate-y-[57vh]"
-										: step === "agents"
-											? "-translate-x-[22vw] -translate-y-[51vh]"
-											: "translate-x-0 translate-y-0"
-				}`}
-			>
-				<div
-					aria-hidden
-					className="absolute left-6 top-7 h-28 w-64 border-l border-t border-border/70"
-				/>
-				<div
-					aria-hidden
-					className="absolute bottom-9 right-2 h-32 w-72 border-r border-b border-border/70"
-				/>
-				<div
-					className={`relative w-[760px] max-w-full overflow-hidden rounded-lg bg-card shadow-2xl shadow-black/35 transition-transform duration-1000 ease-[cubic-bezier(.22,.82,.2,1)] ${
-						step === "intro"
-							? "scale-[1.05]"
-							: step === "skills"
-								? "scale-[1.64]"
-								: step === "repoImport"
-									? "scale-[1.64]"
-									: step === "completeTransition"
-										? "scale-[1.95]"
-										: step === "conductorTransition"
-											? "scale-[1.95]"
-											: step === "corner"
-												? "scale-[2.24]"
-												: step === "agents"
-													? "scale-[1.5]"
-													: "scale-100"
-					}`}
-				>
-					<PathosOnboardingMockup
-						interactive={step !== "intro"}
-						providerSpotlight={step === "agents"}
-						gitHeaderSpotlight={step === "corner"}
-						cliSplitSpotlight={step === "skills"}
-					/>
+			<div className="relative z-10 mx-auto flex w-full max-w-[1180px] flex-1 flex-col justify-center px-12">
+				<div className="grid grid-cols-12 items-end gap-x-16 gap-y-10">
+					<div className="col-span-12 lg:col-span-7">
+						<div
+							className="editorial-stage mb-7 flex items-baseline gap-4"
+							style={{ animationDelay: `${REVEAL.greek}ms` }}
+						>
+							<span aria-hidden className="block h-px w-9 bg-foreground/30" />
+							<span className="font-display text-[20px] italic leading-none text-foreground/65">
+								πάθος
+							</span>
+							<span className="font-mono text-[10.5px] uppercase tracking-[0.32em] text-muted-foreground/55">
+								/ páthos / n.
+							</span>
+						</div>
+
+						<h1
+							aria-label="Pathos"
+							className="font-display font-normal leading-[0.88] tracking-[-0.035em] text-foreground/95"
+						>
+							<span className="block overflow-hidden pb-2">
+								<span
+									className="editorial-mask block text-[clamp(7.5rem,14vw,13rem)]"
+									style={{ animationDelay: `${REVEAL.wordmark}ms` }}
+								>
+									Pathos
+									<span style={{ color: "var(--editorial-accent)" }}>.</span>
+								</span>
+							</span>
+						</h1>
+					</div>
+
+					<div className="col-span-12 lg:col-span-5 lg:pb-4">
+						<p
+							className="editorial-stage font-display text-[clamp(20px,2.1vw,26px)] leading-[1.4] text-foreground/80 [text-wrap:balance]"
+							style={{ animationDelay: `${REVEAL.tagline}ms` }}
+						>
+							<span className="text-foreground/95">AI generates the code.</span>
+							<br />
+							Pathos is where you{" "}
+							<span style={{ color: "var(--editorial-accent)" }}>
+								orchestrate
+							</span>
+							, <span style={{ color: "var(--editorial-accent)" }}>review</span>
+							, and{" "}
+							<span style={{ color: "var(--editorial-accent)" }}>ship</span> it.
+						</p>
+
+						<div
+							className="editorial-stage mt-10"
+							style={{ animationDelay: `${REVEAL.cta}ms` }}
+						>
+							<button
+								type="button"
+								onClick={onNext}
+								className="group/cta relative inline-flex cursor-pointer items-center gap-3 py-2 pr-1 font-mono text-[12px] uppercase tracking-[0.36em] text-foreground/85 transition-colors duration-500 ease-[cubic-bezier(.16,1,.3,1)] hover:text-foreground"
+							>
+								<span className="transition-transform duration-700 ease-[cubic-bezier(.16,1,.3,1)] group-hover/cta:translate-x-0.5">
+									Explore
+								</span>
+								<ArrowRight
+									className="size-3.5 transition-transform duration-700 ease-[cubic-bezier(.16,1,.3,1)] group-hover/cta:translate-x-1"
+									strokeWidth={1.4}
+								/>
+							</button>
+						</div>
+					</div>
 				</div>
-			</section>
-		</div>
+			</div>
+
+			<footer className="relative z-10 flex shrink-0 items-end justify-between gap-8 px-12 pb-10">
+				<div
+					className="editorial-stage flex items-center gap-3"
+					style={{ animationDelay: `${REVEAL.footer}ms` }}
+				>
+					<img
+						src={pathosLogoSrc}
+						alt=""
+						aria-hidden
+						draggable={false}
+						className="size-7 rounded-[6px] opacity-90"
+					/>
+					<div className="flex flex-col gap-0.5">
+						<span className="font-mono text-[10.5px] uppercase tracking-[0.32em] text-foreground/75">
+							Pathos
+						</span>
+						<span className="font-mono text-[9px] uppercase tracking-[0.28em] text-muted-foreground/55">
+							A workshop for the things you ship
+						</span>
+					</div>
+				</div>
+				<MetaLine align="end" delay={REVEAL.footer}>
+					<span>MMXXV</span>
+					<span className="text-foreground/30">·</span>
+					<span>Made by hand</span>
+				</MetaLine>
+			</footer>
+		</section>
 	);
 }

@@ -1,5 +1,5 @@
 import { MarkGithubIcon } from "@primer/octicons-react";
-import { ArrowLeft, ArrowRight, LogIn } from "lucide-react";
+import { LogIn } from "lucide-react";
 import {
 	type ReactNode,
 	useCallback,
@@ -23,6 +23,11 @@ import {
 	writeForgeCliAuthTerminalStdin,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+	StepBackButton,
+	StepNextButton,
+	StepShell,
+} from "../components/editorial-chrome";
 import { OnboardingTerminalPreview } from "../components/login-terminal-preview";
 import { SetupItem } from "../components/setup-item";
 import type { OnboardingStep } from "../types";
@@ -205,9 +210,6 @@ export function RepositoryCliStep({
 		}
 		setGitlabHost(host);
 		setGitlabStatusHost(host);
-		// Probe `glab auth status --hostname <host>` before spawning the terminal —
-		// the domain may already be authenticated, in which case we skip straight
-		// to the ready state instead of forcing the user through `glab auth login`.
 		clearPoll();
 		setWaitingProvider("gitlab");
 		setGitlab((prev) => ({ status: prev.status, checking: true }));
@@ -226,92 +228,72 @@ export function RepositoryCliStep({
 	}, [clearPoll, gitlabHost, openTerminal, refreshStatus]);
 
 	return (
-		<section
-			aria-label="Repository CLI setup"
-			aria-hidden={step !== "corner"}
-			className={`absolute top-20 right-20 z-30 w-[560px] transition-all duration-1000 ease-[cubic-bezier(.22,.82,.2,1)] ${
-				step === "skills"
-					? "pointer-events-none translate-x-[118vw] -translate-y-[55vh] opacity-100"
-					: step === "corner"
-						? "translate-x-0 translate-y-0 opacity-100"
-						: "pointer-events-none translate-x-[64vw] -translate-y-[108vh] opacity-100"
-			}`}
-		>
-			<div className="flex flex-col items-start">
-				<h2 className="max-w-none text-4xl font-semibold leading-[1.02] tracking-normal text-foreground whitespace-nowrap">
-					Set up repository CLIs
-				</h2>
-				<p className="mt-4 max-w-md text-sm leading-6 text-muted-foreground">
+		<StepShell
+			active={step === "corner"}
+			ariaLabel="Set up repository CLIs"
+			chapter={{ number: "III", name: "Repositories" }}
+			folio="Folio 3 of 5"
+			title={
+				<>
+					Set up repository <em className="not-italic">CLIs</em>.
+				</>
+			}
+			subtitle={
+				<>
 					Install and authenticate your GitHub or GitLab CLI so Pathos can open
 					pull requests and keep repository actions local.
-				</p>
+				</>
+			}
+			footer={
+				<>
+					<StepBackButton onClick={onBack} />
+					<StepNextButton onClick={onNext} />
+				</>
+			}
+		>
+			<div className="flex flex-col">
+				<RepositoryCliSetupItem
+					icon={<MarkGithubIcon size={20} />}
+					label="GitHub CLI"
+					description="Run gh auth login to connect GitHub locally."
+					status={github.status}
+					checking={github.checking}
+					waiting={waitingProvider === "github"}
+					onSetUp={handleGithubSetUp}
+				/>
 
-				<div className="mt-7 grid w-full gap-3">
-					<RepositoryCliSetupItem
-						icon={<MarkGithubIcon size={20} />}
-						label="GitHub CLI"
-						description="Run gh auth login to connect GitHub locally."
-						status={github.status}
-						checking={github.checking}
-						waiting={waitingProvider === "github"}
-						onSetUp={handleGithubSetUp}
-					/>
+				<RepositoryCliTerminalSlot
+					active={activeTerminal?.provider === "github"}
+					terminal={
+						activeTerminal?.provider === "github" ? activeTerminal : null
+					}
+					onTerminalExit={handleTerminalExit}
+					onTerminalError={handleTerminalError}
+				/>
 
-					<RepositoryCliTerminalSlot
-						active={activeTerminal?.provider === "github"}
-						terminal={
-							activeTerminal?.provider === "github" ? activeTerminal : null
-						}
-						onTerminalExit={handleTerminalExit}
-						onTerminalError={handleTerminalError}
-					/>
+				<RepositoryCliSetupItem
+					icon={<GitlabBrandIcon size={20} className="text-[#FC6D26]" />}
+					label="GitLab CLI"
+					description="Run glab auth login to connect GitLab locally."
+					status={gitlab.status}
+					checking={gitlab.checking}
+					waiting={waitingProvider === "gitlab"}
+					onSetUp={handleGitlabSetUp}
+				/>
 
-					<RepositoryCliSetupItem
-						icon={<GitlabBrandIcon size={20} className="text-[#FC6D26]" />}
-						label="GitLab CLI"
-						description="Run glab auth login to connect GitLab locally."
-						status={gitlab.status}
-						checking={gitlab.checking}
-						waiting={waitingProvider === "gitlab"}
-						onSetUp={handleGitlabSetUp}
-					/>
-
-					<RepositoryCliGitlabPanel
-						activePanel={activeGitlabPanel}
-						activeTerminal={
-							activeTerminal?.provider === "gitlab" ? activeTerminal : null
-						}
-						gitlabHost={gitlabHost}
-						onGitlabHostChange={setGitlabHost}
-						onGitlabHostSubmit={handleGitlabHostSubmit}
-						onTerminalExit={handleTerminalExit}
-						onTerminalError={handleTerminalError}
-					/>
-				</div>
-
-				<div className="mt-7 flex items-center gap-3">
-					<Button
-						type="button"
-						variant="ghost"
-						size="lg"
-						onClick={onBack}
-						className="h-11 gap-2 px-4 text-[0.95rem]"
-					>
-						<ArrowLeft data-icon="inline-start" className="size-4" />
-						Back
-					</Button>
-					<Button
-						type="button"
-						size="lg"
-						onClick={onNext}
-						className="h-11 gap-2 px-4 text-[0.95rem]"
-					>
-						Next
-						<ArrowRight data-icon="inline-end" className="size-4" />
-					</Button>
-				</div>
+				<RepositoryCliGitlabPanel
+					activePanel={activeGitlabPanel}
+					activeTerminal={
+						activeTerminal?.provider === "gitlab" ? activeTerminal : null
+					}
+					gitlabHost={gitlabHost}
+					onGitlabHostChange={setGitlabHost}
+					onGitlabHostSubmit={handleGitlabHostSubmit}
+					onTerminalExit={handleTerminalExit}
+					onTerminalError={handleTerminalError}
+				/>
 			</div>
-		</section>
+		</StepShell>
 	);
 }
 
@@ -439,14 +421,16 @@ function GitlabHostPanel({
 	return (
 		<div
 			className={cn(
-				"absolute inset-x-0 top-3 rounded-xl border border-border/55 bg-card p-4 shadow-2xl shadow-black/10 transition-all duration-700 ease-[cubic-bezier(.22,.82,.2,1)]",
+				"absolute inset-x-0 top-3 rounded-xl border border-border/40 bg-foreground/[0.015] p-5 transition-all duration-700 ease-[cubic-bezier(.22,.82,.2,1)]",
 				active
 					? "translate-x-0 opacity-100"
 					: "pointer-events-none translate-x-[calc(100%+3rem)] opacity-0",
 			)}
 		>
-			<div className="text-sm font-medium text-foreground">GitLab domain</div>
-			<p className="mt-1 text-xs leading-5 text-muted-foreground">
+			<div className="font-display text-[20px] leading-none text-foreground/95">
+				GitLab domain
+			</div>
+			<p className="mt-2 text-[13.5px] leading-[1.55] text-muted-foreground/85">
 				Use gitlab.com or your self-hosted GitLab domain.
 			</p>
 			<form

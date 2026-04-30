@@ -1,5 +1,10 @@
-import { ArrowLeft, ArrowRight, Cloud, FolderOpen, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Cloud, FolderOpen, X } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+	StepBackButton,
+	StepNextButton,
+	StepShell,
+} from "../components/editorial-chrome";
 import type { ImportedRepository, OnboardingStep } from "../types";
 
 export function RepoImportStep({
@@ -28,102 +33,89 @@ export function RepoImportStep({
 	onComplete: () => void;
 }) {
 	return (
-		<section
-			aria-label="Repository import"
-			aria-hidden={step !== "repoImport"}
-			className={`absolute left-[calc(30vw-260px)] top-20 z-30 w-[520px] transition-all duration-1000 ease-[cubic-bezier(.22,.82,.2,1)] ${
-				step === "repoImport"
-					? "translate-x-0 translate-y-0 opacity-100"
-					: step === "completeTransition"
-						? "pointer-events-none -translate-x-[18vw] translate-y-[16vh] scale-[1.08] opacity-0 blur-sm"
-						: "pointer-events-none translate-x-0 translate-y-0 opacity-0"
-			}`}
+		<StepShell
+			active={step === "repoImport"}
+			ariaLabel="Bring in your first repositories"
+			chapter={{ number: "V", name: "Workshop" }}
+			folio="Folio 5 of 5"
+			title={
+				<>
+					Bring in your first <em className="not-italic">repositories</em>.
+				</>
+			}
+			subtitle={
+				<>
+					Start with a local project, or pull a remote repository from GitHub.
+					You can add more than one before entering Pathos.
+				</>
+			}
+			footer={
+				<>
+					<StepBackButton onClick={onBack} />
+					<StepNextButton label="Let's ship it" onClick={onComplete} />
+				</>
+			}
 		>
-			<div className="flex h-[660px] flex-col">
-				<div className="text-center">
-					<h2 className="text-3xl font-semibold tracking-normal text-foreground">
-						Bring in your first repositories
-					</h2>
-					<p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-						Start with a local project, or pull a remote repository from GitHub.
-						You can add more than one before entering Pathos.
-					</p>
-				</div>
-
-				<div className="mt-7 grid grid-cols-2 gap-3">
-					<button
-						type="button"
+			<div className="flex flex-col gap-8">
+				<div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+					<RepoSourceCard
+						icon={<FolderOpen className="size-5" strokeWidth={1.6} />}
+						title="Choose local project"
+						description="Add a folder already on this machine."
 						onClick={onAddLocalRepository}
 						disabled={isAddingLocalRepository}
-						className="flex cursor-pointer flex-col items-start rounded-lg border border-border/55 bg-card p-4 text-left text-foreground transition-colors hover:bg-muted/50 disabled:cursor-default disabled:opacity-70"
-					>
-						<div className="flex size-10 items-center justify-center rounded-lg border border-border/50 bg-background text-foreground">
-							<FolderOpen className="size-5" />
-						</div>
-						<div className="mt-4 text-sm font-medium text-foreground">
-							Choose local project
-						</div>
-						<p className="mt-1 text-xs leading-5 text-muted-foreground">
-							Add a folder already on this machine.
-						</p>
-					</button>
-					<button
-						type="button"
+					/>
+					<RepoSourceCard
+						icon={<Cloud className="size-5" strokeWidth={1.6} />}
+						title="Import from GitHub"
+						description="Clone a remote project into Pathos."
 						onClick={onOpenCloneDialog}
 						disabled={githubImportProgress !== null}
-						className="flex cursor-pointer flex-col items-start rounded-lg border border-border/55 bg-card p-4 text-left text-foreground transition-colors hover:bg-muted/50 disabled:cursor-default disabled:opacity-70"
-					>
-						<div className="flex size-10 items-center justify-center rounded-lg border border-border/50 bg-background text-foreground">
-							<Cloud className="size-5" />
-						</div>
-						<div className="mt-4 text-sm font-medium text-foreground">
-							Import from GitHub
-						</div>
-						<p className="mt-1 text-xs leading-5 text-muted-foreground">
-							Clone a remote project into Pathos.
-						</p>
-						{githubImportProgress !== null ? (
-							<div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-								<div
-									className="h-full rounded-full bg-primary transition-[width] duration-200"
-									style={{ width: `${githubImportProgress}%` }}
-								/>
-							</div>
-						) : null}
-					</button>
+						progress={githubImportProgress}
+					/>
 				</div>
 
 				{repoImportError ? (
-					<p role="alert" className="mt-3 text-center text-xs text-destructive">
+					<p
+						role="alert"
+						className="font-mono text-[10.5px] uppercase tracking-[0.2em] text-destructive/85"
+					>
 						{repoImportError}
 					</p>
 				) : null}
 
-				<div className="mt-7 min-h-0 flex-1">
-					<div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-						<span>Imported repositories</span>
+				<div className="flex flex-col">
+					<div className="mb-3 flex items-center justify-between gap-3 font-mono text-[10.5px] uppercase tracking-[0.32em] text-muted-foreground/65">
+						<div className="flex items-center gap-3">
+							<span aria-hidden className="block h-px w-7 bg-foreground/25" />
+							<span>Imported repositories</span>
+						</div>
 						{importedRepositories.length > 0 ? (
-							<span>{importedRepositories.length}</span>
+							<span className="text-foreground/55">
+								{importedRepositories.length.toString().padStart(2, "0")}
+							</span>
 						) : null}
 					</div>
-					<div className="h-full max-h-[230px] overflow-y-auto rounded-lg border border-border/55 bg-card p-2">
+					<div className="rounded-xl border border-border/30 bg-foreground/[0.015] p-2">
 						{importedRepositories.length > 0 ? (
-							<div className="grid gap-1.5">
+							<ul className="flex flex-col">
 								{importedRepositories.map((repo) => (
-									<div
+									<li
 										key={repo.id}
-										className="flex h-10 items-center gap-2 rounded-md border border-border/45 bg-background px-3"
+										className="grid grid-cols-[auto_1fr_auto] items-center gap-3 border-t border-border/25 px-3 py-3 first:border-t-0"
 									>
-										{repo.source === "local" ? (
-											<FolderOpen className="size-3.5 text-muted-foreground" />
-										) : (
-											<Cloud className="size-3.5 text-muted-foreground" />
-										)}
-										<div className="min-w-0 flex-1">
-											<div className="truncate text-xs font-medium text-foreground">
+										<div className="flex size-7 items-center justify-center rounded-md border border-border/40 text-muted-foreground/85">
+											{repo.source === "local" ? (
+												<FolderOpen className="size-3.5" strokeWidth={1.6} />
+											) : (
+												<Cloud className="size-3.5" strokeWidth={1.6} />
+											)}
+										</div>
+										<div className="min-w-0">
+											<div className="truncate text-[14px] font-medium leading-tight text-foreground/95">
 												{repo.name}
 											</div>
-											<div className="truncate text-[11px] text-muted-foreground">
+											<div className="truncate font-mono text-[10.5px] tracking-[0.04em] text-muted-foreground/55">
 												{repo.detail}
 											</div>
 										</div>
@@ -134,44 +126,69 @@ export function RepoImportStep({
 											onClick={() => {
 												onRemoveRepository(repo.id);
 											}}
-											className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-default disabled:opacity-50"
+											className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-default disabled:opacity-50"
 										>
-											<X className="size-3.5" />
+											<X className="size-3.5" strokeWidth={1.6} />
 										</button>
-									</div>
+									</li>
 								))}
-							</div>
+							</ul>
 						) : (
-							<div className="flex h-full min-h-32 items-center justify-center text-center text-xs leading-5 text-muted-foreground">
+							<div className="flex min-h-[160px] items-center justify-center px-4 py-8 text-center text-[13px] leading-[1.55] text-muted-foreground/65">
 								Choose a local folder or import from GitHub to build your first
 								queue.
 							</div>
 						)}
 					</div>
 				</div>
-
-				<div className="mt-7 flex items-center justify-center gap-3">
-					<Button
-						type="button"
-						variant="ghost"
-						size="lg"
-						onClick={onBack}
-						className="h-11 gap-2 px-4 text-[0.95rem]"
-					>
-						<ArrowLeft data-icon="inline-start" className="size-4" />
-						Back
-					</Button>
-					<Button
-						type="button"
-						size="lg"
-						onClick={onComplete}
-						className="h-11 gap-2 px-4 text-[0.95rem]"
-					>
-						Let&apos;s ship
-						<ArrowRight data-icon="inline-end" className="size-4" />
-					</Button>
-				</div>
 			</div>
-		</section>
+		</StepShell>
+	);
+}
+
+function RepoSourceCard({
+	icon,
+	title,
+	description,
+	onClick,
+	disabled,
+	progress,
+}: {
+	icon: React.ReactNode;
+	title: string;
+	description: string;
+	onClick: () => void;
+	disabled?: boolean;
+	progress?: number | null;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			disabled={disabled}
+			className={cn(
+				"group/source relative flex flex-col items-start overflow-hidden rounded-xl border border-border/40 bg-foreground/[0.015] p-6 text-left transition-[background-color,border-color,transform] duration-300 ease-out",
+				"hover:-translate-y-px hover:border-border/65 hover:bg-foreground/[0.03]",
+				"disabled:cursor-default disabled:opacity-70",
+			)}
+		>
+			<div className="flex size-11 items-center justify-center rounded-full border border-border/45 text-foreground/85 transition-colors group-hover/source:border-foreground/30">
+				{icon}
+			</div>
+			<div className="mt-5 font-display text-[24px] leading-none text-foreground/95">
+				{title}
+			</div>
+			<p className="mt-2 text-[13.5px] leading-[1.55] text-muted-foreground/85">
+				{description}
+			</p>
+			{progress !== undefined && progress !== null ? (
+				<div className="mt-5 h-px w-full overflow-hidden bg-foreground/10">
+					<div
+						className="h-full bg-[color:var(--editorial-accent)] transition-[width] duration-200"
+						style={{ width: `${progress}%` }}
+					/>
+				</div>
+			) : null}
+		</button>
 	);
 }

@@ -229,15 +229,24 @@ function MainApp() {
 	}, [hideSplashAfterBoot]);
 
 	useEffect(() => {
-		const minDelay = new Promise<void>((r) => setTimeout(r, 1000));
-		void Promise.all([loadSettings().then(setAppSettings), minDelay]).then(
-			() => {
-				// Start fade-out
+		let cancelled = false;
+		void loadSettings().then((settings) => {
+			if (cancelled) return;
+			setAppSettings(settings);
+			// When onboarding is needed, the OnboardingSplash takes over the
+			// "Pathos is starting" moment with its own brand sequence — so we
+			// dismiss the boot splash as soon as we know, instead of holding
+			// for a full second behind the curtain.
+			const minDelay = settings.onboardingCompleted ? 1000 : 0;
+			window.setTimeout(() => {
+				if (cancelled) return;
 				setSplashVisible(false);
-				// Remove from DOM after transition
-				setTimeout(() => setSplashMounted(false), 400);
-			},
-		);
+				window.setTimeout(() => setSplashMounted(false), 400);
+			}, minDelay);
+		});
+		return () => {
+			cancelled = true;
+		};
 	}, []);
 
 	useEffect(() => {

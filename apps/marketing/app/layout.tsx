@@ -7,7 +7,7 @@ export const metadata: Metadata = {
 	description:
 		"Run Claude Code and Codex side-by-side across worktrees, on your machine. Plan. Run. Review — without handing your source tree to a vendor.",
 	icons: {
-		icon: "/pathos-logo-dark.svg",
+		icon: "/pathos-logo-light.svg",
 	},
 };
 

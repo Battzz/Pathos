@@ -110,10 +110,12 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-function renderAtSkillsStep() {
+async function renderAtSkillsStep() {
 	render(<AppOnboarding onComplete={vi.fn()} />);
 
-	fireEvent.click(screen.getByRole("button", { name: "Continue intro" }));
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Continue intro" }),
+	);
 	fireEvent.click(screen.getByRole("button", { name: "Continue agents" }));
 	fireEvent.click(
 		screen.getByRole("button", { name: "Continue repository cli" }),
@@ -137,7 +139,7 @@ describe("AppOnboarding conductor routing", () => {
 	it("routes to repository import when Conductor is unavailable", async () => {
 		vi.mocked(isConductorAvailable).mockResolvedValue(false);
 
-		renderAtSkillsStep();
+		await renderAtSkillsStep();
 		fireEvent.click(screen.getByRole("button", { name: "Continue skills" }));
 
 		await screen.findByLabelText("Repository import");
@@ -157,7 +159,7 @@ describe("AppOnboarding conductor routing", () => {
 		]);
 		vi.mocked(listConductorWorkspaces).mockResolvedValue([importableWorkspace]);
 
-		renderAtSkillsStep();
+		await renderAtSkillsStep();
 		fireEvent.click(screen.getByRole("button", { name: "Continue skills" }));
 
 		await screen.findByLabelText("Conductor onboarding");
@@ -177,7 +179,7 @@ describe("AppOnboarding conductor routing", () => {
 			},
 		]);
 
-		renderAtSkillsStep();
+		await renderAtSkillsStep();
 		fireEvent.click(screen.getByRole("button", { name: "Continue skills" }));
 
 		await waitFor(() => {

@@ -19,6 +19,7 @@ import {
 import { describeUnknownError } from "@/lib/workspace-helpers";
 import { buildAgentLoginItems } from "./agent-login-state";
 import { IntroPreview } from "./components/intro-preview";
+import { OnboardingSplash } from "./components/splash";
 import { AgentLoginStep } from "./steps/agent-login-step";
 import { RepoImportStep } from "./steps/repo-import-step";
 import { RepositoryCliStep } from "./steps/repository-cli-step";
@@ -30,8 +31,10 @@ type AppOnboardingProps = {
 	onComplete: () => void;
 };
 
+const SPLASH_DURATION_MS = 1500;
+
 export function AppOnboarding({ onComplete }: AppOnboardingProps) {
-	const [step, setStep] = useState<OnboardingStep>("intro");
+	const [step, setStep] = useState<OnboardingStep>("splash");
 	const [loginItems, setLoginItems] = useState(() => buildAgentLoginItems());
 	const [isRoutingImport, setIsRoutingImport] = useState(false);
 	const [importedRepositories, setImportedRepositories] = useState<
@@ -78,6 +81,15 @@ export function AppOnboarding({ onComplete }: AppOnboardingProps) {
 		void enterOnboardingWindowMode();
 		return () => {
 			void exitOnboardingWindowMode();
+		};
+	}, []);
+
+	useEffect(() => {
+		const handle = window.setTimeout(() => {
+			setStep((current) => (current === "splash" ? "intro" : current));
+		}, SPLASH_DURATION_MS);
+		return () => {
+			window.clearTimeout(handle);
 		};
 	}, []);
 
@@ -241,8 +253,7 @@ export function AppOnboarding({ onComplete }: AppOnboardingProps) {
 	}, []);
 
 	const completeOnboarding = useCallback(() => {
-		setStep("completeTransition");
-		window.setTimeout(onComplete, 1100);
+		onComplete();
 	}, [onComplete]);
 
 	if (step === "conductor") {
@@ -257,7 +268,7 @@ export function AppOnboarding({ onComplete }: AppOnboardingProps) {
 	return (
 		<main
 			aria-label="Pathos onboarding"
-			className="relative h-screen overflow-hidden bg-background font-sans text-foreground antialiased"
+			className="relative h-screen select-none overflow-hidden bg-background font-sans text-foreground antialiased"
 		>
 			<div
 				aria-label="Pathos onboarding drag region"
@@ -267,22 +278,6 @@ export function AppOnboarding({ onComplete }: AppOnboardingProps) {
 				<div data-tauri-drag-region className="h-full flex-1" />
 				<TrafficLightSpacer side="right" width={140} />
 			</div>
-
-			<div
-				aria-hidden
-				className="pointer-events-none absolute inset-0 opacity-[0.08]"
-				style={{
-					backgroundImage:
-						"linear-gradient(to right, var(--color-foreground) 1px, transparent 1px), linear-gradient(to bottom, var(--color-foreground) 1px, transparent 1px)",
-					backgroundSize: "42px 42px",
-					maskImage:
-						"radial-gradient(ellipse 82% 68% at 50% 42%, black 15%, transparent 78%)",
-				}}
-			/>
-			<div
-				aria-hidden
-				className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-linear-to-t from-background via-background/80 to-transparent"
-			/>
 
 			<IntroPreview
 				step={step}
@@ -341,6 +336,7 @@ export function AppOnboarding({ onComplete }: AppOnboardingProps) {
 				defaultCloneDirectory={cloneDefaultDirectory}
 				onSubmit={handleCloneFromUrl}
 			/>
+			<OnboardingSplash active={step === "splash"} />
 		</main>
 	);
 }

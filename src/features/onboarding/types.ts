@@ -12,14 +12,13 @@ export type AgentLoginItem = {
 };
 
 export type OnboardingStep =
+	| "splash"
 	| "intro"
 	| "agents"
 	| "corner"
 	| "skills"
-	| "conductorTransition"
 	| "conductor"
-	| "repoImport"
-	| "completeTransition";
+	| "repoImport";
 
 export type ImportedRepository = {
 	id: string;

@@ -1,6 +1,4 @@
-import pathosLogoDark from "@/assets/pathos-logo.png";
-import pathosLogoLight from "@/assets/pathos-logo-light.png";
-import { resolveTheme, useSettings } from "@/lib/settings";
+import pathosLogoSrc from "@/assets/pathos-logo-light.png";
 import { cn } from "@/lib/utils";
 
 interface PathosLogoAnimatedProps {
@@ -17,9 +15,6 @@ export function PathosLogoAnimated({
 	autoplay = true,
 	className,
 }: PathosLogoAnimatedProps) {
-	const { settings } = useSettings();
-	const effectiveTheme = resolveTheme(settings.theme);
-	const logoSrc = effectiveTheme === "light" ? pathosLogoLight : pathosLogoDark;
 	const animationStyle = autoplay
 		? {
 				animationName: "pathos-logo-spin",
@@ -31,7 +26,7 @@ export function PathosLogoAnimated({
 
 	return (
 		<img
-			src={logoSrc}
+			src={pathosLogoSrc}
 			alt=""
 			draggable={false}
 			className={cn("block rounded-[22%] object-contain", className)}

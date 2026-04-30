@@ -3,7 +3,7 @@ import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import type React from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import conductorLogoSrc from "@/assets/conductor.webp";
-import pathosLogoSrc from "@/assets/pathos-logo.png";
+import pathosLogoSrc from "@/assets/pathos-logo-light.png";
 import { type ConductorWorkspace, importConductorWorkspaces } from "@/lib/api";
 import { Button } from "./ui/button";
 import { NumberTicker } from "./ui/number-ticker";

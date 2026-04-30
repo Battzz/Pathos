@@ -213,19 +213,9 @@ export function MarketingShell({ data }: { data: RepoData }) {
 			{/* ============== TOP RAIL ============== */}
 			<div className="rail">
 				<a className="brand" href="/">
-					{/* Both logo variants render; CSS on <html class> picks the right
-					 * one. Keeps the first paint correct for system-light visitors
-					 * without a React-driven src swap flashing the dark logo. */}
 					{/* eslint-disable-next-line @next/next/no-img-element */}
 					<img
-						className="brand-mark-dark"
-						src="/pathos-logo-dark.svg"
-						alt=""
-						aria-hidden="true"
-					/>
-					{/* eslint-disable-next-line @next/next/no-img-element */}
-					<img
-						className="brand-mark-light"
+						className="brand-mark"
 						src="/pathos-logo-light.svg"
 						alt=""
 						aria-hidden="true"

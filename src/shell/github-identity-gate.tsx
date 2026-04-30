@@ -1,7 +1,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Check, Copy, RefreshCw } from "lucide-react";
 import { useCallback, useState } from "react";
-import pathosLogoSrc from "@/assets/pathos-logo.png";
+import pathosLogoSrc from "@/assets/pathos-logo-light.png";
 import bannerHtml from "@/assets/render-banner.html?raw";
 import { GithubBrandIcon } from "@/components/brand-icon";
 import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";

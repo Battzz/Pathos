@@ -36,13 +36,6 @@
 	width: 18px;
 	height: 18px;
 }
-/* Both logo variants ship in the DOM; the <html> theme class picks one.
- * This avoids a React re-render swapping src at mount (which caused a dark
- * logo to flash for light-mode visitors before the useEffect settled). */
-html.light .brand-mark-dark,
-html.dark .brand-mark-light {
-	display: none;
-}
 .rail .version {
 	font-family: var(--font-mono);
 	color: var(--muted-foreground);
