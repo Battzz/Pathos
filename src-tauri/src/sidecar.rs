@@ -65,6 +65,14 @@ impl SidecarEvent {
         self.raw.get("type").and_then(Value::as_str) == Some("system")
             && self.raw.get("subtype").and_then(Value::as_str) == Some("init")
     }
+
+    pub fn claude_assistant_uuid(&self) -> Option<&str> {
+        if self.raw.get("type").and_then(Value::as_str) == Some("assistant") {
+            self.raw.get("uuid")?.as_str()
+        } else {
+            None
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

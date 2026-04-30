@@ -80,6 +80,8 @@ function renderInspector(
 				workspaceId={props.workspaceId ?? "workspace-1"}
 				workspaceState={props.workspaceState}
 				repoId={props.repoId}
+				workspaceBranch={props.workspaceBranch ?? "feature/actions"}
+				workspaceDefaultBranch={props.workspaceTargetBranch ?? "main"}
 				workspaceRemote={props.workspaceRemote ?? "testuser"}
 				bodyHeight={180}
 				expanded={false}
@@ -113,6 +115,8 @@ function renderActionsMenu(
 			workspaceId={props.workspaceId ?? "workspace-1"}
 			workspaceState={props.workspaceState}
 			repoId={props.repoId}
+			workspaceBranch={props.workspaceBranch ?? "feature/actions"}
+			workspaceDefaultBranch={props.workspaceDefaultBranch ?? "main"}
 			workspaceRemote={props.workspaceRemote ?? "testuser"}
 			onCommitAction={props.onCommitAction}
 			currentSessionId={props.currentSessionId ?? "session-1"}
@@ -383,6 +387,21 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 				"Open workspace actions: Create PR available",
 			),
 		).toBeInTheDocument();
+	});
+
+	it("does not mark create PR on the default branch", async () => {
+		renderActionsMenu({
+			commitButtonMode: "create-pr",
+			workspaceBranch: "main",
+			workspaceDefaultBranch: "main",
+		});
+
+		expect(
+			await screen.findByLabelText("Open workspace actions"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("Open workspace actions: Create PR available"),
+		).not.toBeInTheDocument();
 	});
 
 	it("marks the header actions trigger when a pull request can be merged", async () => {

@@ -417,6 +417,19 @@ export const SettingsDialog = memo(function SettingsDialog({
 											/>
 										</SettingsRow>
 										<SettingsRow
+											title="Confirm sidebar removals"
+											description="Ask before removing a project, all project chats, or an individual chat from the sidebar."
+										>
+											<Switch
+												checked={settings.confirmDestructiveSidebarActions}
+												onCheckedChange={(checked) =>
+													updateSettings({
+														confirmDestructiveSidebarActions: checked,
+													})
+												}
+											/>
+										</SettingsRow>
+										<SettingsRow
 											title="Follow-up behavior"
 											description={
 												<>

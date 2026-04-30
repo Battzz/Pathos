@@ -1,6 +1,6 @@
 ---
 source: tests/streaming_send_params.rs
-assertion_line: 139
+assertion_line: 140
 expression: "&params"
 ---
 claudeEnvironment:
@@ -14,4 +14,5 @@ permissionMode: bypassPermissions
 prompt: hello
 provider: claude
 resume: ~
+resumeSessionAt: ~
 sessionId: sidecar-sess-1

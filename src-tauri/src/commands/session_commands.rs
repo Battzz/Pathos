@@ -1,5 +1,9 @@
+use std::time::{Duration, Instant};
+
 use anyhow::Context;
 use serde::Serialize;
+use serde_json::Value;
+use uuid::Uuid;
 
 use crate::{
     agents::{self, ActionKind},
@@ -71,14 +75,102 @@ pub async fn list_session_thread_messages(
 
 #[tauri::command]
 pub async fn truncate_session_messages_after(
+    sidecar: tauri::State<'_, crate::sidecar::ManagedSidecar>,
     session_id: String,
     message_id: String,
     include_selected: bool,
 ) -> CmdResult<usize> {
+    let metadata_session_id = session_id.clone();
+    let metadata_message_id = message_id.clone();
+    let metadata = run_blocking(move || {
+        sessions::session_message_rollback_metadata(
+            &metadata_session_id,
+            &metadata_message_id,
+            include_selected,
+        )
+    })
+    .await?;
+
+    rollback_live_provider_session(
+        &sidecar,
+        &session_id,
+        metadata.agent_type.as_deref(),
+        metadata.user_turns_to_rollback,
+    )
+    .await?;
+
     run_blocking(move || {
         sessions::truncate_session_messages_after(&session_id, &message_id, include_selected)
     })
     .await
+}
+
+async fn rollback_live_provider_session(
+    sidecar: &crate::sidecar::ManagedSidecar,
+    session_id: &str,
+    agent_type: Option<&str>,
+    num_turns: usize,
+) -> CmdResult<()> {
+    if num_turns == 0 {
+        return Ok(());
+    }
+    let provider = match agent_type {
+        Some(provider @ ("codex" | "claude")) => provider,
+        _ => return Ok(()),
+    };
+
+    let request_id = Uuid::new_v4().to_string();
+    let request = crate::sidecar::SidecarRequest {
+        id: request_id.clone(),
+        method: "rollbackSession".to_string(),
+        params: serde_json::json!({
+            "sessionId": session_id,
+            "provider": provider,
+            "numTurns": num_turns,
+        }),
+    };
+
+    let rx = sidecar.subscribe(&request_id);
+    if let Err(error) = sidecar.send(&request) {
+        sidecar.unsubscribe(&request_id);
+        return Err(anyhow::anyhow!("Sidecar rollback send failed: {error}").into());
+    }
+
+    let rid_for_worker = request_id.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(anyhow::anyhow!("Timed out waiting for sidecar rollback"));
+            }
+            match rx.recv_timeout(remaining) {
+                Ok(event) => match event.event_type() {
+                    "pong" => return Ok(()),
+                    "error" => {
+                        let msg = event
+                            .raw
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("sidecar rollback failed");
+                        return Err(anyhow::anyhow!(msg.to_string()));
+                    }
+                    _ => continue,
+                },
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    return Err(anyhow::anyhow!("Timed out waiting for sidecar rollback"));
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(anyhow::anyhow!("Sidecar disconnected during rollback"));
+                }
+            }
+        }
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("Rollback worker failed: {error}"))?;
+
+    sidecar.unsubscribe(&rid_for_worker);
+    outcome.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -131,6 +223,23 @@ pub async fn unhide_session(session_id: String) -> CmdResult<()> {
 #[tauri::command]
 pub async fn delete_session(session_id: String) -> CmdResult<()> {
     run_blocking(move || sessions::delete_session(&session_id)).await
+}
+
+#[tauri::command]
+pub async fn delete_project_chats(
+    app: tauri::AppHandle,
+    repo_id: String,
+) -> CmdResult<sessions::DeleteProjectChatsResponse> {
+    let response = run_blocking(move || sessions::delete_project_chats(&repo_id)).await?;
+    if let Some(workspace_id) = &response.workspace_id {
+        crate::ui_sync::publish(
+            &app,
+            crate::ui_sync::UiMutationEvent::SessionListChanged {
+                workspace_id: workspace_id.clone(),
+            },
+        );
+    }
+    Ok(response)
 }
 
 #[tauri::command]

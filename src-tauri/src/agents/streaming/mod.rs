@@ -72,18 +72,24 @@ pub(super) fn stream_via_sidecar(
         "stream_via_sidecar"
     );
 
+    let mut resume_session_at: Option<String> = None;
     let resume_session_id = request.session_id.clone().or_else(|| {
         request.pathos_session_id.as_deref().and_then(|hsid| {
             let conn = crate::models::db::read_conn().ok()?;
-            let (stored_sid, stored_provider): (Option<String>, Option<String>) = conn
+            let (stored_sid, stored_provider, stored_resume_at): (
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ) = conn
                 .query_row(
-                    "SELECT provider_session_id, agent_type FROM sessions WHERE id = ?1",
+                    "SELECT provider_session_id, agent_type, resume_session_at FROM sessions WHERE id = ?1",
                     [hsid],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .ok()?;
             let sid = stored_sid?;
             if stored_provider.unwrap_or_default() == model.provider {
+                resume_session_at = stored_resume_at;
                 Some(sid)
             } else {
                 None
@@ -123,6 +129,7 @@ pub(super) fn stream_via_sidecar(
         cli_model: &model.cli_model,
         cwd: &working_directory.display().to_string(),
         resume_session_id: resume_session_id.as_deref(),
+        resume_session_at: resume_session_at.as_deref(),
         provider: &model.provider,
         effort_level: request.effort_level.as_deref(),
         permission_mode: request.permission_mode.as_deref(),
@@ -422,6 +429,23 @@ pub(super) fn stream_via_sidecar(
                                 tracing::debug!(rid = %rid, provider_session_id = sid, "Session ID persisted");
                             }
                         }
+                    }
+                }
+            }
+            if model_copy.provider == "claude" && !resume_only {
+                if let (Some(uuid), Some(ctx), Some(conn)) = (
+                    event.claude_assistant_uuid(),
+                    &exchange_ctx,
+                    &crate::models::db::write_conn().ok(),
+                ) {
+                    if let Err(error) = conn.execute(
+                        "UPDATE sessions SET resume_session_at = ?2 WHERE id = ?1",
+                        params![ctx.pathos_session_id, uuid],
+                    ) {
+                        tracing::error!(
+                            rid = %rid,
+                            "Failed to persist Claude resume_session_at: {error}"
+                        );
                     }
                 }
             }

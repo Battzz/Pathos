@@ -274,6 +274,7 @@ pub fn run() {
             commands::session_commands::hide_session,
             commands::session_commands::unhide_session,
             commands::session_commands::delete_session,
+            commands::session_commands::delete_project_chats,
             commands::session_commands::list_hidden_sessions,
             commands::session_commands::get_session_context_usage,
             commands::session_commands::get_live_context_usage,

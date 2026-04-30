@@ -45,6 +45,18 @@ pub(super) fn persist_user_message(
             now
         ],
     )?;
+
+    conn.execute(
+        r#"
+            UPDATE sessions
+            SET
+              last_user_message_at = ?2,
+              updated_at = ?2
+            WHERE id = ?1
+            "#,
+        params![ctx.pathos_session_id, now],
+    )?;
+
     Ok(())
 }
 
@@ -348,6 +360,11 @@ mod tests {
     fn make_messages_table(conn: &Connection) {
         conn.execute_batch(
             r#"
+            CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                last_user_message_at TEXT,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
             CREATE TABLE session_messages (
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
@@ -356,6 +373,7 @@ mod tests {
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 sent_at TEXT
             );
+            INSERT INTO sessions (id) VALUES ('session-1');
             "#,
         )
         .unwrap();
@@ -383,6 +401,15 @@ mod tests {
         assert_eq!(parsed["text"], "fix bug X");
         // `files` array should be omitted when empty.
         assert!(parsed.get("files").is_none());
+
+        let last_user_message_at: Option<String> = conn
+            .query_row(
+                "SELECT last_user_message_at FROM sessions WHERE id = 'session-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(last_user_message_at.is_some());
     }
 
     #[test]

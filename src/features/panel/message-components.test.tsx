@@ -10,6 +10,7 @@ import type { ThreadMessageLike } from "@/lib/api";
 import { MemoConversationMessage } from "./message-components";
 import { serializeMessageForClipboard } from "./message-components/copy-message";
 import { AssistantToolCall } from "./message-components/tool-call";
+import { ChatUserMessage } from "./message-components/user-message";
 
 let writeTextMock: ReturnType<typeof vi.fn>;
 
@@ -254,6 +255,83 @@ describe("MemoConversationMessage plan review", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
 
 		expect(writeTextMock).toHaveBeenCalledWith("Ship the action slot.");
+	});
+
+	it("rewinds a user message directly without opening a confirmation dialog", async () => {
+		const onRevertMessage = vi.fn().mockResolvedValue(undefined);
+		const userMessage: ThreadMessageLike = {
+			id: "user-rewind-source",
+			role: "user",
+			createdAt: "2026-04-12T12:01:00.000Z",
+			content: [
+				{
+					type: "text",
+					id: "user-rewind-source:text-0",
+					text: "Rewind to here.",
+				},
+			],
+		};
+
+		render(
+			<ChatUserMessage
+				message={userMessage}
+				onRevertMessage={onRevertMessage}
+			/>,
+		);
+
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "Rewind chat" }));
+		});
+
+		expect(onRevertMessage).toHaveBeenCalledWith("user-rewind-source");
+		expect(screen.queryByText("Rewind chat?")).not.toBeInTheDocument();
+	});
+
+	it("opens edit mode without truncating until the edited prompt is submitted", async () => {
+		const onRevertMessage = vi.fn().mockResolvedValue(undefined);
+		const onSubmitEditedMessage = vi.fn().mockResolvedValue(undefined);
+		const userMessage: ThreadMessageLike = {
+			id: "user-edit-source",
+			role: "user",
+			createdAt: "2026-04-12T12:01:00.000Z",
+			content: [
+				{
+					type: "text",
+					id: "user-edit-source:text-0",
+					text: "Original prompt",
+				},
+			],
+		};
+
+		render(
+			<ChatUserMessage
+				message={userMessage}
+				onRevertMessage={onRevertMessage}
+				onSubmitEditedMessage={onSubmitEditedMessage}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Edit and rewind message" }),
+		);
+
+		const editor = screen.getByLabelText("Edit message");
+		expect(editor).toHaveValue("Original prompt");
+		expect(onRevertMessage).not.toHaveBeenCalled();
+		expect(onSubmitEditedMessage).not.toHaveBeenCalled();
+
+		fireEvent.change(editor, { target: { value: "Edited prompt" } });
+		await act(async () => {
+			fireEvent.click(
+				screen.getByRole("button", { name: "Send edited message" }),
+			);
+		});
+
+		expect(onSubmitEditedMessage).toHaveBeenCalledWith(
+			"user-edit-source",
+			"Edited prompt",
+		);
+		expect(onRevertMessage).not.toHaveBeenCalled();
 	});
 
 	it("keeps a completed reasoning block open and shows elapsed time", () => {

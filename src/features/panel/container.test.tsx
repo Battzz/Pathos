@@ -13,6 +13,7 @@ const apiMocks = vi.hoisted(() => ({
 	loadWorkspaceSessions: vi.fn(),
 	loadSessionMessages: vi.fn(),
 	loadSessionThreadMessages: vi.fn(),
+	truncateSessionMessagesAfter: vi.fn(),
 }));
 
 const panelRenderSpy = vi.hoisted(() => vi.fn());
@@ -29,6 +30,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 		loadWorkspaceSessions: apiMocks.loadWorkspaceSessions,
 		loadSessionMessages: apiMocks.loadSessionThreadMessages,
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
+		truncateSessionMessagesAfter: apiMocks.truncateSessionMessagesAfter,
 	};
 });
 
@@ -238,6 +240,7 @@ describe("WorkspacePanelContainer loading semantics", () => {
 		apiMocks.loadWorkspaceDetail.mockReset();
 		apiMocks.loadWorkspaceSessions.mockReset();
 		apiMocks.loadSessionThreadMessages.mockReset();
+		apiMocks.truncateSessionMessagesAfter.mockReset();
 
 		apiMocks.createSession.mockResolvedValue({ sessionId: "session-created" });
 		apiMocks.generateSessionTitle.mockResolvedValue({
@@ -262,6 +265,7 @@ describe("WorkspacePanelContainer loading semantics", () => {
 			(sessionId?: string) =>
 				Promise.resolve(createMessages(sessionId ?? "session-1")),
 		);
+		apiMocks.truncateSessionMessagesAfter.mockResolvedValue(1);
 	});
 
 	afterEach(() => {
@@ -347,6 +351,52 @@ describe("WorkspacePanelContainer loading semantics", () => {
 				}>
 			).find((pane) => pane.sessionId === "session-2")?.messages,
 		).toEqual(createMessages("session-2"));
+	});
+
+	it("drops the selected user message when rewinding a chat", async () => {
+		const queryClient = createPathosQueryClient();
+		queryClient.setQueryData(
+			pathosQueryKeys.workspaceDetail("workspace-1"),
+			createWorkspaceDetail("workspace-1"),
+		);
+		queryClient.setQueryData(
+			pathosQueryKeys.workspaceSessions("workspace-1"),
+			createWorkspaceSessions("workspace-1"),
+		);
+		queryClient.setQueryData(
+			[...pathosQueryKeys.sessionMessages("session-1"), "thread"],
+			createMessages("session-1"),
+		);
+
+		renderWithProviders(
+			<WorkspacePanelContainer
+				selectedWorkspaceId="workspace-1"
+				displayedWorkspaceId="workspace-1"
+				selectedSessionId="session-1"
+				displayedSessionId="session-1"
+				sending={false}
+				onSelectSession={vi.fn()}
+				onResolveDisplayedSession={vi.fn()}
+			/>,
+			{ queryClient },
+		);
+
+		await waitFor(() => {
+			expect(getLatestPanelProps().onRevertMessage).toEqual(
+				expect.any(Function),
+			);
+		});
+
+		await (
+			getLatestPanelProps().onRevertMessage as (
+				messageId: string,
+			) => Promise<void>
+		)("user-message-1");
+
+		expect(apiMocks.truncateSessionMessagesAfter).toHaveBeenCalledTimes(1);
+		expect(
+			apiMocks.truncateSessionMessagesAfter.mock.calls[0]?.slice(1),
+		).toEqual(["user-message-1", true]);
 	});
 
 	it("derives the new-session tab provider from the default model setting", () => {

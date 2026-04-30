@@ -1,7 +1,9 @@
 import {
+	ChevronUp,
 	FolderOpen,
 	LoaderCircle,
 	MessageSquarePlus,
+	MessageSquareX,
 	Plus,
 	Trash2,
 } from "lucide-react";
@@ -13,6 +15,12 @@ import {
 	ContextMenuSeparator,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type { RepositoryFolder } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { WorkspaceAvatar } from "./avatar";
@@ -23,9 +31,13 @@ export type FolderRowProps = {
 	itemCount: number;
 	onToggle: (repoId: string) => void;
 	onCreateChat: (repoId: string) => void;
+	onCollapseChats?: (repoId: string) => void;
+	newChatShortcut?: string | null;
 	onOpenInFinder?: (repoId: string) => void;
+	onDeleteProjectChats?: (repoId: string) => void;
 	onRemoveProject?: (repoId: string) => void;
 	creatingChat?: boolean;
+	chatOverflowExpanded?: boolean;
 	highlighted?: boolean;
 };
 
@@ -35,9 +47,13 @@ export const FolderRow = memo(function FolderRow({
 	itemCount,
 	onToggle,
 	onCreateChat,
+	onCollapseChats,
+	newChatShortcut,
 	onOpenInFinder,
+	onDeleteProjectChats,
 	onRemoveProject,
 	creatingChat,
+	chatOverflowExpanded,
 	highlighted,
 }: FolderRowProps) {
 	const busy = Boolean(creatingChat);
@@ -82,30 +98,72 @@ export const FolderRow = memo(function FolderRow({
 						) : null}
 					</button>
 
-					<button
-						type="button"
-						aria-label={`New chat in ${folder.repoName}`}
-						disabled={busy}
-						className={cn(
-							"absolute right-1 top-1/2 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity",
-							"group-hover/folder:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-							"disabled:cursor-not-allowed disabled:opacity-60",
-							busy && "opacity-100",
-						)}
-						onClick={(event) => {
-							event.stopPropagation();
-							onCreateChat(folder.repoId);
-						}}
-					>
-						{busy ? (
-							<LoaderCircle
-								className="size-3.5 animate-spin"
-								strokeWidth={2.1}
-							/>
-						) : (
-							<Plus className="size-3.5" strokeWidth={2.4} />
-						)}
-					</button>
+					<div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+						{chatOverflowExpanded && onCollapseChats ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<button
+										type="button"
+										aria-label={`Hide chats in ${folder.repoName}`}
+										className={cn(
+											"flex size-6 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity",
+											"group-hover/folder:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+										)}
+										onClick={(event) => {
+											event.stopPropagation();
+											onCollapseChats(folder.repoId);
+										}}
+									>
+										<ChevronUp className="size-3.5" strokeWidth={2.2} />
+									</button>
+								</TooltipTrigger>
+								<TooltipContent side="top" sideOffset={4}>
+									Hide chats
+								</TooltipContent>
+							</Tooltip>
+						) : null}
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<button
+									type="button"
+									aria-label={`New chat in ${folder.repoName}`}
+									disabled={busy}
+									className={cn(
+										"flex size-6 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity",
+										"group-hover/folder:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+										"disabled:cursor-not-allowed disabled:opacity-60",
+										busy && "opacity-100",
+									)}
+									onClick={(event) => {
+										event.stopPropagation();
+										onCreateChat(folder.repoId);
+									}}
+								>
+									{busy ? (
+										<LoaderCircle
+											className="size-3.5 animate-spin"
+											strokeWidth={2.1}
+										/>
+									) : (
+										<Plus className="size-3.5" strokeWidth={2.4} />
+									)}
+								</button>
+							</TooltipTrigger>
+							<TooltipContent
+								side="top"
+								sideOffset={4}
+								className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
+							>
+								<span>New chat</span>
+								{newChatShortcut ? (
+									<InlineShortcutDisplay
+										hotkey={newChatShortcut}
+										className="text-tooltip-foreground/55"
+									/>
+								) : null}
+							</TooltipContent>
+						</Tooltip>
+					</div>
 				</div>
 			</ContextMenuTrigger>
 			<ContextMenuContent className="min-w-44">
@@ -125,6 +183,16 @@ export const FolderRow = memo(function FolderRow({
 				{onRemoveProject ? (
 					<>
 						<ContextMenuSeparator />
+						{onDeleteProjectChats ? (
+							<ContextMenuItem
+								variant="destructive"
+								disabled={itemCount === 0}
+								onSelect={() => onDeleteProjectChats(folder.repoId)}
+							>
+								<MessageSquareX className="size-3.5" strokeWidth={2} />
+								<span>Remove all chats</span>
+							</ContextMenuItem>
+						) : null}
 						<ContextMenuItem
 							variant="destructive"
 							onSelect={() => onRemoveProject(folder.repoId)}

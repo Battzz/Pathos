@@ -380,6 +380,26 @@ async function handleShutdown(id: string): Promise<void> {
 	setImmediate(() => process.exit(0));
 }
 
+async function handleRollbackSession(
+	id: string,
+	params: Record<string, unknown>,
+): Promise<void> {
+	try {
+		const provider = parseProvider(params.provider);
+		const sessionId = requireString(params, "sessionId");
+		const numTurns = params.numTurns;
+		if (!Number.isInteger(numTurns) || (numTurns as number) < 1) {
+			throw new Error("params.numTurns must be an integer >= 1");
+		}
+		await managers[provider].rollbackSession(sessionId, numTurns as number);
+		emitter.pong(id);
+	} catch (err) {
+		const msg = errorMessage(err);
+		logger.error(`[${id}] rollbackSession FAILED: ${msg}`, errorDetails(err));
+		emitter.error(id, msg);
+	}
+}
+
 // ---------------------------------------------------------------------------
 // In-flight handler tracking — so shutdown can await pending work.
 // ---------------------------------------------------------------------------
@@ -447,6 +467,9 @@ for await (const line of rl) {
 				break;
 			case "steerSession":
 				await handleSteerSession(id, params);
+				break;
+			case "rollbackSession":
+				await handleRollbackSession(id, params);
 				break;
 			case "shutdown":
 				await handleShutdown(id);

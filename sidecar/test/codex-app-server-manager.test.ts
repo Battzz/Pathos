@@ -150,6 +150,35 @@ describe("CodexAppServerManager", () => {
 		);
 	});
 
+	test("rolls back the live Codex thread by turn count", async () => {
+		const manager = new CodexAppServerManager();
+
+		await manager.sendMessage(
+			"REQ-rollback-seed",
+			{
+				sessionId: "session-1",
+				prompt: "hello",
+				model: "gpt-5.4",
+				cwd: "/tmp",
+				resume: undefined,
+				permissionMode: undefined,
+				effortLevel: undefined,
+				fastMode: false,
+			},
+			emitter,
+		);
+
+		await manager.rollbackSession("session-1", 2);
+
+		expect(serverState.requests).toContainEqual({
+			method: "thread/rollback",
+			params: {
+				threadId: "thread-1",
+				numTurns: 2,
+			},
+		});
+	});
+
 	test("plan mode with additionalDirectories sets sandboxPolicy writableRoots including cwd", async () => {
 		const manager = new CodexAppServerManager();
 		gitAccessState.directories = ["/git/worktree-meta", "/git/common"];

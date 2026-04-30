@@ -93,6 +93,7 @@ fn base_input<'a>(session_id: Option<&'a str>) -> BuildSendMessageParamsInput<'a
         cli_model: "claude-opus-4",
         cwd: "/abs/workspace",
         resume_session_id: None,
+        resume_session_at: None,
         provider: "claude",
         effort_level: Some("high"),
         permission_mode: Some("bypassPermissions"),

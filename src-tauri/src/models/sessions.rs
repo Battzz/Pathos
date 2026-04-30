@@ -10,6 +10,13 @@ use super::{db, settings};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DeleteProjectChatsResponse {
+    pub workspace_id: Option<String>,
+    pub deleted_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceSessionSummary {
     pub id: String,
     pub workspace_id: String,
@@ -105,6 +112,85 @@ pub fn list_session_historical_records(session_id: &str) -> Result<Vec<Historica
     list_session_historical_records_with_connection(&connection, session_id)
 }
 
+pub struct SessionMessageRollbackMetadata {
+    pub agent_type: Option<String>,
+    pub user_turns_to_rollback: usize,
+    pub resume_session_at: Option<String>,
+}
+
+pub fn session_message_rollback_metadata(
+    session_id: &str,
+    message_id: &str,
+    include_selected: bool,
+) -> Result<SessionMessageRollbackMetadata> {
+    let connection = db::read_conn()?;
+
+    let (selected_rowid, agent_type): (i64, Option<String>) = connection
+        .query_row(
+            r#"
+            SELECT sm.rowid, s.agent_type
+            FROM session_messages sm
+            JOIN sessions s ON s.id = sm.session_id
+            WHERE sm.session_id = ?1 AND sm.id = ?2
+            "#,
+            rusqlite::params![session_id, message_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("Failed to find message {message_id} in session {session_id}"))?;
+
+    let comparator = if include_selected { ">=" } else { ">" };
+    let user_turns_to_rollback: i64 = connection
+        .query_row(
+            &format!(
+                "SELECT COUNT(*) FROM session_messages WHERE session_id = ?1 AND rowid {comparator} ?2 AND role = 'user'"
+            ),
+            rusqlite::params![session_id, selected_rowid],
+            |row| row.get(0),
+        )
+        .context("Failed to count user turns selected for rollback")?;
+    let keep_comparator = if include_selected { "<" } else { "<=" };
+    let resume_session_at = last_claude_assistant_uuid_before_rowid(
+        &connection,
+        session_id,
+        selected_rowid,
+        keep_comparator,
+    )?;
+
+    Ok(SessionMessageRollbackMetadata {
+        agent_type,
+        user_turns_to_rollback: user_turns_to_rollback.max(0) as usize,
+        resume_session_at,
+    })
+}
+
+fn last_claude_assistant_uuid_before_rowid(
+    connection: &Connection,
+    session_id: &str,
+    selected_rowid: i64,
+    comparator: &str,
+) -> Result<Option<String>> {
+    let content: Option<String> = connection
+        .query_row(
+            &format!(
+                "SELECT content FROM session_messages WHERE session_id = ?1 AND rowid {comparator} ?2 AND role = 'assistant' ORDER BY rowid DESC LIMIT 1"
+            ),
+            rusqlite::params![session_id, selected_rowid],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("Failed to load retained assistant message for Claude rollback")?;
+
+    Ok(content
+        .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+        .and_then(|value| {
+            value
+                .get("uuid")
+                .and_then(Value::as_str)
+                .filter(|uuid| !uuid.is_empty())
+                .map(str::to_string)
+        }))
+}
+
 pub fn truncate_session_messages_after(
     session_id: &str,
     message_id: &str,
@@ -115,13 +201,27 @@ pub fn truncate_session_messages_after(
         .transaction()
         .context("Failed to start session rollback transaction")?;
 
-    let selected_rowid: i64 = transaction
+    let (selected_rowid, agent_type): (i64, Option<String>) = transaction
         .query_row(
-            "SELECT rowid FROM session_messages WHERE session_id = ?1 AND id = ?2",
+            r#"
+            SELECT sm.rowid, s.agent_type
+            FROM session_messages sm
+            JOIN sessions s ON s.id = sm.session_id
+            WHERE sm.session_id = ?1 AND sm.id = ?2
+            "#,
             rusqlite::params![session_id, message_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .with_context(|| format!("Failed to find message {message_id} in session {session_id}"))?;
+    let keep_comparator = if include_selected { "<" } else { "<=" };
+    let resume_session_at = last_claude_assistant_uuid_before_rowid(
+        &transaction,
+        session_id,
+        selected_rowid,
+        keep_comparator,
+    )?;
+    let preserve_claude_resume =
+        agent_type.as_deref() == Some("claude") && resume_session_at.is_some();
 
     let deleted = if include_selected {
         transaction
@@ -154,13 +254,19 @@ pub fn truncate_session_messages_after(
             r#"
             UPDATE sessions
             SET
-              provider_session_id = NULL,
+              provider_session_id = CASE WHEN ?3 THEN provider_session_id ELSE NULL END,
+              resume_session_at = CASE WHEN ?3 THEN ?4 ELSE NULL END,
               status = 'idle',
               last_user_message_at = ?2,
               updated_at = datetime('now')
             WHERE id = ?1
             "#,
-            rusqlite::params![session_id, last_user_message_at],
+            rusqlite::params![
+                session_id,
+                last_user_message_at,
+                preserve_claude_resume,
+                resume_session_at
+            ],
         )
         .with_context(|| format!("Failed to update session {session_id} after rollback"))?;
 
@@ -814,6 +920,80 @@ pub fn delete_session(session_id: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn delete_project_chats(repo_id: &str) -> Result<DeleteProjectChatsResponse> {
+    let mut connection = db::write_conn()?;
+    let transaction = connection.transaction()?;
+
+    let workspace_id: Option<String> = transaction
+        .query_row(
+            "SELECT id FROM workspaces
+             WHERE repository_id = ?1 AND kind = 'project'
+             ORDER BY created_at ASC
+             LIMIT 1",
+            [repo_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .with_context(|| format!("Failed to find project workspace for repo {repo_id}"))?;
+
+    let Some(workspace_id) = workspace_id else {
+        transaction
+            .commit()
+            .context("Failed to commit empty project chat deletion")?;
+        return Ok(DeleteProjectChatsResponse {
+            workspace_id: None,
+            deleted_count: 0,
+        });
+    };
+
+    transaction
+        .execute(
+            "UPDATE workspaces
+             SET active_session_id = NULL
+             WHERE id = ?1
+               AND active_session_id IN (
+                 SELECT id FROM sessions
+                 WHERE workspace_id = ?1
+                   AND COALESCE(is_hidden, 0) = 0
+                   AND action_kind IS NULL
+               )",
+            [workspace_id.as_str()],
+        )
+        .context("Failed to clear active project chat")?;
+
+    transaction
+        .execute(
+            "DELETE FROM session_messages
+             WHERE session_id IN (
+               SELECT id FROM sessions
+               WHERE workspace_id = ?1
+                 AND COALESCE(is_hidden, 0) = 0
+                 AND action_kind IS NULL
+             )",
+            [workspace_id.as_str()],
+        )
+        .context("Failed to delete project chat messages")?;
+
+    let deleted_count = transaction
+        .execute(
+            "DELETE FROM sessions
+             WHERE workspace_id = ?1
+               AND COALESCE(is_hidden, 0) = 0
+               AND action_kind IS NULL",
+            [workspace_id.as_str()],
+        )
+        .context("Failed to delete project chats")?;
+
+    transaction
+        .commit()
+        .context("Failed to commit project chat deletion")?;
+
+    Ok(DeleteProjectChatsResponse {
+        workspace_id: Some(workspace_id),
+        deleted_count,
+    })
+}
+
 pub fn list_hidden_sessions(workspace_id: &str) -> Result<Vec<WorkspaceSessionSummary>> {
     let connection = db::read_conn()?;
     let mut statement = connection
@@ -1122,6 +1302,90 @@ mod tests {
     }
 
     #[test]
+    fn delete_project_chats_removes_visible_chat_sessions_only() {
+        let env = crate::testkit::TestEnv::new("delete-project-chats-visible-only");
+        let conn = env.db_connection();
+        conn.execute(
+            "INSERT INTO repos (id, name) VALUES ('r1', 'test-repo')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, repository_id, directory_name, state, status, kind, active_session_id) VALUES ('w-project', 'r1', '', 'ready', 'in-progress', 'project', 's-visible')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, workspace_id, status, title) VALUES ('s-visible', 'w-project', 'idle', 'Visible')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, workspace_id, status, title, is_hidden) VALUES ('s-hidden', 'w-project', 'idle', 'Hidden', 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, workspace_id, status, title, action_kind) VALUES ('s-action', 'w-project', 'idle', 'Action', 'create-pr')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_messages (id, session_id, role, content) VALUES ('m-visible', 's-visible', 'user', '{}')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_messages (id, session_id, role, content) VALUES ('m-hidden', 's-hidden', 'user', '{}')",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let response = delete_project_chats("r1").unwrap();
+
+        assert_eq!(response.workspace_id.as_deref(), Some("w-project"));
+        assert_eq!(response.deleted_count, 1);
+
+        let conn = env.db_connection();
+        let remaining_sessions: Vec<String> = conn
+            .prepare("SELECT id FROM sessions ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(remaining_sessions, vec!["s-action", "s-hidden"]);
+
+        let visible_message_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_messages WHERE session_id = 's-visible'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(visible_message_count, 0);
+        assert_eq!(get_active_session_id(&conn, "w-project"), None);
+    }
+
+    #[test]
+    fn delete_project_chats_is_noop_without_project_workspace() {
+        let env = crate::testkit::TestEnv::new("delete-project-chats-no-workspace");
+        let conn = env.db_connection();
+        conn.execute(
+            "INSERT INTO repos (id, name) VALUES ('r1', 'test-repo')",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let response = delete_project_chats("r1").unwrap();
+
+        assert_eq!(response.workspace_id, None);
+        assert_eq!(response.deleted_count, 0);
+    }
+
+    #[test]
     fn create_session_validates_workspace_exists() {
         let (conn, _dir) = test_db();
         // No seed — workspace 'w1' does not exist
@@ -1394,6 +1658,50 @@ mod tests {
     }
 
     #[test]
+    fn session_message_rollback_metadata_counts_deleted_user_turns() {
+        let env = crate::testkit::TestEnv::new("session-rollback-metadata");
+        let conn = env.db_connection();
+        seed(&conn);
+        conn.execute(
+            "UPDATE sessions SET agent_type = 'codex' WHERE id = 's1'",
+            [],
+        )
+        .unwrap();
+        for (id, role, content, created_at) in [
+            ("m1", "user", "{}", "2026-01-01T00:00:00"),
+            (
+                "m2",
+                "assistant",
+                r#"{"type":"assistant","uuid":"asst-1"}"#,
+                "2026-01-01T00:01:00",
+            ),
+            ("m3", "user", "{}", "2026-01-01T00:02:00"),
+            (
+                "m4",
+                "assistant",
+                r#"{"type":"assistant","uuid":"asst-2"}"#,
+                "2026-01-01T00:03:00",
+            ),
+            ("m5", "user", "{}", "2026-01-01T00:04:00"),
+        ] {
+            conn.execute(
+                "INSERT INTO session_messages (id, session_id, role, content, created_at, sent_at) VALUES (?1, 's1', ?2, ?3, ?4, ?4)",
+                rusqlite::params![id, role, content, created_at],
+            )
+            .unwrap();
+        }
+
+        let inclusive = session_message_rollback_metadata("s1", "m3", true).unwrap();
+        assert_eq!(inclusive.agent_type.as_deref(), Some("codex"));
+        assert_eq!(inclusive.user_turns_to_rollback, 2);
+        assert_eq!(inclusive.resume_session_at.as_deref(), Some("asst-1"));
+
+        let exclusive = session_message_rollback_metadata("s1", "m3", false).unwrap();
+        assert_eq!(exclusive.user_turns_to_rollback, 1);
+        assert_eq!(exclusive.resume_session_at.as_deref(), Some("asst-1"));
+    }
+
+    #[test]
     fn truncate_session_messages_after_can_include_selected_row() {
         let env = crate::testkit::TestEnv::new("session-rollback-include");
         let conn = env.db_connection();
@@ -1417,6 +1725,43 @@ mod tests {
             .collect::<std::result::Result<Vec<_>, _>>()
             .unwrap();
         assert_eq!(ids, vec!["m1"]);
+    }
+
+    #[test]
+    fn truncate_session_messages_after_preserves_claude_resume_cursor() {
+        let env = crate::testkit::TestEnv::new("session-rollback-claude-cursor");
+        let conn = env.db_connection();
+        seed(&conn);
+        conn.execute(
+            "UPDATE sessions SET provider_session_id = 'provider-1', agent_type = 'claude', resume_session_at = 'asst-old' WHERE id = 's1'",
+            [],
+        )
+        .unwrap();
+        for (id, role, content) in [
+            ("m1", "user", "{}"),
+            ("m2", "assistant", r#"{"type":"assistant","uuid":"asst-1"}"#),
+            ("m3", "user", "{}"),
+            ("m4", "assistant", r#"{"type":"assistant","uuid":"asst-2"}"#),
+        ] {
+            conn.execute(
+                "INSERT INTO session_messages (id, session_id, role, content) VALUES (?1, 's1', ?2, ?3)",
+                rusqlite::params![id, role, content],
+            )
+            .unwrap();
+        }
+
+        let deleted = truncate_session_messages_after("s1", "m3", true).unwrap();
+        assert_eq!(deleted, 2);
+
+        let (provider_session_id, resume_session_at): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT provider_session_id, resume_session_at FROM sessions WHERE id = 's1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(provider_session_id.as_deref(), Some("provider-1"));
+        assert_eq!(resume_session_at.as_deref(), Some("asst-1"));
     }
 
     #[test]

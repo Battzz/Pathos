@@ -231,6 +231,36 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		expect(last).toEqual({ id: "REQ-1", type: "end" });
 	});
 
+	test("passes resumeSessionAt to Claude when resuming a rewound session", async () => {
+		mockQueryImpl = () =>
+			asyncIterableFrom([{ type: "result", subtype: "success" }]);
+
+		await manager.sendMessage(
+			"REQ-resume-at",
+			{
+				sessionId: "pathos-sess-1",
+				prompt: "continue",
+				model: undefined,
+				cwd: undefined,
+				resume: "provider-session-1",
+				resumeSessionAt: "assistant-uuid-1",
+				permissionMode: undefined,
+				effortLevel: undefined,
+				fastMode: undefined,
+			},
+			emitter,
+		);
+
+		expect(lastQueryArgs).toEqual(
+			expect.objectContaining({
+				options: expect.objectContaining({
+					resume: "provider-session-1",
+					resumeSessionAt: "assistant-uuid-1",
+				}),
+			}),
+		);
+	});
+
 	test("emits contextUsageUpdated from the terminal result's usage + modelUsage, stamping the requested modelId", async () => {
 		const sdkMessages = [
 			{

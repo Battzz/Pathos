@@ -12,6 +12,8 @@ type WorkspacesSidebarContainerProps = {
 	selectedWorkspaceId: string | null;
 	selectedSessionId: string | null;
 	addRepositoryShortcut?: string | null;
+	newChatShortcut?: string | null;
+	deleteChatShortcut?: string | null;
 	onSelectWorkspace: (workspaceId: string | null) => void;
 	onSelectChat: (workspaceId: string, sessionId: string) => void;
 	footerControls?: ReactNode;
@@ -28,6 +30,8 @@ export const WorkspacesSidebarContainer = memo(
 		selectedWorkspaceId,
 		selectedSessionId,
 		addRepositoryShortcut,
+		newChatShortcut,
+		deleteChatShortcut,
 		onSelectWorkspace,
 		onSelectChat,
 		footerControls,
@@ -50,6 +54,7 @@ export const WorkspacesSidebarContainer = memo(
 			handleCloneFromUrl,
 			handleCreateChat,
 			handleDeleteChat,
+			handleDeleteProjectChats,
 			handleToggleChatPin,
 			handleRemoveProject,
 			prefetchChat,
@@ -83,6 +88,8 @@ export const WorkspacesSidebarContainer = memo(
 				selectedWorkspaceId={selectedWorkspaceId}
 				selectedSessionId={selectedSessionId}
 				addRepositoryShortcut={addRepositoryShortcut}
+				newChatShortcut={newChatShortcut}
+				deleteChatShortcut={deleteChatShortcut}
 				addingRepository={addingRepository}
 				importingRepository={importingRepository}
 				recentlyAddedRepoId={recentlyAddedRepoId}
@@ -100,6 +107,9 @@ export const WorkspacesSidebarContainer = memo(
 				onCreateChat={handleCreateChat}
 				onDeleteChat={(sessionId) => {
 					void handleDeleteChat(sessionId);
+				}}
+				onDeleteProjectChats={(repoId) => {
+					void handleDeleteProjectChats(repoId);
 				}}
 				onToggleChatPin={(chat) => {
 					void handleToggleChatPin(chat);

@@ -392,6 +392,7 @@ export class ClaudeSessionManager implements SessionManager {
 			model,
 			cwd,
 			resume,
+			resumeSessionAt,
 			permissionMode,
 			effortLevel,
 			fastMode,
@@ -461,6 +462,7 @@ export class ClaudeSessionManager implements SessionManager {
 				...(queryEnv ? { env: queryEnv } : {}),
 				model: model || undefined,
 				...(resume ? { resume } : {}),
+				...(resumeSessionAt ? { resumeSessionAt } : {}),
 				permissionMode: parsePermissionMode(permissionMode),
 				allowDangerouslySkipPermissions: true,
 				effort: parseEffort(effortLevel),
@@ -1066,6 +1068,10 @@ export class ClaudeSessionManager implements SessionManager {
 			session.abortController.abort();
 			this.sessions.delete(sessionId);
 		}
+	}
+
+	async rollbackSession(sessionId: string, _numTurns: number): Promise<void> {
+		await this.stopSession(sessionId);
 	}
 
 	async shutdown(): Promise<void> {

@@ -15,6 +15,7 @@ export interface SendMessageParams {
 	readonly model: string | undefined;
 	readonly cwd: string | undefined;
 	readonly resume: string | undefined;
+	readonly resumeSessionAt?: string;
 	readonly permissionMode: string | undefined;
 	readonly effortLevel: string | undefined;
 	readonly fastMode: boolean | undefined;
@@ -130,6 +131,14 @@ export interface SessionManager {
 		prompt: string,
 		files: readonly string[],
 	): Promise<boolean>;
+
+	/**
+	 * Remove the most recent provider turns for a live session. Codex maps this
+	 * to `thread/rollback`, matching the app-server contract. Providers without
+	 * a native rollback can tear down their live context so the next send cannot
+	 * reuse stale in-memory history.
+	 */
+	rollbackSession(sessionId: string, numTurns: number): Promise<void>;
 
 	/**
 	 * Tear down every in-flight session this manager owns. Called when the

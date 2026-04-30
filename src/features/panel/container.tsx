@@ -535,7 +535,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			await truncateSessionMessagesAfter(
 				selectedSessionIdForPanel,
 				messageId,
-				false,
+				true,
 			);
 			await refreshRolledBackSession(selectedSessionIdForPanel);
 		},

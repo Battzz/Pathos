@@ -1,5 +1,6 @@
 ---
 source: tests/streaming_send_params.rs
+assertion_line: 160
 expression: "&params"
 ---
 cwd: /abs/workspace
@@ -10,4 +11,5 @@ permissionMode: bypassPermissions
 prompt: hello
 provider: claude
 resume: ~
+resumeSessionAt: ~
 sessionId: sidecar-sess-1

@@ -6,6 +6,7 @@ import {
 	addRepositoryFromLocalPath,
 	cloneRepositoryFromUrl,
 	createChatSessionInRepo,
+	deleteProjectChats,
 	deleteRepository,
 	deleteSession,
 	loadAddRepositoryDefaults,
@@ -384,6 +385,44 @@ export function useFolderSidebarController({
 		[pushWorkspaceToast, refetchFolders],
 	);
 
+	const handleDeleteProjectChats = useCallback(
+		async (repoId: string) => {
+			const folder = folders.find((f) => f.repoId === repoId);
+			try {
+				const response = await deleteProjectChats(repoId);
+				if (
+					response.workspaceId &&
+					response.workspaceId === selectedWorkspaceId
+				) {
+					onSelectWorkspace(null);
+				}
+				refetchFolders();
+				if (response.workspaceId) {
+					void queryClient.invalidateQueries({
+						queryKey: pathosQueryKeys.workspaceDetail(response.workspaceId),
+					});
+					void queryClient.invalidateQueries({
+						queryKey: pathosQueryKeys.workspaceSessions(response.workspaceId),
+					});
+				}
+			} catch (error) {
+				pushWorkspaceToast(
+					describeUnknownError(error, "Unable to remove project chats."),
+					`Remove chats failed${folder ? ` in ${folder.repoName}` : ""}`,
+					"destructive",
+				);
+			}
+		},
+		[
+			folders,
+			onSelectWorkspace,
+			pushWorkspaceToast,
+			queryClient,
+			refetchFolders,
+			selectedWorkspaceId,
+		],
+	);
+
 	const refetchPinnedLists = useCallback(
 		(workspaceId: string | null) => {
 			refetchFolders();
@@ -494,6 +533,7 @@ export function useFolderSidebarController({
 		handleCloneFromUrl,
 		handleCreateChat,
 		handleDeleteChat,
+		handleDeleteProjectChats,
 		handleToggleChatPin,
 		handleRemoveProject,
 		prefetchChat,

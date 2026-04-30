@@ -119,6 +119,8 @@ type WorkspaceActionsProps = {
 	workspaceId: string | null;
 	workspaceState?: string | null;
 	repoId?: string | null;
+	workspaceBranch?: string | null;
+	workspaceDefaultBranch?: string | null;
 	workspaceRemote?: string | null;
 	onCommitAction?: (mode: WorkspaceCommitButtonMode) => Promise<void>;
 	currentSessionId?: string | null;
@@ -165,10 +167,33 @@ function buildSyncResolutionPrompt(
 	});
 }
 
+function normalizeLocalBranchName(branch?: string | null): string | null {
+	const value = branch?.trim();
+	if (!value) {
+		return null;
+	}
+	return value.replace(/^refs\/heads\//, "");
+}
+
+function isWorkspaceOnDefaultBranch(
+	workspaceBranch?: string | null,
+	workspaceDefaultBranch?: string | null,
+): boolean {
+	const currentBranch = normalizeLocalBranchName(workspaceBranch);
+	if (!currentBranch) {
+		return false;
+	}
+	const defaultBranch =
+		normalizeLocalBranchName(workspaceDefaultBranch) ?? "main";
+	return currentBranch === defaultBranch;
+}
+
 export function ActionsSection({
 	workspaceId,
 	workspaceState,
 	repoId,
+	workspaceBranch,
+	workspaceDefaultBranch,
 	workspaceRemote,
 	sectionRef,
 	bodyHeight,
@@ -184,6 +209,8 @@ export function ActionsSection({
 		workspaceId,
 		workspaceState,
 		repoId,
+		workspaceBranch,
+		workspaceDefaultBranch,
 		workspaceRemote,
 		onCommitAction,
 		currentSessionId,
@@ -305,6 +332,8 @@ function useWorkspaceActionsModel({
 	workspaceId,
 	workspaceState,
 	repoId,
+	workspaceBranch,
+	workspaceDefaultBranch,
 	workspaceRemote,
 	onCommitAction,
 	currentSessionId,
@@ -347,7 +376,12 @@ function useWorkspaceActionsModel({
 	const sortedDeployments = sortActionItems(forgeStatus.deployments);
 	const sortedChecks = sortActionItems(forgeStatus.checks);
 	const actionDisabled = commitButtonState === "busy";
+	const canCreateChangeRequest = !isWorkspaceOnDefaultBranch(
+		workspaceBranch,
+		workspaceDefaultBranch,
+	);
 	const notification = getActionsNotification({
+		canCreateChangeRequest,
 		changeRequest,
 		changeRequestName,
 		commitButtonMode,
@@ -359,24 +393,26 @@ function useWorkspaceActionsModel({
 		commitButtonMode === "create-pr" ||
 		commitButtonMode === "open-pr" ||
 		commitButtonMode === "merge"
-			? {
-					label: getCommitButtonLabel(
-						commitButtonMode,
-						commitButtonState ?? "idle",
-						changeRequestName,
-					),
-					mode: commitButtonMode,
-					rowLabel:
-						commitButtonMode === "merge"
-							? `${changeRequestName} ready to merge`
-							: commitButtonMode === "open-pr"
-								? `${changeRequestName} closed`
-								: `No ${
-										changeRequestName === "PR"
-											? "pull request"
-											: changeRequestName.toLowerCase()
-									}`,
-				}
+			? commitButtonMode === "create-pr" && !canCreateChangeRequest
+				? null
+				: {
+						label: getCommitButtonLabel(
+							commitButtonMode,
+							commitButtonState ?? "idle",
+							changeRequestName,
+						),
+						mode: commitButtonMode,
+						rowLabel:
+							commitButtonMode === "merge"
+								? `${changeRequestName} ready to merge`
+								: commitButtonMode === "open-pr"
+									? `${changeRequestName} closed`
+									: `No ${
+											changeRequestName === "PR"
+												? "pull request"
+												: changeRequestName.toLowerCase()
+										}`,
+					}
 			: null;
 	const queueSyncResolutionPrompt = useCallback(
 		async (result: SyncWorkspaceTargetResponse) => {
@@ -889,6 +925,7 @@ function buildGitRows(
 }
 
 function getActionsNotification({
+	canCreateChangeRequest,
 	changeRequest,
 	changeRequestName,
 	commitButtonMode,
@@ -896,6 +933,7 @@ function getActionsNotification({
 	forgeStatus,
 	gitStatus,
 }: {
+	canCreateChangeRequest: boolean;
 	changeRequest: ChangeRequestInfo | null;
 	changeRequestName: string;
 	commitButtonMode?: WorkspaceCommitButtonMode;
@@ -961,7 +999,12 @@ function getActionsNotification({
 		};
 	}
 
-	if (!busy && commitButtonMode === "create-pr" && !currentChangeRequest) {
+	if (
+		!busy &&
+		canCreateChangeRequest &&
+		commitButtonMode === "create-pr" &&
+		!currentChangeRequest
+	) {
 		return {
 			label: `Create ${changeRequestName} available`,
 			shortLabel: `Create ${changeRequestName}`,

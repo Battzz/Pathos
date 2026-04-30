@@ -4,6 +4,7 @@ import {
 	ImageIcon,
 	PencilLine,
 	RotateCcw,
+	SendHorizontal,
 	X,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -13,7 +14,6 @@ import {
 	InlineBadge,
 } from "@/components/inline-badge";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { MessagePart } from "@/lib/api";
 import { formatCompactElapsedTime } from "@/lib/compact-relative-time";
 import { basename } from "@/lib/path-util";
@@ -146,8 +146,6 @@ function useMessageAge(createdAt?: string): string | null {
 	);
 }
 
-type UserMessageRevertAction = "revert" | "edit";
-
 export function ChatUserMessage({
 	message,
 	onRevertMessage,
@@ -164,8 +162,6 @@ export function ChatUserMessage({
 	const { settings } = useSettings();
 	const messageAge = useMessageAge(message.createdAt);
 	const editorRef = useRef<HTMLTextAreaElement | null>(null);
-	const [pendingAction, setPendingAction] =
-		useState<UserMessageRevertAction | null>(null);
 	const [reverting, setReverting] = useState(false);
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState("");
@@ -187,20 +183,14 @@ export function ChatUserMessage({
 		editorRef.current?.setSelectionRange(draft.length, draft.length);
 	}, [draft.length, editing]);
 
-	const handleConfirmRevert = useCallback(async () => {
-		if (!message.id || !pendingAction || !onRevertMessage) {
+	const handleRevert = useCallback(async () => {
+		if (!message.id || !onRevertMessage) {
 			return;
 		}
 		setReverting(true);
 		try {
 			await onRevertMessage(message.id);
-			if (pendingAction === "edit") {
-				setDraft(editableText);
-				setEditing(true);
-			} else {
-				toast.success("Chat rewound to this message.");
-			}
-			setPendingAction(null);
+			toast.success("Chat rewound to this message.");
 		} catch (error) {
 			toast.error(
 				error instanceof Error
@@ -210,7 +200,17 @@ export function ChatUserMessage({
 		} finally {
 			setReverting(false);
 		}
-	}, [editableText, message.id, onRevertMessage, pendingAction]);
+	}, [message.id, onRevertMessage]);
+
+	const handleStartEdit = useCallback(() => {
+		setDraft(editableText);
+		setEditing(true);
+	}, [editableText]);
+
+	const handleCancelEdit = useCallback(() => {
+		setEditing(false);
+		setDraft("");
+	}, []);
 
 	const handleSubmitEdit = useCallback(async () => {
 		if (!message.id || !onSubmitEditedMessage) return;
@@ -220,6 +220,7 @@ export function ChatUserMessage({
 		try {
 			await onSubmitEditedMessage(message.id, nextPrompt);
 			setEditing(false);
+			setDraft("");
 		} catch (error) {
 			toast.error(
 				error instanceof Error
@@ -231,103 +232,97 @@ export function ChatUserMessage({
 		}
 	}, [draft, message.id, onSubmitEditedMessage]);
 
-	const dialogTitle =
-		pendingAction === "edit" ? "Rewind and edit message?" : "Rewind chat?";
-	const dialogDescription =
-		pendingAction === "edit"
-			? "This will delete newer chat messages, make this the last message, and open it for editing inline."
-			: "This will delete newer chat messages and make this the last message in the conversation.";
-	const dialogConfirmLabel =
-		pendingAction === "edit" ? "Rewind and Edit" : "Rewind";
-
 	return (
-		<>
+		<div
+			data-message-id={message.id}
+			data-message-role="user"
+			className="group/user flex min-w-0 justify-end"
+		>
 			<div
-				data-message-id={message.id}
-				data-message-role="user"
-				className="group/user flex min-w-0 justify-end"
+				className={
+					editing
+						? "relative flex w-[min(42rem,calc(100vw-3rem))] max-w-[calc(100vw-3rem)] min-w-0 flex-col items-end pb-5"
+						: "relative flex max-w-[75%] min-w-0 flex-col items-end pb-5"
+				}
 			>
-				<div className="relative flex max-w-[75%] min-w-0 flex-col items-end pb-5">
-					{editing ? (
-						<div
-							className="w-full rounded-md bg-accent/55 p-2"
-							style={{ fontSize: `${settings.fontSize}px` }}
-						>
-							<textarea
-								ref={editorRef}
-								value={draft}
-								onChange={(event) => setDraft(event.target.value)}
-								onKeyDown={(event) => {
-									if (
-										(event.metaKey || event.ctrlKey) &&
-										event.key === "Enter"
-									) {
-										event.preventDefault();
-										void handleSubmitEdit();
-									}
-									if (event.key === "Escape") {
-										event.preventDefault();
-										setEditing(false);
-										setDraft("");
-									}
-								}}
-								className="max-h-[40vh] min-h-24 w-full resize-y rounded-md border border-border/70 bg-background/70 px-2.5 py-2 leading-6 text-foreground outline-none focus:border-ring"
-								aria-label="Edit message"
+				{editing ? (
+					<div
+						className="w-full overflow-hidden rounded-lg border border-border/70 bg-card/90 shadow-sm"
+						style={{ fontSize: `${settings.fontSize}px` }}
+					>
+						<textarea
+							ref={editorRef}
+							value={draft}
+							onChange={(event) => setDraft(event.target.value)}
+							onKeyDown={(event) => {
+								if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+									event.preventDefault();
+									void handleSubmitEdit();
+								}
+								if (event.key === "Escape") {
+									event.preventDefault();
+									handleCancelEdit();
+								}
+							}}
+							className="block max-h-[42vh] min-h-28 w-full resize-y border-0 bg-transparent px-3 py-2.5 leading-7 text-foreground outline-none placeholder:text-muted-foreground/45"
+							aria-label="Edit message"
+							disabled={reverting}
+						/>
+						<div className="flex h-9 items-center justify-end gap-1 border-border/60 border-t bg-muted/25 px-2">
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-xs"
+								aria-label="Cancel edit"
+								onClick={handleCancelEdit}
 								disabled={reverting}
-							/>
-							<div className="mt-2 flex justify-end gap-1.5">
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon-xs"
-									aria-label="Cancel edit"
-									onClick={() => {
-										setEditing(false);
-										setDraft("");
-									}}
-									disabled={reverting}
-									className="text-muted-foreground hover:text-foreground"
-								>
-									<X className="size-3.5" strokeWidth={1.8} />
-								</Button>
-								<Button
-									type="button"
-									variant="default"
-									size="icon-xs"
-									aria-label="Send edited message"
-									onClick={() => {
-										void handleSubmitEdit();
-									}}
-									disabled={reverting || draft.trim().length === 0}
-									className="text-primary-foreground"
-								>
+								className="size-6 text-muted-foreground hover:text-foreground"
+							>
+								<X className="size-3.5" strokeWidth={1.8} />
+							</Button>
+							<Button
+								type="button"
+								variant="default"
+								size="icon-xs"
+								aria-label="Send edited message"
+								onClick={() => {
+									void handleSubmitEdit();
+								}}
+								disabled={reverting || draft.trim().length === 0}
+								className="size-6 text-primary-foreground"
+							>
+								{reverting ? (
 									<Check className="size-3.5" strokeWidth={2} />
-								</Button>
-							</div>
+								) : (
+									<SendHorizontal className="size-3.5" strokeWidth={2} />
+								)}
+							</Button>
 						</div>
-					) : (
-						<div
-							className="conversation-body-text w-full select-text overflow-hidden rounded-md bg-accent/55 px-3 py-2 leading-7"
-							style={{ fontSize: `${settings.fontSize}px` }}
-						>
-							<p className="whitespace-pre-wrap break-words">
-								{parts.map((part, index) => {
-									if (isTextPart(part)) {
-										return <UserTextInline key={index} text={part.text} />;
-									}
-									if (isFileMentionPart(part)) {
-										return <BubbleFileBadge key={index} path={part.path} />;
-									}
-									return null;
-								})}
-							</p>
-						</div>
-					)}
-					{messageAge ? (
-						<span className="pointer-events-none absolute right-1 bottom-0 flex h-5 items-center text-[11px] leading-none tabular-nums text-muted-foreground/55 transition-opacity group-hover/user:opacity-0 group-focus-within/user:opacity-0">
-							{messageAge}
-						</span>
-					) : null}
+					</div>
+				) : (
+					<div
+						className="conversation-body-text w-full select-text overflow-hidden rounded-md bg-accent/55 px-3 py-2 leading-7"
+						style={{ fontSize: `${settings.fontSize}px` }}
+					>
+						<p className="whitespace-pre-wrap break-words">
+							{parts.map((part, index) => {
+								if (isTextPart(part)) {
+									return <UserTextInline key={index} text={part.text} />;
+								}
+								if (isFileMentionPart(part)) {
+									return <BubbleFileBadge key={index} path={part.path} />;
+								}
+								return null;
+							})}
+						</p>
+					</div>
+				)}
+				{messageAge && !editing ? (
+					<span className="pointer-events-none absolute right-1 bottom-0 flex h-5 items-center text-[11px] leading-none tabular-nums text-muted-foreground/55 transition-opacity group-hover/user:opacity-0 group-focus-within/user:opacity-0">
+						{messageAge}
+					</span>
+				) : null}
+				{!editing ? (
 					<div className="pointer-events-none absolute right-1 bottom-0 flex items-center justify-end opacity-0 group-hover/user:pointer-events-auto group-hover/user:opacity-100 group-focus-within/user:pointer-events-auto group-focus-within/user:opacity-100">
 						{canRevert ? (
 							<Button
@@ -335,7 +330,10 @@ export function ChatUserMessage({
 								variant="ghost"
 								size="icon-xs"
 								aria-label="Rewind chat"
-								onClick={() => setPendingAction("revert")}
+								onClick={() => {
+									void handleRevert();
+								}}
+								disabled={reverting}
 								className="size-5 shrink-0 text-muted-foreground/28 transition-none hover:text-muted-foreground"
 							>
 								<RotateCcw className="size-3" strokeWidth={1.8} />
@@ -347,7 +345,8 @@ export function ChatUserMessage({
 								variant="ghost"
 								size="icon-xs"
 								aria-label="Edit and rewind message"
-								onClick={() => setPendingAction("edit")}
+								onClick={handleStartEdit}
+								disabled={reverting}
 								className="size-5 shrink-0 text-muted-foreground/28 transition-none hover:text-muted-foreground"
 							>
 								<PencilLine className="size-3" strokeWidth={1.8} />
@@ -358,23 +357,8 @@ export function ChatUserMessage({
 							className="size-5 shrink-0 text-muted-foreground/28 hover:text-muted-foreground"
 						/>
 					</div>
-				</div>
+				) : null}
 			</div>
-			<ConfirmDialog
-				open={pendingAction !== null}
-				onOpenChange={(open) => {
-					if (!open && !reverting) {
-						setPendingAction(null);
-					}
-				}}
-				title={dialogTitle}
-				description={dialogDescription}
-				confirmLabel={dialogConfirmLabel}
-				onConfirm={() => {
-					void handleConfirmRevert();
-				}}
-				loading={reverting}
-			/>
-		</>
+		</div>
 	);
 }

@@ -2552,6 +2552,19 @@ export async function deleteSession(sessionId: string): Promise<void> {
 	await invoke("delete_session", { sessionId });
 }
 
+export type DeleteProjectChatsResponse = {
+	workspaceId: string | null;
+	deletedCount: number;
+};
+
+export async function deleteProjectChats(
+	repoId: string,
+): Promise<DeleteProjectChatsResponse> {
+	return await invoke<DeleteProjectChatsResponse>("delete_project_chats", {
+		repoId,
+	});
+}
+
 export async function loadHiddenSessions(
 	workspaceId: string,
 ): Promise<WorkspaceSessionSummary[]> {

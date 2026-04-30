@@ -1,5 +1,6 @@
 ---
 source: tests/streaming_send_params.rs
+assertion_line: 127
 expression: "&params"
 ---
 additionalDirectories:
@@ -13,4 +14,5 @@ permissionMode: bypassPermissions
 prompt: hello
 provider: claude
 resume: ~
+resumeSessionAt: ~
 sessionId: sidecar-sess-1

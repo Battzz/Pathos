@@ -47,6 +47,7 @@ export type AppSettings = {
 	 *  `CONTEXT_USAGE_AUTO_REVEAL_THRESHOLD`. */
 	alwaysShowContextUsage: boolean;
 	showUsageStats: boolean;
+	confirmDestructiveSidebarActions: boolean;
 	onboardingCompleted: boolean;
 	shortcuts: ShortcutOverrides;
 	claudeCustomProviders: ClaudeCustomProviderSettings;
@@ -76,6 +77,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	followUpBehavior: "steer",
 	alwaysShowContextUsage: true,
 	showUsageStats: true,
+	confirmDestructiveSidebarActions: true,
 	onboardingCompleted: false,
 	shortcuts: {},
 	claudeCustomProviders: {
@@ -105,6 +107,7 @@ const SETTINGS_KEY_MAP: Record<Exclude<keyof AppSettings, "theme">, string> = {
 	followUpBehavior: "app.follow_up_behavior",
 	alwaysShowContextUsage: "app.always_show_context_usage",
 	showUsageStats: "app.show_usage_stats",
+	confirmDestructiveSidebarActions: "app.confirm_destructive_sidebar_actions",
 	onboardingCompleted: "app.onboarding_completed",
 	shortcuts: "app.shortcuts",
 	claudeCustomProviders: "app.claude_custom_providers",
@@ -231,6 +234,10 @@ export async function loadSettings(): Promise<AppSettings> {
 				raw[SETTINGS_KEY_MAP.showUsageStats] !== undefined
 					? raw[SETTINGS_KEY_MAP.showUsageStats] === "true"
 					: DEFAULT_SETTINGS.showUsageStats,
+			confirmDestructiveSidebarActions:
+				raw[SETTINGS_KEY_MAP.confirmDestructiveSidebarActions] !== undefined
+					? raw[SETTINGS_KEY_MAP.confirmDestructiveSidebarActions] === "true"
+					: DEFAULT_SETTINGS.confirmDestructiveSidebarActions,
 			onboardingCompleted:
 				raw[SETTINGS_KEY_MAP.onboardingCompleted] !== undefined
 					? raw[SETTINGS_KEY_MAP.onboardingCompleted] === "true"

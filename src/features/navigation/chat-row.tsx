@@ -1,4 +1,4 @@
-import { MessageSquare, Pin, PinOff, Trash2 } from "lucide-react";
+import { Command, MessageSquare, Pin, PinOff, Trash2 } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { AsciiLoader } from "@/components/ascii-loader";
 import { ClaudeIcon, OpenAIIcon } from "@/components/icons";
@@ -8,6 +8,12 @@ import {
 	ContextMenuItem,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type { RepositoryFolderChat } from "@/lib/api";
 import { formatCompactElapsedTime } from "@/lib/compact-relative-time";
 import { useSendingSessionIds } from "@/lib/sending-sessions-context";
@@ -16,6 +22,9 @@ import { cn } from "@/lib/utils";
 export type ChatRowProps = {
 	chat: RepositoryFolderChat;
 	selected: boolean;
+	shortcutLabel?: string | null;
+	showShortcutHint?: boolean;
+	deleteChatShortcut?: string | null;
 	onSelect: (workspaceId: string, sessionId: string) => void;
 	onTogglePin?: (chat: RepositoryFolderChat) => void;
 	onDelete?: (sessionId: string) => void;
@@ -43,6 +52,9 @@ function useChatActivityTime(chat: RepositoryFolderChat): string | null {
 export const ChatRow = memo(function ChatRow({
 	chat,
 	selected,
+	shortcutLabel = null,
+	showShortcutHint = false,
+	deleteChatShortcut = null,
 	onSelect,
 	onTogglePin,
 	onDelete,
@@ -75,6 +87,7 @@ export const ChatRow = memo(function ChatRow({
 	}, [selected]);
 
 	const showCheck = checkPhase !== null && !selected && !isSending;
+	const shortcutDigit = shortcutLabel?.replace(/^Cmd\+/, "") ?? "";
 	const ProviderIcon =
 		chat.agentType === "claude"
 			? ClaudeIcon
@@ -145,7 +158,22 @@ export const ChatRow = memo(function ChatRow({
 						<span className="min-w-0 flex-1 truncate text-left">
 							{chat.title?.trim() ? chat.title : "New chat"}
 						</span>
-						{activityTime ? (
+						{showShortcutHint && shortcutLabel ? (
+							<span
+								aria-label={shortcutLabel}
+								role="img"
+								className="inline-flex h-5 shrink-0 items-center gap-1 rounded-[4px] border border-border/70 bg-background/90 px-1.5 text-[10px] font-medium leading-none text-muted-foreground shadow-[inset_0_-1px_0_rgba(0,0,0,0.08)] transition-opacity group-hover/chat:opacity-0 group-focus-within/chat:opacity-0 dark:border-white/15 dark:bg-white/5 dark:text-white/70"
+							>
+								<Command
+									aria-hidden="true"
+									className="size-2.5"
+									strokeWidth={2}
+								/>
+								<span aria-hidden="true" className="tabular-nums">
+									{shortcutDigit}
+								</span>
+							</span>
+						) : activityTime ? (
 							<span
 								className={cn(
 									"shrink-0 text-[11px] leading-none tabular-nums text-muted-foreground/65 transition-opacity",
@@ -171,36 +199,60 @@ export const ChatRow = memo(function ChatRow({
 						) : null}
 					</button>
 					{onTogglePin ? (
-						<button
-							type="button"
-							aria-label={isPinned ? "Unpin chat" : "Pin chat"}
-							className="absolute left-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/chat:opacity-100 cursor-pointer"
-							onClick={(event) => {
-								event.preventDefault();
-								event.stopPropagation();
-								onTogglePin(chat);
-							}}
-						>
-							{isPinned ? (
-								<PinOff className="size-3.5" strokeWidth={2} />
-							) : (
-								<Pin className="size-3.5" strokeWidth={2} />
-							)}
-						</button>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<button
+									type="button"
+									aria-label={isPinned ? "Unpin chat" : "Pin chat"}
+									className="absolute left-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/chat:opacity-100 cursor-pointer"
+									onClick={(event) => {
+										event.preventDefault();
+										event.stopPropagation();
+										onTogglePin(chat);
+									}}
+								>
+									{isPinned ? (
+										<PinOff className="size-3.5" strokeWidth={2} />
+									) : (
+										<Pin className="size-3.5" strokeWidth={2} />
+									)}
+								</button>
+							</TooltipTrigger>
+							<TooltipContent side="top" sideOffset={4}>
+								{isPinned ? "Unpin chat" : "Pin chat"}
+							</TooltipContent>
+						</Tooltip>
 					) : null}
 					{onDelete ? (
-						<button
-							type="button"
-							aria-label="Delete chat"
-							className="absolute right-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/chat:opacity-100 cursor-pointer"
-							onClick={(event) => {
-								event.preventDefault();
-								event.stopPropagation();
-								onDelete(chat.sessionId);
-							}}
-						>
-							<Trash2 className="size-3.5" strokeWidth={2} />
-						</button>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<button
+									type="button"
+									aria-label="Delete chat"
+									className="absolute right-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/chat:opacity-100 cursor-pointer"
+									onClick={(event) => {
+										event.preventDefault();
+										event.stopPropagation();
+										onDelete(chat.sessionId);
+									}}
+								>
+									<Trash2 className="size-3.5" strokeWidth={2} />
+								</button>
+							</TooltipTrigger>
+							<TooltipContent
+								side="top"
+								sideOffset={4}
+								className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
+							>
+								<span>Delete chat</span>
+								{deleteChatShortcut ? (
+									<InlineShortcutDisplay
+										hotkey={deleteChatShortcut}
+										className="text-tooltip-foreground/55"
+									/>
+								) : null}
+							</TooltipContent>
+						</Tooltip>
 					) : null}
 				</div>
 			</ContextMenuTrigger>

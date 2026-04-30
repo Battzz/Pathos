@@ -80,6 +80,39 @@ function buildTitleSeed(prompt: string): string {
 	return `${normalized.slice(0, 33).trimEnd()}...`;
 }
 
+function chatActivityTime(chat: {
+	lastUserMessageAt?: string | null;
+	updatedAt: string;
+	createdAt: string;
+}) {
+	return chat.lastUserMessageAt ?? chat.updatedAt ?? chat.createdAt;
+}
+
+function sortChatsForSidebar<
+	T extends {
+		pinnedAt?: string | null;
+		updatedAt: string;
+		createdAt: string;
+		lastUserMessageAt?: string | null;
+	},
+>(chats: T[]): T[] {
+	return [...chats].sort((left, right) => {
+		const leftPinned = left.pinnedAt ?? null;
+		const rightPinned = right.pinnedAt ?? null;
+		if (leftPinned || rightPinned) {
+			if (!leftPinned) return 1;
+			if (!rightPinned) return -1;
+			const pinnedDelta = Date.parse(rightPinned) - Date.parse(leftPinned);
+			if (pinnedDelta !== 0) return pinnedDelta;
+		}
+
+		const activityDelta =
+			Date.parse(chatActivityTime(right)) - Date.parse(chatActivityTime(left));
+		if (activityDelta !== 0) return activityDelta;
+		return Date.parse(right.createdAt) - Date.parse(left.createdAt);
+	});
+}
+
 export type PendingPermission = {
 	permissionId: string;
 	toolName: string;
@@ -365,28 +398,78 @@ export function useConversationStreaming({
 							(chat) => chat.sessionId === sessionId,
 						);
 						if (existingIndex >= 0) {
+							const chats = folder.chats.map((chat, index) =>
+								index === existingIndex ? { ...chat, ...nextChat } : chat,
+							);
 							return {
 								...folder,
-								chats: folder.chats.map((chat, index) =>
-									index === existingIndex ? { ...chat, ...nextChat } : chat,
-								),
+								chats: sortChatsForSidebar(chats),
 							};
 						}
 
 						inserted = true;
-						const firstUnpinnedIndex = folder.chats.findIndex(
-							(chat) => !chat.pinnedAt,
-						);
-						const chats = [...folder.chats];
-						chats.splice(
-							firstUnpinnedIndex === -1 ? chats.length : firstUnpinnedIndex,
-							0,
-							nextChat,
-						);
+						const chats = sortChatsForSidebar([...folder.chats, nextChat]);
 						return { ...folder, chats };
 					}),
 			);
 			return inserted;
+		},
+		[queryClient],
+	);
+
+	const touchProjectChatActivity = useCallback(
+		({
+			sessionId,
+			workspaceId,
+			agentType,
+			now,
+		}: {
+			sessionId: string;
+			workspaceId: string | null;
+			agentType: string;
+			now: string;
+		}) => {
+			if (!workspaceId) {
+				return;
+			}
+
+			queryClient.setQueryData(
+				pathosQueryKeys.workspaceSessions(workspaceId),
+				(current: Array<Record<string, unknown>> | undefined) =>
+					(current ?? []).map((candidate) =>
+						candidate.id === sessionId
+							? {
+									...candidate,
+									agentType,
+									lastUserMessageAt: now,
+									updatedAt: now,
+								}
+							: candidate,
+					),
+			);
+			queryClient.setQueryData<RepositoryFolder[] | undefined>(
+				pathosQueryKeys.repositoryFolders,
+				(current) =>
+					current?.map((folder) => {
+						let changed = false;
+						const chats = folder.chats.map((chat) => {
+							if (chat.sessionId !== sessionId) {
+								return chat;
+							}
+							changed = true;
+							return {
+								...chat,
+								agentType,
+								updatedAt: now,
+								lastUserMessageAt: now,
+							};
+						});
+
+						return changed
+							? { ...folder, chats: sortChatsForSidebar(chats) }
+							: folder;
+					}),
+			);
 		},
 		[queryClient],
 	);
@@ -695,6 +778,9 @@ export function useConversationStreaming({
 			const invalidations: Promise<unknown>[] = [
 				queryClient.invalidateQueries({
 					queryKey: pathosQueryKeys.workspaceGroups,
+				}),
+				queryClient.invalidateQueries({
+					queryKey: pathosQueryKeys.repositoryFolders,
 				}),
 			];
 
@@ -1368,6 +1454,15 @@ export function useConversationStreaming({
 			});
 			let titleSeed: string | null = null;
 			let insertedOptimisticProjectChat = false;
+			const previousRepositoryFolders = queryClient.getQueryData<
+				RepositoryFolder[] | undefined
+			>(pathosQueryKeys.repositoryFolders);
+			touchProjectChatActivity({
+				sessionId: targetSessionId,
+				workspaceId: targetWorkspaceId,
+				agentType: model.provider,
+				now,
+			});
 			if (isFirstUserMessage && !isCompactCommand) {
 				titleSeed = buildTitleSeed(trimmedPrompt);
 				seedSessionTitle(targetSessionId, targetWorkspaceId, titleSeed);
@@ -1660,6 +1755,11 @@ export function useConversationStreaming({
 								restoreSnapshot(queryClient, cacheSessionId, rollbackSnapshot);
 								if (insertedOptimisticProjectChat) {
 									removeOptimisticProjectChat(targetSessionId);
+								} else {
+									queryClient.setQueryData(
+										pathosQueryKeys.repositoryFolders,
+										previousRepositoryFolders,
+									);
 								}
 								if (!isOverride) {
 									setComposerRestoreState({
@@ -1705,6 +1805,11 @@ export function useConversationStreaming({
 				restoreSnapshot(queryClient, cacheSessionId, rollbackSnapshot);
 				if (insertedOptimisticProjectChat) {
 					removeOptimisticProjectChat(targetSessionId);
+				} else {
+					queryClient.setQueryData(
+						pathosQueryKeys.repositoryFolders,
+						previousRepositoryFolders,
+					);
 				}
 				clearFastPrelude(contextKey);
 				clearSendingState(contextKey);
@@ -1732,6 +1837,7 @@ export function useConversationStreaming({
 			refreshSessionThreadFromDb,
 			seedStartedProjectChat,
 			setFastPreludeActive,
+			touchProjectChatActivity,
 			activeSessionByContext,
 			sendingContextKeys,
 			planReviewByContext,

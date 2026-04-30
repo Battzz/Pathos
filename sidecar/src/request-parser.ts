@@ -123,6 +123,7 @@ export function parseSendMessageParams(
 		model: optionalString(params, "model"),
 		cwd: optionalString(params, "cwd"),
 		resume: optionalString(params, "resume"),
+		resumeSessionAt: optionalString(params, "resumeSessionAt"),
 		permissionMode: optionalString(params, "permissionMode"),
 		effortLevel: optionalString(params, "effortLevel"),
 		fastMode: optionalBoolean(params, "fastMode"),

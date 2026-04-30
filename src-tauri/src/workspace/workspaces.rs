@@ -308,6 +308,7 @@ fn load_chats_for_workspace(record: &WorkspaceRecord) -> Result<Vec<RepositoryFo
         ORDER BY
           CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END,
           datetime(pinned_at) DESC,
+          datetime(COALESCE(last_user_message_at, updated_at, created_at)) DESC,
           datetime(created_at) DESC
         "#,
     )?;
@@ -1383,6 +1384,63 @@ mod tests {
 
         assert_eq!(folder.chats.len(), 1);
         assert_eq!(folder.chats[0].session_id, "s-started");
+    }
+
+    #[test]
+    fn repository_folders_order_project_chats_by_recent_user_activity() {
+        let env = TestEnv::new("folders-order-project-chats-by-activity");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        conn.execute(
+            r#"
+            INSERT INTO workspaces (
+              id,
+              repository_id,
+              directory_name,
+              state,
+              status,
+              kind,
+              branch
+            ) VALUES ('w-project', 'r1', '', 'ready', 'in-progress', 'project', 'main')
+            "#,
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO sessions (
+              id, workspace_id, status, title, created_at, updated_at, last_user_message_at
+            ) VALUES
+              ('s-newer-created', 'w-project', 'idle', 'Newer created', '2026-04-20T00:00:00Z', '2026-04-20T00:00:00Z', '2026-04-20T00:00:00Z'),
+              ('s-older-active', 'w-project', 'idle', 'Older active', '2026-04-01T00:00:00Z', '2026-04-30T00:00:00Z', '2026-04-30T00:00:00Z')
+            "#,
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO session_messages (id, session_id, role, content, sent_at)
+            VALUES
+              ('m-newer-created', 's-newer-created', 'user', '{"type":"user_prompt","text":"old"}', '2026-04-20T00:00:00Z'),
+              ('m-older-active', 's-older-active', 'user', '{"type":"user_prompt","text":"new"}', '2026-04-30T00:00:00Z')
+            "#,
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let folders = list_repository_folders().unwrap();
+        let folder = folders
+            .iter()
+            .find(|folder| folder.repo_id == "r1")
+            .unwrap();
+
+        let chat_ids = folder
+            .chats
+            .iter()
+            .map(|chat| chat.session_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(chat_ids, vec!["s-older-active", "s-newer-created"]);
     }
 
     #[test]

@@ -64,7 +64,6 @@ const DEAD_COLUMNS: &[(&str, &str)] = &[
     ("sessions", "context_used_percent"),
     ("sessions", "freshly_compacted"),
     ("sessions", "is_compacting"),
-    ("sessions", "resume_session_at"),
     ("sessions", "thinking_enabled"),
     // session_messages: written by the streaming pipeline but never SELECTed.
     ("session_messages", "last_assistant_message_id"),
@@ -405,6 +404,16 @@ fn run_migrations(connection: &Connection) -> Result<()> {
             .context("Failed to add is_git column")?;
     }
 
+    // Claude supports resuming a provider session at a specific assistant
+    // message UUID. Rewind preserves the provider session and moves this cursor
+    // to the last retained assistant response so deleted user turns are not
+    // visible to the next request.
+    if !has_column(connection, "sessions", "resume_session_at") {
+        connection
+            .execute_batch("ALTER TABLE sessions ADD COLUMN resume_session_at TEXT")
+            .context("Failed to add sessions.resume_session_at column")?;
+    }
+
     // Migration: workspace kind — 'project' workspaces represent the
     // imported folder itself (no worktree, sessions = "chats" in the
     // sidebar). 'workspace' workspaces are branched git worktrees
@@ -566,6 +575,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     action_kind TEXT,
     pinned_at TEXT,
     context_usage_meta TEXT,
+    resume_session_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

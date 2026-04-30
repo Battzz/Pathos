@@ -180,6 +180,7 @@ describe("parseSendMessageParams", () => {
 			model: "opus",
 			cwd: "/tmp",
 			resume: "sdk-123",
+			resumeSessionAt: "asst-123",
 			permissionMode: "plan",
 			effortLevel: "high",
 		});
@@ -189,9 +190,11 @@ describe("parseSendMessageParams", () => {
 			model: "opus",
 			cwd: "/tmp",
 			resume: "sdk-123",
+			resumeSessionAt: "asst-123",
 			permissionMode: "plan",
 			effortLevel: "high",
 			fastMode: undefined,
+			claudeEnvironment: undefined,
 			additionalDirectories: undefined,
 		});
 	});

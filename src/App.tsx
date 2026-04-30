@@ -664,6 +664,11 @@ function AppShell({
 		appSettings.shortcuts,
 		"workspace.addRepository",
 	);
+	const newChatShortcut = getShortcut(appSettings.shortcuts, "session.new");
+	const deleteChatShortcut = getShortcut(
+		appSettings.shortcuts,
+		"session.close",
+	);
 	const commandBarShortcut = getShortcut(
 		appSettings.shortcuts,
 		"commandBar.open",
@@ -1157,13 +1162,14 @@ function AppShell({
 	}, [confirmDiscardEditorChanges]);
 
 	const primeWorkspaceDisplay = useCallback(
-		async (workspaceId: string) => {
+		async (workspaceId: string, preferredSessionId?: string | null) => {
 			const [workspaceDetail, workspaceSessions] = await Promise.all([
 				queryClient.ensureQueryData(workspaceDetailQueryOptions(workspaceId)),
 				queryClient.ensureQueryData(workspaceSessionsQueryOptions(workspaceId)),
 			]);
 
 			const resolvedSessionId =
+				preferredSessionId ??
 				workspaceDetail?.activeSessionId ??
 				workspaceSessions.find((session) => session.active)?.id ??
 				workspaceSessions[0]?.id ??
@@ -1355,7 +1361,7 @@ function AppShell({
 	]);
 
 	const handleSelectWorkspace = useCallback(
-		(workspaceId: string | null) => {
+		(workspaceId: string | null, preferredSessionId?: string | null) => {
 			if (workspaceId === selectedWorkspaceIdRef.current) {
 				// Re-clicking the currently selected workspace: force the
 				// mark-session-read effect to re-evaluate so a lingering dot
@@ -1372,7 +1378,7 @@ function AppShell({
 			sessionSelectionRequestRef.current += 1;
 			selectedWorkspaceIdRef.current = workspaceId;
 			const immediateSessionId = workspaceId
-				? resolvePreferredSessionId(workspaceId)
+				? (preferredSessionId ?? resolvePreferredSessionId(workspaceId))
 				: null;
 			selectedSessionIdRef.current = immediateSessionId;
 			setSelectedWorkspaceId(workspaceId);
@@ -1436,7 +1442,7 @@ function AppShell({
 				return;
 			}
 
-			void primeWorkspaceDisplay(workspaceId)
+			void primeWorkspaceDisplay(workspaceId, preferredSessionId)
 				.then(({ sessionId }) => {
 					if (workspaceSelectionRequestRef.current !== requestId) {
 						return;
@@ -1481,7 +1487,7 @@ function AppShell({
 				}
 				return;
 			}
-			handleSelectWorkspace(workspaceId);
+			handleSelectWorkspace(workspaceId, sessionId);
 		},
 		[handleSelectWorkspace, rememberSessionSelection],
 	);
@@ -2289,6 +2295,8 @@ function AppShell({
 															selectedWorkspaceId={selectedWorkspaceId}
 															selectedSessionId={selectedSessionId}
 															addRepositoryShortcut={addRepositoryShortcut}
+															newChatShortcut={newChatShortcut}
+															deleteChatShortcut={deleteChatShortcut}
 															onSelectWorkspace={handleSelectWorkspace}
 															onSelectChat={handleSelectChat}
 															footerControls={
@@ -2512,6 +2520,14 @@ function AppShell({
 																	repoId={
 																		selectedWorkspaceDetailQuery.data?.repoId ??
 																		null
+																	}
+																	workspaceBranch={
+																		selectedWorkspaceDetailQuery.data?.branch ??
+																		null
+																	}
+																	workspaceDefaultBranch={
+																		selectedWorkspaceDetailQuery.data
+																			?.defaultBranch ?? null
 																	}
 																	workspaceRemote={
 																		selectedWorkspaceDetailQuery.data?.remote ??

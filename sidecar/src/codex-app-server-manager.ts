@@ -731,6 +731,28 @@ export class CodexAppServerManager implements SessionManager {
 		this.pendingUserInputs.clear();
 	}
 
+	async rollbackSession(sessionId: string, numTurns: number): Promise<void> {
+		if (!Number.isInteger(numTurns) || numTurns < 1) {
+			throw new Error("numTurns must be an integer >= 1");
+		}
+
+		const ctx = this.sessions.get(sessionId);
+		if (!ctx || ctx.server.killed || !ctx.providerThreadId) {
+			return;
+		}
+		if (ctx.activeTurnId) {
+			throw new Error(
+				"Cannot roll back a Codex session while a turn is active",
+			);
+		}
+
+		await ctx.server.sendRequest("thread/rollback", {
+			threadId: ctx.providerThreadId,
+			numTurns,
+		});
+		ctx.activeTurnId = null;
+	}
+
 	// ── Private ──────────────────────────────────────────────────────────
 
 	/**
