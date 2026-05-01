@@ -380,6 +380,92 @@ describe("useConversationStreaming", () => {
 		);
 	});
 
+	it("marks deferred tool answers as sending before the response IPC resolves", async () => {
+		let resolveDeferredResponse: (() => void) | null = null;
+		apiMocks.respondToDeferredTool.mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					resolveDeferredResponse = resolve;
+				}),
+		);
+		const streamCallbacks: Array<(event: unknown) => void> = [];
+		apiMocks.startAgentMessageStream.mockImplementation(
+			async (_payload: unknown, onEvent: (event: unknown) => void) => {
+				streamCallbacks.push(onEvent);
+			},
+		);
+
+		const { Wrapper } = createWrapper();
+		const { result } = renderHook(
+			() =>
+				useConversationStreaming({
+					composerContextKey: "session:session-1",
+					displayedSelectedModelId: MODEL.id,
+					displayedSessionId: "session-1",
+					displayedWorkspaceId: "workspace-1",
+					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
+				}),
+			{ wrapper: Wrapper },
+		);
+
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "Need approval",
+				imagePaths: [],
+				filePaths: [],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/pathos",
+				effortLevel: "medium",
+				permissionMode: "default",
+				fastMode: false,
+			});
+		});
+
+		act(() => {
+			streamCallbacks[0]({
+				kind: "deferredToolUse",
+				provider: "claude",
+				providerSessionId: "provider-session-1",
+				workingDirectory: "/tmp/pathos",
+				permissionMode: "default",
+				toolUseId: "tool-1",
+				toolName: "AskUserQuestion",
+				toolInput: {
+					question: "Pick one",
+				},
+			});
+		});
+
+		let responsePromise: Promise<void>;
+		act(() => {
+			responsePromise = result.current.handleDeferredToolResponse(
+				result.current.pendingDeferredTool!,
+				"allow",
+			);
+		});
+
+		expect(result.current.pendingDeferredTool).toBeNull();
+		expect(result.current.isSending).toBe(true);
+		expect(result.current.sendingSessionIds).toEqual(new Set(["session-1"]));
+
+		act(() => {
+			result.current.handleStopStream();
+		});
+
+		expect(apiMocks.stopAgentStream).toHaveBeenCalledWith(
+			"session-1",
+			"claude",
+		);
+
+		await act(async () => {
+			resolveDeferredResponse?.();
+			await responsePromise;
+		});
+	});
+
 	it("sets hasPlanReview when planCaptured event is received", async () => {
 		apiMocks.startAgentMessageStream.mockImplementation(
 			async (_payload: unknown, onEvent: (event: unknown) => void) => {
@@ -1675,6 +1761,14 @@ describe("useConversationStreaming", () => {
 		);
 		expect(apiMocks.startAgentMessageStream).not.toHaveBeenCalled();
 		expect(result.current.pendingElicitation).toBeNull();
+		expect(result.current.isSending).toBe(true);
+		expect(result.current.sendingSessionIds).toEqual(new Set(["session-1"]));
+
+		act(() => {
+			result.current.handleStopStream();
+		});
+
+		expect(apiMocks.stopAgentStream).toHaveBeenCalledWith("session-1", "codex");
 	});
 
 	describe("follow-up queue", () => {

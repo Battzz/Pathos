@@ -51,10 +51,8 @@ export function ActionRowButton({
 			variant="ghost"
 			size="sm"
 			className={cn(
-				"h-7 cursor-pointer gap-1.5 rounded-md border-0 px-2 text-[12px] font-medium leading-none tracking-[0.01em] transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-				isActive
-					? "bg-foreground/10 text-foreground hover:bg-foreground/15 hover:text-foreground dark:bg-foreground/[0.08] dark:hover:bg-foreground/[0.12]"
-					: "bg-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground dark:bg-transparent",
+				"h-7 cursor-pointer gap-1.5 rounded-md border-0 bg-transparent px-2 text-[12px] font-medium leading-none tracking-[0.01em] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60 dark:bg-transparent",
+				isActive && "text-foreground",
 				className,
 			)}
 			aria-pressed={isActive}

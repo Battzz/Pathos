@@ -999,6 +999,14 @@ export function useConversationStreaming({
 
 				if (elicitation.provider === "codex") {
 					rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
+					setActiveSessionByContext((current) => ({
+						...current,
+						[contextKey]: {
+							stopSessionId: displayedSessionId,
+							provider: elicitation.provider,
+						},
+					}));
+					resumeSendingState(contextKey, displayedWorkspaceId);
 					return;
 				}
 
@@ -1269,6 +1277,7 @@ export function useConversationStreaming({
 			queryClient,
 			refreshSessionThreadFromDb,
 			rememberInteractionWorkspace,
+			resumeSendingState,
 			isCurrentStreamGeneration,
 			setPlanReviewActive,
 			setSidebarPlanImplementationNeeded,
@@ -1304,20 +1313,20 @@ export function useConversationStreaming({
 				[contextKey]: null,
 			}));
 			rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
+			setActiveSessionByContext((current) => ({
+				...current,
+				[contextKey]: {
+					stopSessionId: displayedSessionId,
+					provider: deferred.provider,
+				},
+			}));
+			resumeSendingState(contextKey, displayedWorkspaceId);
 
 			try {
 				await respondToDeferredTool(deferred.toolUseId, behavior, {
 					reason: options?.reason,
 					updatedInput: options?.updatedInput,
 				});
-				setActiveSessionByContext((current) => ({
-					...current,
-					[contextKey]: {
-						stopSessionId: displayedSessionId,
-						provider: deferred.provider,
-					},
-				}));
-				resumeSendingState(contextKey, displayedWorkspaceId);
 			} catch (error) {
 				console.error("[conversation] deferred tool response:", error);
 				const { code, message: errorMsg } = extractError(
@@ -1339,11 +1348,13 @@ export function useConversationStreaming({
 					...current,
 					[contextKey]: errorMsg,
 				}));
+				pauseSendingState(contextKey);
 			}
 		},
 		[
 			clearPendingElicitation,
 			clearPendingPermissions,
+			pauseSendingState,
 			composerContextKey,
 			displayedSessionId,
 			displayedWorkspaceId,
