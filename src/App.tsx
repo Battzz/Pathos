@@ -994,6 +994,12 @@ function AppShell({
 			const effective = resolveTheme(appSettings.theme);
 			document.documentElement.classList.toggle("dark", effective === "dark");
 			document.documentElement.style.colorScheme = effective;
+			// Sync the native window appearance so NSVisualEffectView
+			// vibrancy under transparent panels picks the right material
+			// (light/dark) instead of always following the system.
+			void import("@tauri-apps/api/window")
+				.then(({ getCurrentWindow }) => getCurrentWindow().setTheme(effective))
+				.catch(() => {});
 			// Monaco's theme is synced via a MutationObserver inside
 			// `monaco-runtime.ts` — avoid importing it here to keep Monaco out
 			// of the critical boot path and out of tests that never open the
@@ -2277,11 +2283,11 @@ function AppShell({
 						) : (
 							<main
 								aria-label="Application shell"
-								className="relative h-screen overflow-hidden bg-background font-sans text-foreground antialiased"
+								className="relative h-screen overflow-hidden bg-transparent font-sans text-foreground antialiased"
 							>
 								<div
 									ref={shellPanelsRef}
-									className="relative flex h-full min-h-0 bg-background"
+									className="relative flex h-full min-h-0 bg-transparent"
 									style={shellPanelsStyle}
 								>
 									{workspaceViewMode === "conversation" && (
@@ -2290,7 +2296,7 @@ function AppShell({
 												<aside
 													aria-label="Workspace sidebar"
 													data-pathos-sidebar-root
-													className="relative flex h-full shrink-0 flex-col overflow-hidden bg-sidebar"
+													className="relative flex h-full shrink-0 flex-col overflow-hidden bg-transparent"
 													style={{ width: "var(--pathos-sidebar-width)" }}
 												>
 													<div className="min-h-0 flex-1">
@@ -2401,7 +2407,7 @@ function AppShell({
 
 									<section
 										aria-label="Workspace panel"
-										className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+										className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-chat-surface"
 									>
 										{workspaceViewMode === "conversation" && (
 											<div
@@ -2413,7 +2419,7 @@ function AppShell({
 
 										<div
 											aria-label="Workspace viewport"
-											className="flex min-h-0 flex-1 flex-col bg-background"
+											className="flex min-h-0 flex-1 flex-col bg-chat-surface"
 										>
 											{workspaceViewMode === "editor" && editorSession && (
 												<WorkspaceEditorSurface

@@ -81,7 +81,7 @@ function PrimaryAction({
 		<button
 			type="button"
 			onClick={onClick}
-			className="group/empty-action inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-border bg-background/80 px-3.5 text-[13px] font-medium text-foreground backdrop-blur-sm transition-colors duration-200 ease-out hover:bg-muted"
+			className="group/empty-action inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-border bg-foreground/[0.06] px-3.5 text-[13px] font-medium text-foreground backdrop-blur-sm transition-colors duration-200 ease-out hover:bg-foreground/[0.10]"
 		>
 			<Icon className="size-3.5" strokeWidth={1.75} />
 			<span>{label}</span>

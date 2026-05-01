@@ -170,7 +170,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 					) : loadingWorkspace || loadingSession ? (
 						<ConversationColdPlaceholder />
 					) : (
-						<div className="flex min-h-full flex-1 items-center justify-center px-8">
+						<div className="grid h-full w-full flex-1 place-items-center px-8">
 							<EmptyState
 								workspaceState={workspace?.state ?? null}
 								hasSession={!!selectedSession}

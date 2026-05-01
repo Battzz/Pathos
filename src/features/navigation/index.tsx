@@ -292,18 +292,10 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			<div
 				className={cn(
 					"scrollbar-stable min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]",
-					folders.length === 0
-						? "flex items-center justify-center px-6"
-						: "pr-1 pl-2",
+					"pr-1 pl-2",
 				)}
 			>
-				{folders.length === 0 ? (
-					<EmptySidebar
-						onAddRepository={onAddRepository}
-						addingRepository={addingRepository}
-						importingRepository={importingRepository}
-					/>
-				) : (
+				{folders.length === 0 ? null : (
 					<ul className="flex flex-col gap-0.5 pb-2 pt-1">
 						{importingRepository ? <PendingProjectRow /> : null}
 						{folders.map((folder) => (
@@ -516,62 +508,6 @@ function ShowMoreChatsButton({
 				{hiddenCount}
 			</span>
 		</button>
-	);
-}
-
-function EmptySidebar({
-	onAddRepository,
-	addingRepository,
-	importingRepository,
-}: {
-	onAddRepository: () => void;
-	addingRepository: boolean;
-	importingRepository: boolean;
-}) {
-	return (
-		<div className="flex flex-col items-center justify-center gap-4 text-center">
-			<div className="relative">
-				<div
-					aria-hidden="true"
-					className="absolute inset-0 -z-10 rounded-full blur-2xl"
-					style={{
-						background:
-							"radial-gradient(circle at center, color-mix(in oklch, var(--foreground) 8%, transparent), transparent 70%)",
-					}}
-				/>
-				<div className="flex size-12 items-center justify-center rounded-xl border border-border/60 bg-foreground/[0.02]">
-					<FolderPlus
-						className="size-5 text-muted-foreground/70"
-						strokeWidth={1.5}
-					/>
-				</div>
-			</div>
-			<div className="flex flex-col gap-1">
-				<p className="text-[13px] font-medium text-foreground/85">
-					No projects yet
-				</p>
-				<p className="text-[12px] leading-relaxed text-muted-foreground/75">
-					Open a folder to start a chat.
-				</p>
-			</div>
-			<Button
-				type="button"
-				size="sm"
-				variant="secondary"
-				onClick={onAddRepository}
-				disabled={addingRepository}
-				className="mt-1 cursor-pointer"
-			>
-				{addingRepository ? (
-					<LoaderCircle className="size-3.5 animate-spin" strokeWidth={2.1} />
-				) : (
-					<FolderPlus className="size-3.5" strokeWidth={2} />
-				)}
-				<span>
-					{importingRepository ? "Adding project..." : "Open project"}
-				</span>
-			</Button>
-		</div>
 	);
 }
 

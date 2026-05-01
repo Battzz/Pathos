@@ -40,11 +40,12 @@ body,
 	height: 100%;
 	min-height: 100%;
 	overflow: hidden;
+	background-color: transparent;
 }
 
 body {
 	min-height: 100vh;
-	background-color: var(--background);
+	background-color: transparent;
 	user-select: none;
 	-webkit-user-select: none;
 }
@@ -832,6 +833,7 @@ body {
 	--color-card: var(--card);
 	--color-foreground: var(--foreground);
 	--color-background: var(--background);
+	--color-chat-surface: var(--chat-surface);
 	--color-plan: var(--plan);
 	--color-tooltip: var(--tooltip);
 	--color-tooltip-foreground: var(--tooltip-foreground);
@@ -877,7 +879,7 @@ body {
 		@apply font-sans;
 	}
 	body {
-		@apply bg-background text-foreground;
+		@apply bg-transparent text-foreground;
 	}
 }
 

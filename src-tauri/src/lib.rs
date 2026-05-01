@@ -183,6 +183,24 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             install_macos_menu(app.handle())?;
 
+            // Apply NSVisualEffectView vibrancy to the main window so
+            // transparent regions (sidebars) show the desktop wallpaper
+            // through a frosted-glass blur.
+            #[cfg(target_os = "macos")]
+            if let Some(window) = app.get_webview_window("main") {
+                use window_vibrancy::{
+                    apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+                };
+                if let Err(error) = apply_vibrancy(
+                    &window,
+                    NSVisualEffectMaterial::Sidebar,
+                    Some(NSVisualEffectState::Active),
+                    None,
+                ) {
+                    tracing::warn!(error = %error, "Failed to apply window vibrancy");
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

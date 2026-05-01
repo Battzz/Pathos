@@ -368,7 +368,7 @@ export const WorkspacePanelHeader = memo(function WorkspacePanelHeader({
 					) : null}
 				</div>
 				{headerActions ? (
-					<div className="relative z-10 flex shrink-0 items-center gap-1 bg-background pl-0.5">
+					<div className="relative z-10 flex shrink-0 items-center gap-1 bg-chat-surface pl-0.5">
 						{headerActions}
 					</div>
 				) : null}

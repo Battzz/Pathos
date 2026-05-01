@@ -370,7 +370,7 @@ function ConversationViewport({
 		? sendingStartTime
 		: undefined;
 	const EmptyPlaceholder: ThreadViewportSlot = () => (
-		<div className="flex min-h-full flex-1 items-center justify-center px-8">
+		<div className="grid h-full w-full flex-1 place-items-center px-8">
 			<EmptyState
 				hasSession={hasSession}
 				onCloneProject={onCloneProject}

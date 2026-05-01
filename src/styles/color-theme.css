@@ -3,6 +3,7 @@
 
 	/* Official shadcn/ui radix-nova neutral theme */
 	--background: oklch(1 0 0);
+	--chat-surface: oklch(1 0 0);
 	--foreground: oklch(0.145 0 0);
 	--conversation-body-foreground: rgb(44, 40, 38);
 	--card: oklch(1 0 0);
@@ -119,6 +120,7 @@
 
 	/* Official shadcn/ui radix-nova neutral theme */
 	--background: oklch(0.165 0 0);
+	--chat-surface: oklch(0.21 0 0);
 	--foreground: oklch(0.985 0 0);
 	--conversation-body-foreground: rgb(234, 232, 230);
 	--card: oklch(0.205 0 0);

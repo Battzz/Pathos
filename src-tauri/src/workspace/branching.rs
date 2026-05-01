@@ -356,7 +356,11 @@ fn try_realign_local_branch(
         return Ok(None);
     };
 
-    let workspace_dir = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
+    let Some(workspace_dir) =
+        crate::workspace_project::resolve_workspace_root_path_unchecked(record)
+    else {
+        return Ok(None);
+    };
     if !workspace_dir.is_dir() {
         return Ok(None);
     }
@@ -401,7 +405,11 @@ pub fn refresh_remote_and_realign(
     if !record.state.is_operational() {
         return Ok(false);
     }
-    let workspace_dir = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
+    let Some(workspace_dir) =
+        crate::workspace_project::resolve_workspace_root_path_unchecked(&record)
+    else {
+        return Ok(false);
+    };
     if !workspace_dir.is_dir() {
         return Ok(false);
     }
@@ -519,8 +527,11 @@ pub fn prefetch_remote_refs(
         if !record.state.is_operational() {
             return Ok(PrefetchRemoteRefsResponse { fetched: false });
         }
-        let workspace_dir =
-            crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
+        let Some(workspace_dir) =
+            crate::workspace_project::resolve_workspace_root_path_unchecked(&record)
+        else {
+            return Ok(PrefetchRemoteRefsResponse { fetched: false });
+        };
         if !workspace_dir.is_dir() {
             return Ok(PrefetchRemoteRefsResponse { fetched: false });
         }
@@ -557,7 +568,8 @@ pub fn sync_workspace_with_target_branch(
         .remote
         .clone()
         .unwrap_or_else(|| "origin".to_string());
-    let workspace_dir = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
+    let workspace_dir = crate::workspace_project::resolve_workspace_root_path_unchecked(&record)
+        .with_context(|| format!("Workspace {workspace_id} has no resolvable working directory"))?;
     if !workspace_dir.is_dir() {
         bail_coded!(
             ErrorCode::WorkspaceBroken,
@@ -651,7 +663,8 @@ pub fn push_workspace_to_remote(workspace_id: &str) -> Result<PushWorkspaceToRem
         .remote
         .clone()
         .unwrap_or_else(|| "origin".to_string());
-    let workspace_dir = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
+    let workspace_dir = crate::workspace_project::resolve_workspace_root_path_unchecked(&record)
+        .with_context(|| format!("Workspace {workspace_id} has no resolvable working directory"))?;
     if !workspace_dir.is_dir() {
         bail_coded!(
             ErrorCode::WorkspaceBroken,
@@ -696,7 +709,8 @@ pub fn continue_workspace_from_target_branch(
     let repo_root = helpers::non_empty(&record.root_path)
         .map(PathBuf::from)
         .with_context(|| format!("Workspace {workspace_id} is missing repo root_path"))?;
-    let workspace_dir = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
+    let workspace_dir = crate::workspace_project::resolve_workspace_root_path_unchecked(&record)
+        .with_context(|| format!("Workspace {workspace_id} has no resolvable working directory"))?;
     if !workspace_dir.is_dir() {
         bail_coded!(
             ErrorCode::WorkspaceBroken,

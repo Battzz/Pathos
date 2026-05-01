@@ -24,6 +24,7 @@
 		}
 	},
 	"app": {
+		"macOSPrivateApi": true,
 		"windows": [
 			{
 				"title": "Pathos",
@@ -36,7 +37,7 @@
 				},
 				"hiddenTitle": true,
 				"center": true,
-				"backgroundColor": "#0E0E0E"
+				"transparent": true
 			}
 		],
 		"security": {
