@@ -2508,6 +2508,9 @@ function AppShell({
 												}
 											>
 												<WorkspaceConversationContainer
+													isShellResizing={
+														isSidebarResizing || isInspectorResizing
+													}
 													selectedWorkspaceId={selectedWorkspaceId}
 													displayedWorkspaceId={displayedWorkspaceId}
 													selectedSessionId={selectedSessionId}
@@ -2819,7 +2822,7 @@ function AppShell({
 													aria-hidden="true"
 													className={`pointer-events-none absolute inset-y-0 left-0 transition-[width,background-color,box-shadow] ${
 														isInspectorResizing
-															? "w-[2px] bg-transparent shadow-none"
+															? "w-[2px] bg-foreground/80 shadow-[0_0_12px_rgba(0,0,0,0.12)] dark:shadow-[0_0_12px_rgba(255,255,255,0.16)]"
 															: "w-px bg-border group-hover:w-[2px] group-hover:bg-muted-foreground/75 group-focus-visible:w-[2px] group-focus-visible:bg-muted-foreground/75"
 													}`}
 												/>

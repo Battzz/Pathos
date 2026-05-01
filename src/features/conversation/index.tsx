@@ -33,6 +33,7 @@ import {
 } from "./permission-as-deferred-tool";
 
 type WorkspaceConversationContainerProps = {
+	isShellResizing?: boolean;
 	selectedWorkspaceId: string | null;
 	displayedWorkspaceId: string | null;
 	selectedSessionId: string | null;
@@ -87,6 +88,7 @@ type WorkspaceConversationContainerProps = {
 
 export const WorkspaceConversationContainer = memo(
 	function WorkspaceConversationContainer({
+		isShellResizing = false,
 		selectedWorkspaceId,
 		displayedWorkspaceId,
 		selectedSessionId,
@@ -312,6 +314,7 @@ export const WorkspaceConversationContainer = memo(
 			>
 				<div className="relative flex min-h-0 flex-1 flex-col">
 					<WorkspacePanelContainer
+						isShellResizing={isShellResizing}
 						selectedWorkspaceId={selectedWorkspaceId}
 						displayedWorkspaceId={displayedWorkspaceId}
 						selectedSessionId={selectedSessionId}

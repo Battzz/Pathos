@@ -23,6 +23,7 @@ export {
 } from "./message-components";
 
 type WorkspacePanelProps = {
+	isShellResizing?: boolean;
 	workspace: WorkspaceDetail | null;
 	changeRequest?: ChangeRequestInfo | null;
 	sessions: WorkspaceSessionSummary[];
@@ -73,6 +74,7 @@ function providerDisplayName(
 }
 
 export const WorkspacePanel = memo(function WorkspacePanel({
+	isShellResizing = false,
 	workspace,
 	changeRequest = null,
 	sessions,
@@ -159,6 +161,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 				<div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
 					{activePane?.hasLoaded ? (
 						<ActiveThreadViewport
+							isShellResizing={isShellResizing}
 							hasSession={!!selectedSession}
 							pane={activePane}
 							providerName={selectedProviderName}

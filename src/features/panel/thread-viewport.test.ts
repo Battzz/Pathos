@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveConversationRowHeight } from "./thread-viewport";
+import {
+	getPaneWidthBucket,
+	resolveConversationRowHeight,
+	resolvePaneWidthSnapshot,
+} from "./thread-viewport";
 
 describe("resolveConversationRowHeight", () => {
 	it("keeps the larger estimate for streaming rows until measurement catches up", () => {
@@ -20,5 +24,22 @@ describe("resolveConversationRowHeight", () => {
 				streaming: false,
 			}),
 		).toBe(132);
+	});
+});
+
+describe("resolvePaneWidthSnapshot", () => {
+	it("keeps the same snapshot for width changes inside the current layout bucket", () => {
+		const current = resolvePaneWidthSnapshot(640);
+
+		expect(getPaneWidthBucket(640)).toBe(20);
+		expect(resolvePaneWidthSnapshot(647, current)).toBe(current);
+	});
+
+	it("returns a new snapshot when width crosses a layout bucket", () => {
+		const current = resolvePaneWidthSnapshot(640);
+		const next = resolvePaneWidthSnapshot(657, current);
+
+		expect(next).not.toBe(current);
+		expect(next).toEqual({ bucket: 21, width: 657 });
 	});
 });

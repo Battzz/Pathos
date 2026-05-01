@@ -34,6 +34,7 @@ import type { SessionCloseRequest } from "./use-confirm-session-close";
 const EMPTY_MESSAGES: ThreadMessageLike[] = [];
 
 type WorkspacePanelContainerProps = {
+	isShellResizing?: boolean;
 	selectedWorkspaceId: string | null;
 	displayedWorkspaceId: string | null;
 	selectedSessionId: string | null;
@@ -61,6 +62,7 @@ type WorkspacePanelContainerProps = {
 };
 
 export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
+	isShellResizing = false,
 	selectedWorkspaceId,
 	displayedWorkspaceId,
 	selectedSessionId,
@@ -590,6 +592,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 
 	return (
 		<WorkspacePanel
+			isShellResizing={isShellResizing}
 			workspace={workspace}
 			sessions={sessions}
 			selectedSessionId={selectedSessionIdForPanel}

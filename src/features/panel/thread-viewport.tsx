@@ -44,6 +44,12 @@ const PROGRESSIVE_VIEWPORT_DEFAULT_HEIGHT = 900;
 const PROGRESSIVE_VIEWPORT_HEADER_HEIGHT = 24;
 const PROGRESSIVE_VIEWPORT_STREAMING_FOOTER_HEIGHT = 40;
 const CONVERSATION_BOTTOM_SPACER_HEIGHT = 176;
+const PANE_WIDTH_BUCKET_SIZE = 32;
+
+type PaneWidthSnapshot = {
+	bucket: number;
+	width: number;
+};
 
 export function resolveConversationRowHeight({
 	estimatedHeight,
@@ -61,7 +67,27 @@ export function resolveConversationRowHeight({
 	return streaming ? Math.max(measuredHeight, estimatedHeight) : measuredHeight;
 }
 
+export function getPaneWidthBucket(width: number) {
+	return width > 0
+		? Math.max(1, Math.round(width / PANE_WIDTH_BUCKET_SIZE))
+		: 0;
+}
+
+export function resolvePaneWidthSnapshot(
+	width: number,
+	current?: PaneWidthSnapshot,
+): PaneWidthSnapshot {
+	const bucket = getPaneWidthBucket(width);
+
+	if (current?.bucket === bucket) {
+		return current;
+	}
+
+	return { bucket, width };
+}
+
 export function ActiveThreadViewport({
+	isShellResizing = false,
 	hasSession,
 	onCloneProject,
 	onOpenProject,
@@ -74,6 +100,7 @@ export function ActiveThreadViewport({
 	onSubmitEditedMessage,
 	onRedoAssistantMessage,
 }: {
+	isShellResizing?: boolean;
 	hasSession: boolean;
 	onCloneProject?: () => void;
 	onOpenProject?: () => void;
@@ -93,8 +120,10 @@ export function ActiveThreadViewport({
 	) => void | Promise<void>;
 }) {
 	const stackRef = useRef<HTMLDivElement | null>(null);
-	const [widthBucket, setWidthBucket] = useState(0);
-	const [paneWidth, setPaneWidth] = useState(0);
+	const [paneWidthSnapshot, setPaneWidthSnapshot] = useState<PaneWidthSnapshot>(
+		() => resolvePaneWidthSnapshot(0),
+	);
+	const { bucket: widthBucket, width: paneWidth } = paneWidthSnapshot;
 
 	useLayoutEffect(() => {
 		if (
@@ -110,9 +139,13 @@ export function ActiveThreadViewport({
 		}
 
 		const updateWidthBucket = () => {
+			if (isShellResizing) {
+				return;
+			}
 			const width = stack.clientWidth;
-			setPaneWidth(width);
-			setWidthBucket(width > 0 ? Math.max(1, Math.round(width / 32)) : 0);
+			setPaneWidthSnapshot((current) =>
+				resolvePaneWidthSnapshot(width, current),
+			);
 		};
 
 		updateWidthBucket();
@@ -124,7 +157,7 @@ export function ActiveThreadViewport({
 		return () => {
 			observer.disconnect();
 		};
-	}, []);
+	}, [isShellResizing]);
 
 	return (
 		<div
@@ -633,7 +666,18 @@ function ProgressiveConversationViewport({
 		});
 		let observer: ResizeObserver | null = null;
 		if (typeof ResizeObserver !== "undefined") {
-			observer = new ResizeObserver(scheduleCommit);
+			let lastObservedHeight = scrollParent.clientHeight;
+			observer = new ResizeObserver((entries) => {
+				const entry = entries[0];
+				const nextHeight = entry
+					? Math.round(entry.contentRect.height)
+					: scrollParent.clientHeight;
+				if (Math.abs(nextHeight - lastObservedHeight) < 1) {
+					return;
+				}
+				lastObservedHeight = nextHeight;
+				scheduleCommit();
+			});
 			observer.observe(scrollParent);
 		}
 

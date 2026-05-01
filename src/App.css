@@ -8,6 +8,7 @@
 @import "shadcn/tailwind.css";
 @import "react-loading-skeleton/dist/skeleton.css";
 @import "streamdown/styles.css";
+@import "katex/dist/katex.min.css";
 @import "./styles/color-theme.css";
 
 @source "../node_modules/streamdown/dist/*.js";

@@ -5,7 +5,14 @@ import {
 	Info,
 	RotateCcw,
 } from "lucide-react";
-import { memo, Suspense, useCallback, useMemo, useState } from "react";
+import {
+	memo,
+	Suspense,
+	useCallback,
+	useDeferredValue,
+	useMemo,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import {
 	Reasoning,
@@ -48,6 +55,8 @@ const STREAMING_ANIMATED = {
 	sep: "word" as const,
 	stagger: 30,
 };
+const MAX_ANIMATED_STREAMING_CHARS = 6000;
+const PLAIN_STREAMING_TEXT_THRESHOLD = 20000;
 
 const AssistantText = memo(function AssistantText({
 	text,
@@ -58,23 +67,35 @@ const AssistantText = memo(function AssistantText({
 }) {
 	const mode: StreamdownMode = streaming ? "streaming" : "static";
 	const { settings } = useSettings();
+	const deferredText = useDeferredValue(text);
+	const renderedText = streaming ? deferredText : text;
+	const renderPlainStreamingText =
+		streaming && renderedText.length > PLAIN_STREAMING_TEXT_THRESHOLD;
+	const animated =
+		streaming && renderedText.length <= MAX_ANIMATED_STREAMING_CHARS
+			? STREAMING_ANIMATED
+			: false;
 
 	return (
 		<div
 			className="conversation-markdown assistant-markdown-scale max-w-none select-text break-words text-foreground"
 			style={{ fontSize: `${settings.fontSize}px` }}
 		>
-			<Suspense fallback={<AssistantTextFallback text={text} />}>
-				<LazyStreamdown
-					animated={streaming ? STREAMING_ANIMATED : false}
-					caret={undefined}
-					className="conversation-streamdown"
-					isAnimating={streaming}
-					mode={mode}
-				>
-					{text}
-				</LazyStreamdown>
-			</Suspense>
+			{renderPlainStreamingText ? (
+				<AssistantTextFallback text={renderedText} />
+			) : (
+				<Suspense fallback={<AssistantTextFallback text={renderedText} />}>
+					<LazyStreamdown
+						animated={animated}
+						caret={undefined}
+						className="conversation-streamdown"
+						isAnimating={animated !== false}
+						mode={mode}
+					>
+						{renderedText}
+					</LazyStreamdown>
+				</Suspense>
+			)}
 		</div>
 	);
 });
