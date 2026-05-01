@@ -478,6 +478,94 @@ describe("useConversationStreaming", () => {
 		expect(result.current.hasPlanReview).toBe(false);
 	});
 
+	it("keeps implementation stream marked sending when the plan stream finishes late", async () => {
+		const streamCallbacks: Array<(event: unknown) => void> = [];
+		apiMocks.startAgentMessageStream.mockImplementation(
+			async (_payload: unknown, onEvent: (event: unknown) => void) => {
+				streamCallbacks.push(onEvent);
+			},
+		);
+
+		const { Wrapper } = createWrapper();
+		const { result } = renderHook(
+			() =>
+				useConversationStreaming({
+					composerContextKey: "session:session-1",
+					displayedSelectedModelId: MODEL.id,
+					displayedSessionId: "session-1",
+					displayedWorkspaceId: "workspace-1",
+					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
+				}),
+			{ wrapper: Wrapper },
+		);
+
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "plan something",
+				imagePaths: [],
+				filePaths: [],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/pathos",
+				effortLevel: "medium",
+				permissionMode: "plan",
+				fastMode: false,
+			});
+		});
+
+		act(() => {
+			streamCallbacks[0]({ kind: "planCaptured" });
+		});
+
+		expect(result.current.hasPlanReview).toBe(true);
+		expect(result.current.isSending).toBe(true);
+		expect(result.current.sendingSessionIds).toEqual(new Set(["session-1"]));
+
+		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "Go ahead with the plan.",
+				imagePaths: [],
+				filePaths: [],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/pathos",
+				effortLevel: "medium",
+				permissionMode: "bypassPermissions",
+				fastMode: false,
+			});
+		});
+
+		expect(apiMocks.startAgentMessageStream).toHaveBeenCalledTimes(2);
+		expect(result.current.hasPlanReview).toBe(false);
+		expect(result.current.isSending).toBe(true);
+
+		act(() => {
+			streamCallbacks[0]({
+				kind: "done",
+				provider: "codex",
+				sessionId: "session-1",
+				persisted: true,
+			});
+		});
+
+		expect(result.current.isSending).toBe(true);
+		expect(result.current.sendingSessionIds).toEqual(new Set(["session-1"]));
+
+		act(() => {
+			streamCallbacks[1]({
+				kind: "done",
+				provider: "codex",
+				sessionId: "session-1",
+				persisted: true,
+			});
+		});
+
+		expect(result.current.isSending).toBe(false);
+		expect(result.current.sendingSessionIds).toEqual(new Set());
+	});
+
 	it("routes a second submit while sending to steerAgentStream, not startAgentMessageStream", async () => {
 		// Stream mock returns without firing `done` → isSending stays true.
 		apiMocks.startAgentMessageStream.mockImplementation(

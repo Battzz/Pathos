@@ -231,6 +231,7 @@ export function useConversationStreaming({
 		Record<string, boolean>
 	>({});
 	const sendingWorkspaceMapRef = useRef<Map<string, string>>(new Map());
+	const streamGenerationByContextRef = useRef<Map<string, number>>(new Map());
 	const activeSendError = sendErrorsByContext[composerContextKey] ?? null;
 	const isSending = sendingContextKeys.has(composerContextKey);
 	const pendingPermissions =
@@ -840,6 +841,19 @@ export function useConversationStreaming({
 		[],
 	);
 
+	const beginStreamGeneration = useCallback((contextKey: string) => {
+		const generation =
+			(streamGenerationByContextRef.current.get(contextKey) ?? 0) + 1;
+		streamGenerationByContextRef.current.set(contextKey, generation);
+		return generation;
+	}, []);
+
+	const isCurrentStreamGeneration = useCallback(
+		(contextKey: string, generation: number) =>
+			streamGenerationByContextRef.current.get(contextKey) === generation,
+		[],
+	);
+
 	const clearSendingState = useCallback(
 		(contextKey: string) => {
 			setActiveSessionByContext((current) => {
@@ -1006,6 +1020,7 @@ export function useConversationStreaming({
 						provider: elicitation.provider,
 					},
 				}));
+				const streamGeneration = beginStreamGeneration(contextKey);
 
 				let frameId: number | null = null;
 				let baseMessages: ThreadMessageLike[] = [];
@@ -1058,6 +1073,10 @@ export function useConversationStreaming({
 						workingDirectory: elicitation.workingDirectory,
 					},
 					(event) => {
+						if (!isCurrentStreamGeneration(contextKey, streamGeneration)) {
+							return;
+						}
+
 						if (event.kind === "update") {
 							baseMessages = event.messages;
 							pendingPartial = null;
@@ -1237,6 +1256,7 @@ export function useConversationStreaming({
 			applyDeferredToolEvent,
 			applyElicitationEvent,
 			appendPendingPermission,
+			beginStreamGeneration,
 			clearFastPrelude,
 			clearPendingElicitation,
 			clearPendingPermissions,
@@ -1249,6 +1269,7 @@ export function useConversationStreaming({
 			queryClient,
 			refreshSessionThreadFromDb,
 			rememberInteractionWorkspace,
+			isCurrentStreamGeneration,
 			setPlanReviewActive,
 			setSidebarPlanImplementationNeeded,
 		],
@@ -1661,6 +1682,7 @@ export function useConversationStreaming({
 						provider: model.provider,
 					},
 				}));
+				const streamGeneration = beginStreamGeneration(contextKey);
 
 				let frameId: number | null = null;
 				let baseMessages: ThreadMessageLike[] = [];
@@ -1724,6 +1746,10 @@ export function useConversationStreaming({
 						})),
 					},
 					(event) => {
+						if (!isCurrentStreamGeneration(contextKey, streamGeneration)) {
+							return;
+						}
+
 						if (event.kind === "update") {
 							baseMessages = event.messages;
 							pendingPartial = null;
@@ -1946,6 +1972,7 @@ export function useConversationStreaming({
 			applyDeferredToolEvent,
 			applyElicitationEvent,
 			appendPendingPermission,
+			beginStreamGeneration,
 			clearSendingState,
 			clearPendingElicitation,
 			clearPendingPermissions,
@@ -1970,6 +1997,7 @@ export function useConversationStreaming({
 			sendingContextKeys,
 			planReviewByContext,
 			followUpBehavior,
+			isCurrentStreamGeneration,
 			submitQueue,
 		],
 	);
