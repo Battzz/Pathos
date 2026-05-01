@@ -12,9 +12,10 @@ import { cn } from "@/lib/utils";
 
 export type PinnedTodoListProps = {
 	part: TodoListPart;
+	className?: string;
 };
 
-export function PinnedTodoList({ part }: PinnedTodoListProps) {
+export function PinnedTodoList({ part, className }: PinnedTodoListProps) {
 	const [expanded, setExpanded] = useState(false);
 
 	useEffect(() => {
@@ -31,7 +32,10 @@ export function PinnedTodoList({ part }: PinnedTodoListProps) {
 	return (
 		<div
 			data-testid="pinned-todo-list"
-			className="pointer-events-auto relative z-0 w-full overflow-hidden rounded-t-2xl border border-b-0 border-border/40 bg-sidebar"
+			className={cn(
+				"pointer-events-auto relative z-0 w-full overflow-hidden rounded-t-2xl border border-b-0 border-border/40 bg-sidebar",
+				className,
+			)}
 		>
 			<button
 				type="button"

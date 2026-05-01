@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { CodeBlock } from "@/components/ai/code-block";
 import {
 	Reasoning,
 	ReasoningContent,
@@ -29,6 +30,7 @@ import {
 	isLiveStreamingStatus,
 	isTodoListPart,
 	isToolCallPart,
+	type ToolInfo,
 } from "./shared";
 import { getToolInfo } from "./tool-info";
 
@@ -105,6 +107,7 @@ export const AssistantToolCall = memo(function AssistantToolCall({
 		isApplyPatch &&
 		hasFiles &&
 		(result === "Patch applied" || result === "Patch failed");
+	const writeContent = toolName === "Write" ? stringArg(args.content) : null;
 
 	const resultStr = useMemo(
 		() =>
@@ -117,10 +120,15 @@ export const AssistantToolCall = memo(function AssistantToolCall({
 	);
 	const hasChildren = (childParts?.length ?? 0) > 0;
 	const resultText =
-		hasChildren || suppressGenericPatchResult ? null : (info.body ?? resultStr);
+		hasChildren || suppressGenericPatchResult
+			? null
+			: (info.body ?? writeContent ?? resultStr);
 	const hasOutput = resultText != null && resultText.length > 5;
 	const canExpand = hasOutput || hasFiles;
 	const isLiveTool = isLiveStreamingStatus(streamingStatus);
+	const codeLanguage = shouldHighlightToolOutput(toolName, info)
+		? inferLanguageFromPath(stringArg(args.file_path) ?? info.file)
+		: null;
 	// All tool calls default to collapsed; user must click to expand.
 	const [isOpen, setIsOpen] = useState(false);
 
@@ -265,10 +273,18 @@ export const AssistantToolCall = memo(function AssistantToolCall({
 										</code>
 									</div>
 								) : null}
-								<pre className="whitespace-pre-wrap break-words p-1.5 text-muted-foreground/80">
-									{resultText!.slice(0, 2000)}
-									{resultText!.length > 2000 ? "…" : ""}
-								</pre>
+								{codeLanguage ? (
+									<CodeBlock
+										code={truncateExpandedToolOutput(resultText!, 4000)}
+										language={codeLanguage}
+										variant="plain"
+										wrapLines
+									/>
+								) : (
+									<pre className="whitespace-pre-wrap break-words p-1.5 text-muted-foreground/80">
+										{truncateExpandedToolOutput(resultText!, 2000)}
+									</pre>
+								)}
 							</div>
 						) : null}
 						{hasFiles ? (
@@ -327,6 +343,81 @@ export const AssistantToolCall = memo(function AssistantToolCall({
 		</>
 	);
 }, assistantToolCallPropsEqual);
+
+const LANGUAGE_BY_EXTENSION: Record<string, string> = {
+	c: "c",
+	cjs: "js",
+	cpp: "cpp",
+	cs: "csharp",
+	css: "css",
+	go: "go",
+	h: "c",
+	hpp: "cpp",
+	html: "html",
+	java: "java",
+	js: "js",
+	json: "json",
+	jsonc: "jsonc",
+	jsx: "jsx",
+	kt: "kotlin",
+	lua: "lua",
+	md: "md",
+	mdx: "mdx",
+	mjs: "js",
+	py: "py",
+	rb: "ruby",
+	rs: "rust",
+	sh: "bash",
+	sql: "sql",
+	svelte: "svelte",
+	swift: "swift",
+	toml: "toml",
+	ts: "ts",
+	tsx: "tsx",
+	vue: "vue",
+	xml: "xml",
+	yaml: "yaml",
+	yml: "yaml",
+};
+
+const LANGUAGE_BY_FILENAME: Record<string, string> = {
+	dockerfile: "dockerfile",
+	makefile: "make",
+};
+
+function stringArg(value: unknown): string | null {
+	return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function shouldHighlightToolOutput(toolName: string, info: ToolInfo): boolean {
+	return (
+		toolName === "Read" ||
+		toolName === "Write" ||
+		(toolName === "Bash" && info.action === "Read" && Boolean(info.file))
+	);
+}
+
+function inferLanguageFromPath(path: string | null | undefined): string | null {
+	if (!path) {
+		return null;
+	}
+	const fileName = path.replace(/\\/g, "/").split("/").pop()?.toLowerCase();
+	if (!fileName) {
+		return null;
+	}
+	const byName = LANGUAGE_BY_FILENAME[fileName];
+	if (byName) {
+		return byName;
+	}
+	const extension = fileName.includes(".")
+		? fileName.slice(fileName.lastIndexOf(".") + 1)
+		: "";
+	return LANGUAGE_BY_EXTENSION[extension] ?? null;
+}
+
+function truncateExpandedToolOutput(text: string, limit: number): string {
+	return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
 
 // --- ToolCallErrorRow ---
 

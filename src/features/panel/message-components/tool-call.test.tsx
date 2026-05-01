@@ -1,6 +1,24 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AssistantToolCall } from "./tool-call";
+
+vi.mock("@/components/ai/code-block", () => ({
+	CodeBlock: ({
+		code,
+		language,
+	}: {
+		code: string;
+		language?: string | null;
+	}) => (
+		<pre data-language={language ?? ""} data-testid="code-block">
+			{code}
+		</pre>
+	),
+}));
+
+afterEach(() => {
+	cleanup();
+});
 
 describe("AssistantToolCall apply_patch", () => {
 	it("defaults multi-file edits to collapsed and suppresses generic patch text when expanded", () => {
@@ -95,5 +113,70 @@ describe("AssistantToolCall default-collapsed", () => {
 		expect(details!.open).toBe(false);
 		// Output content should not be rendered until the user opens the details.
 		expect(screen.queryByText(/drwxr-xr-x/)).not.toBeInTheDocument();
+	});
+
+	it("syntax-highlights expanded Read output using the file extension", () => {
+		const { container } = render(
+			<AssistantToolCall
+				toolName="Read"
+				args={{ file_path: "/src/features/panel/tool-call.tsx" }}
+				result={"export function Example() {\n\treturn <div />;\n}\n"}
+			/>,
+		);
+
+		expect(screen.queryByTestId("code-block")).not.toBeInTheDocument();
+
+		const details = container.querySelector("details");
+		expect(details).not.toBeNull();
+		details!.open = true;
+		fireEvent(details!, new Event("toggle"));
+
+		const codeBlock = screen.getByTestId("code-block");
+		expect(codeBlock).toHaveAttribute("data-language", "tsx");
+		expect(codeBlock).toHaveTextContent("export function Example");
+	});
+
+	it("syntax-highlights expanded Bash output when it is summarized as a file read", () => {
+		const { container } = render(
+			<AssistantToolCall
+				toolName="Bash"
+				args={{ command: "sed -n '1,120p' src/features/panel/tool-call.tsx" }}
+				result={"export function Example() {\n\treturn <div />;\n}\n"}
+			/>,
+		);
+
+		const details = container.querySelector("details");
+		expect(details).not.toBeNull();
+		details!.open = true;
+		fireEvent(details!, new Event("toggle"));
+
+		const codeBlock = screen.getByTestId("code-block");
+		expect(codeBlock).toHaveAttribute("data-language", "tsx");
+		expect(codeBlock).toHaveTextContent("export function Example");
+	});
+
+	it("syntax-highlights expanded Write content using the target file extension", () => {
+		const { container } = render(
+			<AssistantToolCall
+				toolName="Write"
+				args={{
+					file_path: "/src/lib/config.json",
+					content: '{\n\t"name": "pathos"\n}\n',
+				}}
+				result="File written successfully"
+			/>,
+		);
+
+		const details = container.querySelector("details");
+		expect(details).not.toBeNull();
+		details!.open = true;
+		fireEvent(details!, new Event("toggle"));
+
+		const codeBlock = screen.getByTestId("code-block");
+		expect(codeBlock).toHaveAttribute("data-language", "json");
+		expect(codeBlock).toHaveTextContent('"name": "pathos"');
+		expect(
+			screen.queryByText("File written successfully"),
+		).not.toBeInTheDocument();
 	});
 });

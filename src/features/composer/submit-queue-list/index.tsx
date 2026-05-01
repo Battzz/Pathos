@@ -16,6 +16,7 @@ export type SubmitQueueListProps = {
 	onSteer: (id: string) => void;
 	onRemove: (id: string) => void;
 	disabled?: boolean;
+	className?: string;
 };
 
 export function SubmitQueueList({
@@ -23,12 +24,16 @@ export function SubmitQueueList({
 	onSteer,
 	onRemove,
 	disabled,
+	className,
 }: SubmitQueueListProps) {
 	if (items.length === 0) return null;
 	return (
 		<div
 			data-testid="submit-queue-list"
-			className="pointer-events-auto relative z-0 w-full overflow-hidden rounded-t-2xl border border-b-0 border-border/40 bg-sidebar"
+			className={cn(
+				"pointer-events-auto relative z-0 w-full overflow-hidden rounded-t-2xl border border-b-0 border-border/40 bg-sidebar",
+				className,
+			)}
 		>
 			{items.map((item, idx) => (
 				<QueueRow

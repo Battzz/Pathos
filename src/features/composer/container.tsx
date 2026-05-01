@@ -794,6 +794,10 @@ export const WorkspaceComposerContainer = memo(
 
 		const autoCloseHelpText =
 			"When enabled, action sessions will close automatically when finished.";
+		const hasQueuedAttachments = queueItems.length > 0;
+		const hasPinnedTodoAttachment = latestTodoList !== null;
+		const composerTopAttached =
+			isActionSession || hasQueuedAttachments || hasPinnedTodoAttachment;
 
 		return (
 			// `z-20` lifts the entire composer stacking context above the thread
@@ -872,8 +876,14 @@ export const WorkspaceComposerContainer = memo(
 							onSteer={(id) => onSteerQueued?.(id)}
 							onRemove={(id) => onRemoveQueued?.(id)}
 							disabled={composerUnavailable}
+							className={hasPinnedTodoAttachment ? "rounded-b-none" : undefined}
 						/>
-						{latestTodoList ? <PinnedTodoList part={latestTodoList} /> : null}
+						{latestTodoList ? (
+							<PinnedTodoList
+								part={latestTodoList}
+								className={cn(hasQueuedAttachments && "-mt-px rounded-none")}
+							/>
+						) : null}
 					</div>
 					<WorkspaceComposer
 						contextKey={composerContextKey}
@@ -885,6 +895,7 @@ export const WorkspaceComposerContainer = memo(
 						focusShortcut={focusShortcut}
 						togglePlanShortcut={togglePlanShortcut}
 						toggleFollowUpShortcut={toggleFollowUpShortcut}
+						topAttached={composerTopAttached}
 						alwaysShowContextUsage={settings.alwaysShowContextUsage}
 						onSubmit={handleComposerSubmit}
 						disabled={composerUnavailable}
