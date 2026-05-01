@@ -12,18 +12,49 @@ export type FollowUpBehavior = "steer" | "queue";
 export type ShortcutOverrides = Record<string, string | null>;
 
 export type NotificationSound =
+	| "Basso"
+	| "Blow"
+	| "Bottle"
+	| "Frog"
+	| "Funk"
 	| "Ping"
 	| "Glass"
 	| "Hero"
+	| "Morse"
+	| "Pop"
+	| "Purr"
+	| "Sosumi"
 	| "Submarine"
 	| "Tink"
 	| "none";
+
+export const NOTIFICATION_SOUNDS = [
+	"Basso",
+	"Blow",
+	"Bottle",
+	"Frog",
+	"Funk",
+	"Glass",
+	"Hero",
+	"Morse",
+	"Ping",
+	"Pop",
+	"Purr",
+	"Sosumi",
+	"Submarine",
+	"Tink",
+] as const satisfies readonly Exclude<NotificationSound, "none">[];
 
 export type ClaudeCustomProviderSettings = {
 	builtinProviderApiKeys: Record<string, string>;
 	customBaseUrl: string;
 	customApiKey: string;
 	customModels: string;
+};
+
+export type DefaultEffortsByProvider = {
+	claude?: string | null;
+	codex?: string | null;
 };
 
 export type AppSettings = {
@@ -38,6 +69,7 @@ export type AppSettings = {
 	defaultModelId: string | null;
 	commitActionModelId: string | null;
 	defaultEffort: string | null;
+	defaultEffortsByProvider: DefaultEffortsByProvider;
 	defaultFastMode: boolean;
 	/** Webview zoom factor. 1.0 = 100%. Range 0.5–2.0. */
 	zoomLevel: number;
@@ -73,6 +105,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	defaultModelId: null,
 	commitActionModelId: "gpt-5.4-mini",
 	defaultEffort: "high",
+	defaultEffortsByProvider: {},
 	defaultFastMode: false,
 	zoomLevel: 1.0,
 	followUpBehavior: "steer",
@@ -104,6 +137,7 @@ const SETTINGS_KEY_MAP: Record<Exclude<keyof AppSettings, "theme">, string> = {
 	defaultModelId: "app.default_model_id",
 	commitActionModelId: "app.commit_action_model_id",
 	defaultEffort: "app.default_effort",
+	defaultEffortsByProvider: "app.default_efforts_by_provider",
 	defaultFastMode: "app.default_fast_mode",
 	zoomLevel: "app.zoom_level",
 	followUpBehavior: "app.follow_up_behavior",
@@ -163,15 +197,32 @@ function parseClaudeCustomProviderSettings(
 	}
 }
 
+function parseDefaultEffortsByProvider(
+	raw: string | undefined,
+): DefaultEffortsByProvider {
+	if (!raw) return DEFAULT_SETTINGS.defaultEffortsByProvider;
+	try {
+		const parsed = JSON.parse(raw) as Record<string, unknown>;
+		return {
+			claude: typeof parsed.claude === "string" ? parsed.claude : null,
+			codex: typeof parsed.codex === "string" ? parsed.codex : null,
+		};
+	} catch {
+		return DEFAULT_SETTINGS.defaultEffortsByProvider;
+	}
+}
+
+function isNotificationSound(
+	raw: string | undefined,
+): raw is NotificationSound {
+	if (!raw) return false;
+	return (
+		raw === "none" || (NOTIFICATION_SOUNDS as readonly string[]).includes(raw)
+	);
+}
+
 function parseNotificationSound(raw: string | undefined): NotificationSound {
-	if (
-		raw === "Ping" ||
-		raw === "Glass" ||
-		raw === "Hero" ||
-		raw === "Submarine" ||
-		raw === "Tink" ||
-		raw === "none"
-	) {
+	if (isNotificationSound(raw)) {
 		return raw;
 	}
 	return DEFAULT_SETTINGS.notificationSound;
@@ -216,6 +267,9 @@ export async function loadSettings(): Promise<AppSettings> {
 					: DEFAULT_SETTINGS.commitActionModelId,
 			defaultEffort:
 				raw[SETTINGS_KEY_MAP.defaultEffort] || DEFAULT_SETTINGS.defaultEffort,
+			defaultEffortsByProvider: parseDefaultEffortsByProvider(
+				raw[SETTINGS_KEY_MAP.defaultEffortsByProvider],
+			),
 			defaultFastMode:
 				raw[SETTINGS_KEY_MAP.defaultFastMode] !== undefined
 					? raw[SETTINGS_KEY_MAP.defaultFastMode] === "true"
@@ -276,7 +330,9 @@ export async function saveSettings(patch: Partial<AppSettings>): Promise<void> {
 		const value = patch[key as keyof Omit<AppSettings, "theme">];
 		if (value !== undefined) {
 			settings[dbKey] =
-				key === "shortcuts" || key === "claudeCustomProviders"
+				key === "shortcuts" ||
+				key === "claudeCustomProviders" ||
+				key === "defaultEffortsByProvider"
 					? JSON.stringify(value)
 					: value === null
 						? ""

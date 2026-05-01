@@ -39,6 +39,7 @@ const composerMockState = vi.hoisted(() => ({
 	lastAddDirCandidates: [] as readonly unknown[],
 	lastOnPickAddDir: null as PickHandler | null,
 	lastModelSectionIds: [] as string[],
+	lastEffortLevel: null as string | null,
 }));
 
 vi.mock("./index", async () => {
@@ -48,6 +49,7 @@ vi.mock("./index", async () => {
 		WorkspaceComposer: (props: {
 			contextKey: string;
 			selectedModelId: string | null;
+			effortLevel?: string;
 			modelSections?: readonly { id: string }[];
 			fastMode?: boolean;
 			disabled?: boolean;
@@ -72,6 +74,7 @@ vi.mock("./index", async () => {
 				...(props.addDirCandidates ?? []),
 			];
 			composerMockState.lastOnPickAddDir = props.onPickAddDir ?? null;
+			composerMockState.lastEffortLevel = props.effortLevel ?? null;
 			composerMockState.lastModelSectionIds = (props.modelSections ?? []).map(
 				(section) => section.id,
 			);
@@ -206,6 +209,7 @@ describe("WorkspaceComposerContainer", () => {
 			commands: [],
 		});
 		composerMockState.lastModelSectionIds = [];
+		composerMockState.lastEffortLevel = null;
 	});
 
 	afterEach(() => {
@@ -338,6 +342,81 @@ describe("WorkspaceComposerContainer", () => {
 
 		rerender(renderComposer("session-new"));
 		expect(composerMockState.lastModelSectionIds).toEqual(["claude", "codex"]);
+	});
+
+	it("uses the provider-specific saved effort for a new chat", () => {
+		const queryClient = createPathosQueryClient();
+		queryClient.setQueryData(
+			pathosQueryKeys.agentModelSections,
+			MODEL_SECTIONS,
+		);
+		queryClient.setQueryData(
+			pathosQueryKeys.workspaceDetail("workspace-1"),
+			WORKSPACE_DETAIL,
+		);
+		queryClient.setQueryData(pathosQueryKeys.workspaceSessions("workspace-1"), [
+			{
+				id: "session-new",
+				workspaceId: "workspace-1",
+				title: "Untitled",
+				agentType: null,
+				status: "idle",
+				model: null,
+				permissionMode: "default",
+				providerSessionId: null,
+				unreadCount: 0,
+				codexThinkingLevel: null,
+				fastMode: false,
+				createdAt: "2026-04-05T00:00:00Z",
+				updatedAt: "2026-04-05T00:00:00Z",
+				lastUserMessageAt: null,
+				isHidden: false,
+				active: false,
+			},
+		]);
+
+		render(
+			<SettingsContext.Provider
+				value={{
+					settings: {
+						...DEFAULT_SETTINGS,
+						defaultModelId: "gpt-5.4",
+						defaultEffort: "high",
+						defaultEffortsByProvider: {
+							claude: "low",
+							codex: "medium",
+						},
+					},
+					isLoaded: true,
+					updateSettings: vi.fn(),
+				}}
+			>
+				<QueryClientProvider client={queryClient}>
+					<WorkspaceComposerContainer
+						displayedWorkspaceId="workspace-1"
+						displayedSessionId="session-new"
+						disabled={false}
+						sending={false}
+						sendError={null}
+						restoreDraft={null}
+						restoreImages={[]}
+						restoreFiles={[]}
+						restoreNonce={0}
+						modelSelections={{}}
+						effortLevels={{}}
+						permissionModes={{}}
+						fastModes={{}}
+						onSelectModel={vi.fn()}
+						onSelectEffort={vi.fn()}
+						onChangePermissionMode={vi.fn()}
+						onChangeFastMode={vi.fn()}
+						onSubmit={vi.fn()}
+					/>
+				</QueryClientProvider>
+			</SettingsContext.Provider>,
+		);
+
+		expect(composerMockState.lastEffortLevel).toBe("medium");
 	});
 
 	it("auto-submits queued CLI prompts with queued model and permission mode", async () => {

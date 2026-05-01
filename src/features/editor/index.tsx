@@ -1,4 +1,3 @@
-import { X } from "lucide-react";
 import {
 	type MutableRefObject,
 	useEffect,
@@ -432,10 +431,9 @@ export function WorkspaceEditorSurface({
 						size="sm"
 						onClick={onExit}
 						aria-label={closeLabel}
-						className="gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+						className="px-2 text-muted-foreground hover:text-foreground"
 					>
 						<ShortcutDisplay hotkey="Escape" />
-						<X className="size-3.5" strokeWidth={1.8} />
 					</Button>
 				</div>
 			</div>

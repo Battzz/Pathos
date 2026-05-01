@@ -56,7 +56,6 @@ version = "0.2"
 core-foundation = "0.10"
 security-framework = "3"
 security-framework-sys = "2"
-window-vibrancy = "0.6"
 
 [[bin]]
 name = "pathos-cli"

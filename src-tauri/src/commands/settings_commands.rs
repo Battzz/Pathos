@@ -15,7 +15,22 @@ use super::common::{run_blocking, CmdResult};
 const RATE_LIMITS_THROTTLE_SECONDS: i64 = 30;
 static CLAUDE_RATE_LIMITS_THROTTLE: Throttle = Throttle::new(RATE_LIMITS_THROTTLE_SECONDS);
 static CODEX_RATE_LIMITS_THROTTLE: Throttle = Throttle::new(RATE_LIMITS_THROTTLE_SECONDS);
-const NOTIFICATION_SOUND_NAMES: &[&str] = &["Ping", "Glass", "Hero", "Submarine", "Tink"];
+const NOTIFICATION_SOUND_NAMES: &[&str] = &[
+    "Basso",
+    "Blow",
+    "Bottle",
+    "Frog",
+    "Funk",
+    "Glass",
+    "Hero",
+    "Morse",
+    "Ping",
+    "Pop",
+    "Purr",
+    "Sosumi",
+    "Submarine",
+    "Tink",
+];
 
 #[tauri::command]
 pub async fn get_app_settings() -> CmdResult<std::collections::HashMap<String, String>> {

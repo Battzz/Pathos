@@ -17,7 +17,6 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Separator } from "@/components/ui/separator";
 import {
 	Tooltip,
 	TooltipContent,
@@ -431,9 +430,9 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 				/>
 			) : null}
 			<div className="flex shrink-0 items-center justify-between px-3 pb-3 pt-1">
+				{accountControl}
 				<div className="flex items-center gap-[2px]">
-					{footerControls}
-					<Separator orientation="vertical" className="mx-1 h-4 self-center!" />
+					<UsageStatsIndicator />
 					<DropdownMenu open={isAddMenuOpen} onOpenChange={setIsAddMenuOpen}>
 						<Tooltip>
 							<TooltipTrigger asChild>
@@ -510,9 +509,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
-					<UsageStatsIndicator />
+					{footerControls}
 				</div>
-				{accountControl}
 			</div>
 		</div>
 	);

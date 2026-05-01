@@ -159,7 +159,11 @@ type WorkspaceComposerContainerProps = {
 	fastModes: Record<string, boolean>;
 	activeFastPreludes?: Record<string, boolean>;
 	onSelectModel: (contextKey: string, modelId: string) => void;
-	onSelectEffort: (contextKey: string, level: string) => void;
+	onSelectEffort: (
+		contextKey: string,
+		level: string,
+		provider: AgentProvider,
+	) => void;
 	onChangePermissionMode: (contextKey: string, mode: string) => void;
 	onChangeFastMode: (contextKey: string, enabled: boolean) => void;
 	onSwitchSession?: (sessionId: string) => void;
@@ -422,13 +426,14 @@ export const WorkspaceComposerContainer = memo(
 		);
 		const effectiveModel = pendingModel ?? selectedModel;
 		const effectiveSelectedModelId = effectiveModel?.id ?? selectedModelId;
-		const provider =
+		const rawProvider =
 			effectiveModel?.provider ?? currentSession?.agentType ?? "claude";
+		const provider: AgentProvider = isAgentProvider(rawProvider)
+			? rawProvider
+			: "claude";
 		const activeSessionProvider = isAgentProvider(currentSession?.agentType)
 			? currentSession.agentType
-			: isAgentProvider(provider)
-				? provider
-				: null;
+			: provider;
 		const visibleModelSections = useMemo(
 			() =>
 				!isNewSession(currentSession) && activeSessionProvider
@@ -442,8 +447,11 @@ export const WorkspaceComposerContainer = memo(
 		// For new sessions, use user setting; for existing sessions with history, use session's effort
 		const sessionEffort =
 			(!isNewSession(currentSession) && currentSession?.effortLevel) || null;
-		const rawEffort =
-			cachedEffort ?? sessionEffort ?? settings.defaultEffort ?? "high";
+		const providerDefaultEffort =
+			settings.defaultEffortsByProvider[provider] ??
+			settings.defaultEffort ??
+			"high";
+		const rawEffort = cachedEffort ?? sessionEffort ?? providerDefaultEffort;
 		const effortLevel = clampEffortToModel(
 			rawEffort,
 			effectiveSelectedModelId,
@@ -761,9 +769,9 @@ export const WorkspaceComposerContainer = memo(
 
 		const handleSelectEffortInner = useCallback(
 			(level: string) => {
-				onSelectEffort(composerContextKey, level);
+				onSelectEffort(composerContextKey, level, provider);
 			},
-			[onSelectEffort, composerContextKey],
+			[onSelectEffort, composerContextKey, provider],
 		);
 
 		const handleChangePermissionModeInner = useCallback(

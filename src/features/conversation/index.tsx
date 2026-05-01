@@ -14,7 +14,7 @@ import type {
 import { WorkspacePanelContainer } from "@/features/panel/container";
 import { FileLinkProvider } from "@/features/panel/message-components/file-link-context";
 import type { SessionCloseRequest } from "@/features/panel/use-confirm-session-close";
-import type { ChangeRequestInfo } from "@/lib/api";
+import type { AgentProvider, ChangeRequestInfo } from "@/lib/api";
 import type { ResolvedComposerInsertRequest } from "@/lib/composer-insert";
 import { insertRequestMatchesComposer } from "@/lib/composer-insert";
 import { hasUnresolvedPlanReview } from "@/lib/plan-review";
@@ -139,7 +139,7 @@ export const WorkspaceConversationContainer = memo(
 		// App-level follow-up queue. Survives session / workspace
 		// switches because this container is mounted once in the App
 		// tree (not keyed by session id).
-		const { settings } = useSettings();
+		const { settings, updateSettings } = useSettings();
 		const { queuesBySessionId, api: submitQueueApi } = useSubmitQueue();
 
 		const {
@@ -216,13 +216,20 @@ export const WorkspaceConversationContainer = memo(
 		);
 
 		const handleSelectEffort = useCallback(
-			(contextKey: string, level: string) => {
+			(contextKey: string, level: string, provider: AgentProvider) => {
 				setComposerEffortLevels((current) => ({
 					...current,
 					[contextKey]: level,
 				}));
+				void updateSettings({
+					defaultEffort: level,
+					defaultEffortsByProvider: {
+						...settings.defaultEffortsByProvider,
+						[provider]: level,
+					},
+				});
 			},
-			[],
+			[settings.defaultEffortsByProvider, updateSettings],
 		);
 
 		const handleChangePermissionMode = useCallback(

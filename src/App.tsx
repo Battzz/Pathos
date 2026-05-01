@@ -81,6 +81,8 @@ import {
 	openWorkspaceInEditor,
 	openWorkspaceInFinder,
 	prewarmSlashCommandsForWorkspace,
+	type RepositoryFolder,
+	type RepositoryFolderChat,
 	syncWorkspaceWithTargetBranch,
 	triggerWorkspaceFetch,
 	unhideSession,
@@ -141,6 +143,44 @@ import { StreamingFooterOverlapScenario } from "./test/e2e-scenarios/streaming-f
 
 const SETTINGS_RELOAD_EVENT = "pathos:reload-settings";
 const OPEN_SETTINGS_EVENT = "pathos:open-settings";
+
+function clearRepositoryFolderChatUnread(
+	folders: RepositoryFolder[] | undefined,
+	sessionId: string,
+): RepositoryFolder[] | undefined {
+	if (!folders) return folders;
+	let changed = false;
+	const nextFolders = folders.map((folder) => {
+		let folderChanged = false;
+		const chats = folder.chats.map((chat) => {
+			if (chat.sessionId !== sessionId || chat.unreadCount === 0) {
+				return chat;
+			}
+			folderChanged = true;
+			changed = true;
+			return { ...chat, unreadCount: 0 };
+		});
+		if (!folderChanged) return folder;
+		return { ...folder, chats };
+	});
+	return changed ? nextFolders : folders;
+}
+
+function clearGenericChatUnread(
+	chats: RepositoryFolderChat[] | undefined,
+	sessionId: string,
+): RepositoryFolderChat[] | undefined {
+	if (!chats) return chats;
+	let changed = false;
+	const nextChats = chats.map((chat) => {
+		if (chat.sessionId !== sessionId || chat.unreadCount === 0) {
+			return chat;
+		}
+		changed = true;
+		return { ...chat, unreadCount: 0 };
+	});
+	return changed ? nextChats : chats;
+}
 
 function App() {
 	const e2eScenario =
@@ -543,6 +583,12 @@ function AppShell({
 		const previousGroups = queryClient.getQueryData(
 			pathosQueryKeys.workspaceGroups,
 		);
+		const previousRepositoryFolders = queryClient.getQueryData(
+			pathosQueryKeys.repositoryFolders,
+		);
+		const previousGenericChats = queryClient.getQueryData(
+			pathosQueryKeys.genericChats,
+		);
 		const previousDetail = workspaceId
 			? queryClient.getQueryData(pathosQueryKeys.workspaceDetail(workspaceId))
 			: undefined;
@@ -586,6 +632,14 @@ function AppShell({
 						: current,
 			);
 		}
+		queryClient.setQueryData<RepositoryFolder[] | undefined>(
+			pathosQueryKeys.repositoryFolders,
+			(current) => clearRepositoryFolderChatUnread(current, sessionId),
+		);
+		queryClient.setQueryData<RepositoryFolderChat[] | undefined>(
+			pathosQueryKeys.genericChats,
+			(current) => clearGenericChatUnread(current, sessionId),
+		);
 
 		void markSessionRead(sessionId)
 			.then(() => {
@@ -607,6 +661,14 @@ function AppShell({
 						}),
 					);
 				}
+				invalidations.push(
+					queryClient.invalidateQueries({
+						queryKey: pathosQueryKeys.repositoryFolders,
+					}),
+					queryClient.invalidateQueries({
+						queryKey: pathosQueryKeys.genericChats,
+					}),
+				);
 				return Promise.all(invalidations);
 			})
 			.catch((error) => {
@@ -615,6 +677,14 @@ function AppShell({
 				queryClient.setQueryData(
 					pathosQueryKeys.workspaceGroups,
 					previousGroups,
+				);
+				queryClient.setQueryData(
+					pathosQueryKeys.repositoryFolders,
+					previousRepositoryFolders,
+				);
+				queryClient.setQueryData(
+					pathosQueryKeys.genericChats,
+					previousGenericChats,
 				);
 				if (workspaceId) {
 					queryClient.setQueryData(
@@ -2854,7 +2924,7 @@ function AppShell({
 						)}
 						<Toaster
 							theme={resolveTheme(appSettings.theme)}
-							position="top-right"
+							position="bottom-right"
 							visibleToasts={6}
 						/>
 						{closeConfirmDialog}
