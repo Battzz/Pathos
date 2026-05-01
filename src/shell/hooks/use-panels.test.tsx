@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isTerminalFitSuspended } from "@/components/terminal-fit-suspension";
 import {
 	DEFAULT_SIDEBAR_WIDTH,
 	SIDEBAR_WIDTH_STORAGE_KEY,
@@ -41,6 +42,7 @@ describe("useShellPanels", () => {
 				preventDefault: vi.fn(),
 			} as unknown as ReactMouseEvent<HTMLDivElement>);
 		});
+		expect(isTerminalFitSuspended()).toBe(true);
 
 		act(() => {
 			window.dispatchEvent(new MouseEvent("mousemove", { clientX: 150 }));
@@ -57,6 +59,7 @@ describe("useShellPanels", () => {
 		act(() => {
 			window.dispatchEvent(new MouseEvent("mouseup"));
 		});
+		expect(isTerminalFitSuspended()).toBe(false);
 
 		expect(result.current.sidebarWidth).toBe(DEFAULT_SIDEBAR_WIDTH + 50);
 		await waitFor(() => {

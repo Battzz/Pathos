@@ -8,7 +8,7 @@ import {
 	useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { suspendTerminalFit } from "@/components/terminal-output";
+import { suspendTerminalFit } from "@/components/terminal-fit-suspension";
 import { loadRepoScripts, type RepoScripts } from "@/lib/api";
 import type { InspectorFileItem } from "@/lib/editor-session";
 import { workspaceChangesQueryOptions } from "@/lib/query-client";

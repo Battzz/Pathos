@@ -8,6 +8,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { suspendTerminalFit } from "@/components/terminal-fit-suspension";
 import {
 	clampSidebarWidth,
 	getInitialSidebarWidth,
@@ -84,6 +85,7 @@ export function useShellPanels() {
 		let pendingWidth: number | null = null;
 		let finalWidth = resizeState.initialWidth;
 		let rafId: number | null = null;
+		const releaseTerminalFit = suspendTerminalFit();
 		const widthVariable =
 			resizeState.target === "sidebar"
 				? SIDEBAR_WIDTH_VAR
@@ -137,6 +139,7 @@ export function useShellPanels() {
 			if (rafId !== null) {
 				window.cancelAnimationFrame(rafId);
 			}
+			releaseTerminalFit();
 			document.body.style.cursor = previousCursor;
 			document.body.style.userSelect = previousUserSelect;
 			window.removeEventListener("mousemove", handleMouseMove);

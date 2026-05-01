@@ -3,6 +3,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import { type ILinkProvider, type ITheme, Terminal } from "@xterm/xterm";
 import { memo, useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
+import {
+	addTerminalRefitListener,
+	isTerminalFitSuspended,
+} from "@/components/terminal-fit-suspension";
 
 type TerminalOutputProps = {
 	terminalRef?: React.RefObject<TerminalHandle | null>;
@@ -159,25 +163,6 @@ function createHttpLinkProvider(terminal: Terminal): ILinkProvider {
 
 			callback(links.length > 0 ? links : undefined);
 		},
-	};
-}
-
-// Global suspend counter — callers wrap heavy animations to skip per-frame
-// FitAddon reflows; final fit runs once the last release fires.
-let terminalFitSuspendCount = 0;
-const terminalRefitListeners = new Set<() => void>();
-
-/** Pause FitAddon.fit() across every mounted TerminalOutput. Idempotent release. */
-export function suspendTerminalFit(): () => void {
-	terminalFitSuspendCount++;
-	let released = false;
-	return () => {
-		if (released) return;
-		released = true;
-		terminalFitSuspendCount--;
-		if (terminalFitSuspendCount === 0) {
-			for (const listener of terminalRefitListeners) listener();
-		}
 	};
 }
 
@@ -356,7 +341,7 @@ function TerminalOutputImpl({
 		const resizeObserver = new ResizeObserver((entries) => {
 			// A caller is animating an ancestor — skip the per-frame reflow and
 			// rely on `refitListener` below to fit once when the animation ends.
-			if (terminalFitSuspendCount > 0) return;
+			if (isTerminalFitSuspended()) return;
 			// Skip while the container is collapsed to 0×0 (e.g. parent in
 			// `display: none` state during a tab transition). Calling
 			// FitAddon.fit() at zero size truncates xterm's internal buffer
@@ -375,7 +360,7 @@ function TerminalOutputImpl({
 
 		// Fired when the last outstanding `suspendTerminalFit()` release runs.
 		const refitListener = () => runFit();
-		terminalRefitListeners.add(refitListener);
+		const removeRefitListener = addTerminalRefitListener(refitListener);
 
 		// Re-resolve CSS variables when app light/dark mode changes.
 		const themeObserver = new MutationObserver(() => {
@@ -410,7 +395,7 @@ function TerminalOutputImpl({
 			linkProviderDisposable?.dispose();
 			themeObserver.disconnect();
 			resizeObserver.disconnect();
-			terminalRefitListeners.delete(refitListener);
+			removeRefitListener();
 			terminal.dispose();
 			xtermRef.current = null;
 			fitRef.current = null;

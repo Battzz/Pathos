@@ -14,7 +14,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { suspendTerminalFit } from "@/components/terminal-output";
+import { suspendTerminalFit } from "@/components/terminal-fit-suspension";
 import { Button } from "@/components/ui/button";
 import {
 	Tooltip,
