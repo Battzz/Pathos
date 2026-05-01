@@ -1,6 +1,7 @@
 import { ArrowDown } from "lucide-react";
 import {
 	type ComponentType,
+	type CSSProperties,
 	createElement,
 	type ReactNode,
 	startTransition,
@@ -159,6 +160,16 @@ export function ActiveThreadViewport({
 		() => resolvePaneWidthSnapshot(0),
 	);
 	const { bucket: widthBucket, width: paneWidth } = paneWidthSnapshot;
+	const frozenThreadStyle = useMemo<CSSProperties | undefined>(() => {
+		if (!isShellResizing || paneWidth <= 0) {
+			return undefined;
+		}
+
+		return {
+			flex: "0 0 auto",
+			width: paneWidth,
+		};
+	}, [isShellResizing, paneWidth]);
 
 	useLayoutEffect(() => {
 		if (
@@ -199,7 +210,10 @@ export function ActiveThreadViewport({
 			ref={stackRef}
 			className="relative flex min-h-0 flex-1 overflow-hidden"
 		>
-			<div className="relative z-10 flex min-h-0 min-w-0 flex-1">
+			<div
+				className="relative z-10 flex min-h-0 min-w-0 flex-1"
+				style={frozenThreadStyle}
+			>
 				<ChatThread
 					hasSession={hasSession}
 					layoutCacheKey={getSessionLayoutCacheKey(pane.sessionId, widthBucket)}
