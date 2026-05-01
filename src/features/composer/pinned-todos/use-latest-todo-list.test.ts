@@ -49,6 +49,16 @@ describe("findLatestTodoList", () => {
 		expect(findLatestTodoList(messages)).toBeNull();
 	});
 
+	it("keeps showing the previous list after a new user message when tasks are unfinished", () => {
+		const list = todoList("a", false);
+		const messages = [
+			userMsg("first prompt"),
+			assistantMsgWithTodo(list),
+			userMsg("follow-up prompt"),
+		];
+		expect(findLatestTodoList(messages)).toBe(list);
+	});
+
 	it("returns the new list when a fresh assistant turn emits one after the user message", () => {
 		const stale = todoList("a", true);
 		const fresh = todoList("b", false);

@@ -161,10 +161,12 @@ export function UsageStatsIndicator({ disabled, className }: Props) {
 	);
 }
 
-function formatRemaining(stats: RateLimitSnapshotDisplay | null): string {
+export function formatRemaining(
+	stats: RateLimitSnapshotDisplay | null,
+): string {
 	if (!stats) return "—";
+	if (stats.primary) return `${Math.round(stats.primary.leftPercent)}%`;
 	const candidates: number[] = [];
-	if (stats.primary) candidates.push(stats.primary.leftPercent);
 	if (stats.secondary) candidates.push(stats.secondary.leftPercent);
 	for (const entry of stats.extraWindows) {
 		candidates.push(entry.window.leftPercent);

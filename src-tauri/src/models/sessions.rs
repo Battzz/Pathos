@@ -539,11 +539,7 @@ pub fn create_session(
     // selected chat renders the same model that will be used for its queued
     // prompt.
     let initial_model = model_id.map(str::trim).filter(|model| !model.is_empty());
-    let default_effort = settings::load_setting_value("app.default_effort")
-        .ok()
-        .flatten()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "high".to_string());
+    let default_effort = load_default_effort_for_model(initial_model);
 
     let transaction = connection
         .transaction()
@@ -605,6 +601,45 @@ pub fn create_session(
         .context("Failed to commit create-session")?;
 
     Ok(CreateSessionResponse { session_id })
+}
+
+fn load_default_effort_for_model(model_id: Option<&str>) -> String {
+    let legacy_default = settings::load_setting_value("app.default_effort")
+        .ok()
+        .flatten()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "high".to_string());
+
+    let provider = model_id
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(|model| crate::agents::resolve_model(model).provider)
+        .or_else(|| {
+            settings::load_setting_value("app.default_model_id")
+                .ok()
+                .flatten()
+                .map(|model| model.trim().to_string())
+                .filter(|model| !model.is_empty() && model != "default")
+                .map(|model| crate::agents::resolve_model(&model).provider)
+        });
+
+    let Some(provider) = provider else {
+        return legacy_default;
+    };
+
+    settings::load_setting_value("app.default_efforts_by_provider")
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|value| {
+            value
+                .get(&provider)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|effort| !effort.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or(legacy_default)
 }
 
 fn find_empty_visible_chat_session(
@@ -1491,6 +1526,89 @@ mod tests {
             get_active_session_id(&conn, "w1"),
             Some("s_new".to_string())
         );
+    }
+
+    #[test]
+    fn create_session_uses_provider_specific_effort_for_explicit_model() {
+        let env = crate::testkit::TestEnv::new("create-session-explicit-provider-effort");
+        let conn = env.db_connection();
+        conn.execute(
+            "INSERT INTO repos (id, name) VALUES ('r1', 'test-repo')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, repository_id, directory_name, state, status, kind) VALUES ('w1', 'r1', '', 'ready', 'in-progress', 'project')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('app.default_effort', 'high')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('app.default_efforts_by_provider', '{\"claude\":\"max\",\"codex\":\"low\"}')",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let response = create_session("w1", None, Some("gpt-5.4"), None).unwrap();
+
+        let conn = env.db_connection();
+        let effort: String = conn
+            .query_row(
+                "SELECT effort_level FROM sessions WHERE id = ?1",
+                [&response.session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(effort, "low");
+    }
+
+    #[test]
+    fn create_session_uses_provider_specific_effort_from_default_model() {
+        let env = crate::testkit::TestEnv::new("create-session-default-provider-effort");
+        let conn = env.db_connection();
+        conn.execute(
+            "INSERT INTO repos (id, name) VALUES ('r1', 'test-repo')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, repository_id, directory_name, state, status, kind) VALUES ('w1', 'r1', '', 'ready', 'in-progress', 'project')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('app.default_model_id', 'sonnet')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('app.default_effort', 'high')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('app.default_efforts_by_provider', '{\"claude\":\"medium\",\"codex\":\"low\"}')",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let response = create_session("w1", None, None, None).unwrap();
+
+        let conn = env.db_connection();
+        let effort: String = conn
+            .query_row(
+                "SELECT effort_level FROM sessions WHERE id = ?1",
+                [&response.session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(effort, "medium");
     }
 
     #[test]

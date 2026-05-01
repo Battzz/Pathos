@@ -3,11 +3,16 @@ import { useMemo } from "react";
 import type { ThreadMessageLike, TodoListPart } from "@/lib/api";
 import { sessionThreadMessagesQueryOptions } from "@/lib/query-client";
 
+function isTodoListComplete(part: TodoListPart): boolean {
+	return (
+		part.items.length > 0 && part.items.every((i) => i.status === "completed")
+	);
+}
+
 /**
- * Returns the most recent `todo-list` content part in the thread, but only when
- * it lives in or after the latest user message. As soon as the user sends a new
- * prompt, any previously rendered (often fully-completed) list is treated as
- * stale and hidden until the next assistant turn emits a fresh one.
+ * Returns the most recent `todo-list` content part in the thread. A completed
+ * list is hidden after the user sends the next prompt; unfinished lists remain
+ * pinned until a newer list updates them or completes.
  */
 export function findLatestTodoList(
 	messages: readonly ThreadMessageLike[] | undefined,
@@ -40,7 +45,9 @@ export function findLatestTodoList(
 	}
 
 	if (!latestTodo) return null;
-	if (latestUserIdx > latestTodo.idx) return null;
+	if (latestUserIdx > latestTodo.idx && isTodoListComplete(latestTodo.part)) {
+		return null;
+	}
 	return latestTodo.part;
 }
 
