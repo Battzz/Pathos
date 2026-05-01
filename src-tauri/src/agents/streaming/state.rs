@@ -99,9 +99,6 @@ pub(super) enum TerminalReason {
     Done,
     /// Sidecar emitted `aborted` — user pressed stop or app shutdown.
     Aborted { reason: String },
-    /// Sidecar emitted `deferredToolUse` — turn paused, frontend will
-    /// resume via `respondToDeferredTool`.
-    DeferredToolPause,
     /// Sidecar emitted `error`.
     Error {
         message: String,
@@ -435,31 +432,33 @@ impl TurnSession {
         Ok(actions)
     }
 
-    /// Handle a `deferredToolUse` sidecar event. **Terminal pause.**
+    /// Handle a `deferredToolUse` sidecar event. **Non-terminal.**
     ///
-    /// The turn pauses here from the frontend's perspective; the user
-    /// resumes via `respondToDeferredTool`, which spawns a fresh
-    /// `startAgentMessageStream` with `resumeOnly: true`.
+    /// The sidecar emits this from inside its `canUseTool` callback while
+    /// the SDK is paused waiting for a user response (currently
+    /// `AskUserQuestion`). The same `query()` stays alive: when the user
+    /// submits answers, the `respondToDeferredTool` IPC resolves the
+    /// callback and fresh assistant deltas / a real terminal `result`
+    /// flow on this same stream.
     ///
-    /// `pipeline_final_messages` is the result of `pipeline.finish()`
-    /// at the call site; the state machine emits it as `Update` so the
-    /// frontend's cache reflects the pre-pause assistant text before
-    /// the deferred-tool overlay appears.
+    /// `pipeline_in_progress_messages` is a snapshot of accumulator state
+    /// at the time the question was raised. We emit it as `Update` so the
+    /// frontend's cache shows the assistant's pre-question text under the
+    /// answer panel without the pipeline being consumed.
     pub(super) fn handle_deferred_tool_use(
         &mut self,
         raw: &Value,
         resolved_model: &str,
-        pipeline_final_messages: Vec<ThreadMessageLike>,
+        pipeline_in_progress_messages: Vec<ThreadMessageLike>,
     ) -> Result<Vec<Action>, TransitionError> {
         if self.state.is_terminated() {
             return Err(TransitionError::AlreadyTerminated {
                 event_kind: "deferredToolUse".into(),
             });
         }
-        self.state = TurnState::Terminated(TerminalReason::DeferredToolPause);
         Ok(vec![
             Action::EmitToFrontend(AgentStreamEvent::Update {
-                messages: pipeline_final_messages,
+                messages: pipeline_in_progress_messages,
             }),
             Action::EmitToFrontend(bridge_deferred_tool_use_event(
                 &self.ctx.provider,
@@ -981,10 +980,9 @@ mod tests {
             other => panic!("expected EmitToFrontend(DeferredToolUse), got {other:?}"),
         }
 
-        assert_eq!(
-            session.state,
-            TurnState::Terminated(TerminalReason::DeferredToolPause),
-        );
+        // Non-terminal: the SDK is paused inside `canUseTool`, the same
+        // `query()` resumes when the user submits an answer.
+        assert!(!session.state.is_terminated());
     }
 
     #[test]
@@ -1165,10 +1163,7 @@ mod tests {
             }
             other => panic!("expected EmitToFrontend(DeferredToolUse), got {other:?}"),
         }
-        assert_eq!(
-            session.state,
-            TurnState::Terminated(TerminalReason::DeferredToolPause)
-        );
+        assert!(!session.state.is_terminated());
     }
 
     #[test]
@@ -1275,7 +1270,6 @@ mod tests {
             reason: "user_requested".into(),
         })
         .is_terminated());
-        assert!(TurnState::Terminated(TerminalReason::DeferredToolPause).is_terminated());
         assert!(TurnState::Terminated(TerminalReason::Error {
             message: "boom".into(),
             internal: true,

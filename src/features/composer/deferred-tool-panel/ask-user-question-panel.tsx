@@ -21,7 +21,6 @@ import {
 	InteractionHeader,
 	InteractionOptionalInput,
 	InteractionOptionRow,
-	InteractionStepTabs,
 } from "../interaction";
 import { DeferredToolCard, type DeferredToolPanelProps } from "./shared";
 
@@ -251,11 +250,8 @@ export function AskUserQuestionPanel({
 								{viewModel.source}
 							</span>
 						) : null}
-						<span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-							{questionIndex + 1}/{questions.length}
-						</span>
 						{questions.length > 1 ? (
-							<div className="flex shrink-0 items-center gap-1">
+							<div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/40 bg-background/40 p-0.5">
 								<Button
 									type="button"
 									variant="ghost"
@@ -265,9 +261,13 @@ export function AskUserQuestionPanel({
 									onClick={() =>
 										setQuestionIndex((current) => Math.max(0, current - 1))
 									}
+									className="size-5"
 								>
-									<ChevronLeft className="size-3.5" strokeWidth={2} />
+									<ChevronLeft className="size-3" strokeWidth={2} />
 								</Button>
+								<span className="max-w-[12rem] truncate px-1.5 text-[11px] font-medium leading-none text-muted-foreground">
+									{currentQuestion.header}
+								</span>
 								<Button
 									type="button"
 									variant="ghost"
@@ -279,30 +279,14 @@ export function AskUserQuestionPanel({
 											Math.min(questions.length - 1, current + 1),
 										)
 									}
+									className="size-5"
 								>
-									<ChevronRight className="size-3.5" strokeWidth={2} />
+									<ChevronRight className="size-3" strokeWidth={2} />
 								</Button>
 							</div>
 						) : null}
 					</>
 				}
-			/>
-
-			<InteractionStepTabs
-				items={questions.map((question) => ({
-					key: question.key,
-					label: question.header,
-					complete: isQuestionAnswered(
-						question,
-						responses[question.key] ?? EMPTY_RESPONSE_STATE,
-					),
-				}))}
-				value={currentQuestion.key}
-				onChange={(value) => {
-					const nextIndex = questions.findIndex((q) => q.key === value);
-					if (nextIndex >= 0) setQuestionIndex(nextIndex);
-				}}
-				disabled={disabled}
 			/>
 
 			<div className="grid gap-1 px-1">
@@ -335,7 +319,10 @@ export function AskUserQuestionPanel({
 				<div
 					data-ask-option-row="other"
 					className={cn(
-						"cursor-pointer px-2 py-1.5",
+						"group/option cursor-pointer rounded-md px-2 py-1.5 transition-colors",
+						currentResponse.useOther
+							? "bg-accent/60 ring-1 ring-inset ring-border/50"
+							: "hover:bg-accent/30",
 						disabled && "cursor-not-allowed opacity-60",
 					)}
 					onClick={() => {
@@ -345,16 +332,15 @@ export function AskUserQuestionPanel({
 						handleOtherActivate();
 					}}
 				>
-					<div className="flex items-center gap-1.5">
-						<span className="mt-0.5 shrink-0 text-muted-foreground">
+					<div className="flex items-center gap-2">
+						<span className="shrink-0 text-muted-foreground">
 							{currentQuestion.multiSelect ? (
 								currentResponse.useOther ? (
-									<Check
-										className="size-3.5 text-foreground"
-										strokeWidth={2.4}
-									/>
+									<span className="flex size-3.5 items-center justify-center rounded-[5px] bg-foreground/85 text-background">
+										<Check className="size-2.5" strokeWidth={3} />
+									</span>
 								) : (
-									<span className="block size-3.5 rounded-[6px] bg-background/80 ring-1 ring-inset ring-border/45" />
+									<span className="block size-3.5 rounded-[5px] bg-background/80 ring-1 ring-inset ring-border/55 transition-colors group-hover/option:ring-border" />
 								)
 							) : currentResponse.useOther ? (
 								<CircleDot
@@ -363,7 +349,7 @@ export function AskUserQuestionPanel({
 								/>
 							) : (
 								<Circle
-									className="size-3.5 text-muted-foreground/60"
+									className="size-3.5 text-muted-foreground/55 transition-colors group-hover/option:text-muted-foreground/80"
 									strokeWidth={1.9}
 								/>
 							)}
@@ -403,7 +389,7 @@ export function AskUserQuestionPanel({
 									otherText: value,
 								}));
 							}}
-							className="h-auto rounded-none border-0 !bg-transparent px-1 py-0.5 text-[13px] leading-5 shadow-none placeholder:text-muted-foreground/55 focus-visible:ring-0 disabled:!bg-transparent dark:!bg-transparent dark:disabled:!bg-transparent"
+							className="h-auto rounded-none border-0 !bg-transparent px-0 py-0.5 text-[13px] font-medium leading-5 shadow-none placeholder:font-medium placeholder:text-muted-foreground/55 focus-visible:ring-0 disabled:!bg-transparent dark:!bg-transparent dark:disabled:!bg-transparent"
 						/>
 					</div>
 				</div>

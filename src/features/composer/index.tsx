@@ -90,7 +90,6 @@ import { $appendComposerInsertItems } from "./editor-ops";
 import type { ElicitationResponseHandler } from "./elicitation";
 import { ElicitationPanel } from "./elicitation-panel";
 import { FastModeLottieIcon } from "./fast-mode-lottie-icon";
-import { UsageStatsIndicator } from "./usage-stats-indicator";
 
 const OPEN_SETTINGS_EVENT = "pathos:open-settings";
 
@@ -1071,7 +1070,6 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 						</div>
 
 						<div className="flex items-center gap-1">
-							<UsageStatsIndicator agentType={agentType} disabled={disabled} />
 							{sessionId && supportsContextUsage ? (
 								<ContextUsageRing
 									sessionId={sessionId}

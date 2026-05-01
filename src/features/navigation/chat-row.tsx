@@ -1,4 +1,11 @@
-import { Command, MessageSquare, Pin, PinOff, Trash2 } from "lucide-react";
+import {
+	Command,
+	MessageCircleQuestion,
+	MessageSquare,
+	Pin,
+	PinOff,
+	Trash2,
+} from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { AsciiLoader } from "@/components/ascii-loader";
 import { ClaudeIcon, OpenAIIcon } from "@/components/icons";
@@ -22,6 +29,7 @@ import { cn } from "@/lib/utils";
 export type ChatRowProps = {
 	chat: RepositoryFolderChat;
 	selected: boolean;
+	isInteractionRequired?: boolean;
 	shortcutLabel?: string | null;
 	showShortcutHint?: boolean;
 	deleteChatShortcut?: string | null;
@@ -52,6 +60,7 @@ function useChatActivityTime(chat: RepositoryFolderChat): string | null {
 export const ChatRow = memo(function ChatRow({
 	chat,
 	selected,
+	isInteractionRequired = false,
 	shortcutLabel = null,
 	showShortcutHint = false,
 	deleteChatShortcut = null,
@@ -104,12 +113,6 @@ export const ChatRow = memo(function ChatRow({
 		<ContextMenu>
 			<ContextMenuTrigger asChild>
 				<div className="group/chat relative h-7 w-full">
-					{selected ? (
-						<span
-							aria-hidden="true"
-							className="pointer-events-none absolute left-0 top-1/2 h-3.5 w-[2px] -translate-y-1/2 rounded-full bg-foreground/70"
-						/>
-					) : null}
 					<button
 						type="button"
 						className={cn(
@@ -120,12 +123,21 @@ export const ChatRow = memo(function ChatRow({
 						)}
 						onClick={() => onSelect(chat.workspaceId, chat.sessionId)}
 					>
-						{isSending ? (
+						{isSending && !(isInteractionRequired && !selected) ? (
 							<AsciiLoader
 								className={cn(
 									"size-3.5 shrink-0 text-[13px] text-muted-foreground transition-opacity",
 									onTogglePin && "group-hover/chat:opacity-0",
 								)}
+							/>
+						) : isInteractionRequired && !selected ? (
+							<MessageCircleQuestion
+								aria-label="Awaiting your input"
+								className={cn(
+									"size-3.5 shrink-0 animate-pulse text-yellow-500 transition-opacity",
+									onTogglePin && "group-hover/chat:opacity-0",
+								)}
+								strokeWidth={2}
 							/>
 						) : showCheck ? (
 							<svg

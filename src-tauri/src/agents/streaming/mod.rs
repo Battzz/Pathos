@@ -137,6 +137,7 @@ pub(super) fn stream_via_sidecar(
         pathos_session_id: request.pathos_session_id.as_deref(),
         claude_base_url: model.claude_base_url.as_deref(),
         claude_auth_token: model.claude_auth_token.as_deref(),
+        deferred_tool_use_id: request.deferred_tool_use_id.as_deref(),
     });
 
     // Surface the `/add-dir` decision in logs — we often debug linked-
@@ -765,72 +766,30 @@ pub(super) fn stream_via_sidecar(
                     }
                 }
                 "deferredToolUse" => {
-                    // Infrastructure-side prep stays inline (DB writes +
-                    // pipeline ownership). The state machine owns the
-                    // terminal transition + the Update + DeferredToolUse
-                    // emit pair.
-                    let mut resolved_model = model_copy.cli_model.to_string();
-                    let mut final_messages: Vec<ThreadMessageLike> = Vec::new();
-
-                    if let Some(mut pipeline_state) = pipeline.take() {
-                        pipeline_state.accumulator.flush_pending();
-
-                        // Borrow writer once for both turn persist and the
-                        // deferred-finalize. The pipeline_state.finish()
-                        // between them is purely in-memory.
-                        let writer = exchange_ctx
-                            .as_ref()
-                            .and_then(|_| crate::models::db::write_conn().ok());
-
-                        if let (Some(ctx), Some(conn)) = (exchange_ctx.as_ref(), writer.as_ref()) {
-                            let model_str = pipeline_state.accumulator.resolved_model().to_string();
-                            while persisted_turn_count < pipeline_state.accumulator.turns_len() {
-                                match persist_turn_message(
-                                    conn,
-                                    ctx,
-                                    pipeline_state.accumulator.turn_at(persisted_turn_count),
-                                    &model_str,
-                                ) {
-                                    Ok(_) => persisted_turn_count += 1,
-                                    Err(error) => {
-                                        tracing::error!(
-                                            turn = persisted_turn_count,
-                                            "Failed to persist turn: {error}"
-                                        );
-                                        break;
-                                    }
-                                }
-                            }
+                    // Non-terminal: the SDK is paused inside `canUseTool`
+                    // waiting for the user's answer. The same `query()`
+                    // resumes when `respondToDeferredTool` fires, so we
+                    // don't take the pipeline (more deltas will land on
+                    // it), don't persist a turn (the turn isn't done),
+                    // and don't break the loop. We just snapshot the
+                    // accumulator's current messages so the frontend
+                    // shows the assistant's pre-question text under the
+                    // answer panel.
+                    let (resolved_model, snapshot) = match pipeline.as_mut() {
+                        Some(pipeline_state) => {
+                            pipeline_state.accumulator.flush_pending();
+                            (
+                                pipeline_state.accumulator.resolved_model().to_string(),
+                                pipeline_state.finish(),
+                            )
                         }
-
-                        // Deferred pause is terminal for this stream from the
-                        // frontend's perspective. IDs are already stable by
-                        // construction (same UUID in `collected[]` and
-                        // `CollectedTurn`), so no post-hoc sync is needed.
-                        resolved_model = pipeline_state.accumulator.resolved_model().to_string();
-                        final_messages = pipeline_state.finish();
-
-                        if let (Some(ctx), Some(conn)) = (exchange_ctx.as_ref(), writer.as_ref()) {
-                            if let Err(error) = finalize_session_metadata(
-                                conn,
-                                ctx,
-                                "idle",
-                                effort_copy.as_deref(),
-                                turn_session.ctx.permission_mode.as_deref(),
-                            ) {
-                                tracing::error!(
-                                    rid = %rid,
-                                    "Failed to finalize deferred exchange: {error}"
-                                );
-                            }
-                        }
-                        drop(writer);
-                    }
+                        None => (model_copy.cli_model.to_string(), Vec::new()),
+                    };
 
                     match turn_session.handle_deferred_tool_use(
                         &event.raw,
                         &resolved_model,
-                        final_messages,
+                        snapshot,
                     ) {
                         Ok(actions) => {
                             for action in actions {
@@ -845,7 +804,6 @@ pub(super) fn stream_via_sidecar(
                             );
                         }
                     }
-                    break;
                 }
                 "permissionModeChanged" => {
                     match turn_session.handle_permission_mode_changed(&event.raw) {

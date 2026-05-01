@@ -8,8 +8,6 @@ import { createRequire } from "node:module";
 import { basename, extname } from "node:path";
 import {
 	type ElicitationResult,
-	type HookInput,
-	type HookJSONOutput,
 	type PermissionUpdate,
 	type Query,
 	query,
@@ -168,10 +166,7 @@ interface DeferredToolResolution {
 	readonly behavior: DeferredToolBehavior;
 	readonly reason: string | undefined;
 	readonly updatedInput: Record<string, unknown> | undefined;
-	readonly createdAt: number;
 }
-
-const DEFERRED_TOOL_RESPONSE_TTL_MS = 5 * 60 * 1000;
 
 function parsePermissionMode(value: string | undefined): ClaudePermissionMode {
 	if (
@@ -293,18 +288,10 @@ export class ClaudeSessionManager implements SessionManager {
 		string,
 		(result: ElicitationResult) => void
 	>();
-	private readonly deferredToolResponses = new Map<
+	private readonly pendingDeferredTools = new Map<
 		string,
-		DeferredToolResolution
+		(resolution: DeferredToolResolution) => void
 	>();
-
-	private pruneExpiredDeferredToolResponses(now = Date.now()): void {
-		for (const [toolUseId, resolution] of this.deferredToolResponses) {
-			if (now - resolution.createdAt > DEFERRED_TOOL_RESPONSE_TTL_MS) {
-				this.deferredToolResponses.delete(toolUseId);
-			}
-		}
-	}
 
 	resolvePermission(
 		permissionId: string,
@@ -327,58 +314,29 @@ export class ClaudeSessionManager implements SessionManager {
 		}
 	}
 
+	/**
+	 * Mirrors `resolvePermission`. The frontend calls this via the
+	 * `deferredToolResponse` IPC after the user submits answers (or
+	 * declines) on the AskUserQuestion panel. The waiting `canUseTool`
+	 * callback resolves with this result and the SDK continues the same
+	 * `query()` — no resume, no synthetic tool_result, no second turn.
+	 */
 	resolveDeferredTool(
 		toolUseId: string,
 		behavior: DeferredToolBehavior,
 		reason: string | undefined,
 		updatedInput: Record<string, unknown> | undefined,
 	): void {
-		this.pruneExpiredDeferredToolResponses();
-		this.deferredToolResponses.set(toolUseId, {
-			behavior,
-			reason,
-			updatedInput,
-			createdAt: Date.now(),
-		});
-	}
-
-	private async handleDeferredToolHook(
-		input: HookInput,
-		toolUseID: string | undefined,
-	): Promise<HookJSONOutput> {
-		if (input.hook_event_name !== "PreToolUse") {
-			return {};
+		const resolve = this.pendingDeferredTools.get(toolUseId);
+		if (resolve) {
+			this.pendingDeferredTools.delete(toolUseId);
+			resolve({ behavior, reason, updatedInput });
+		} else {
+			logger.info(
+				"deferredToolResponse arrived with no pending callback — dropping",
+				{ toolUseId, behavior },
+			);
 		}
-		if (!toolUseID || !DEFERRED_TOOL_NAMES.has(input.tool_name)) {
-			return {};
-		}
-		this.pruneExpiredDeferredToolResponses();
-		const resolved = this.deferredToolResponses.get(toolUseID);
-		if (resolved) {
-			// Consume once: the SDK invokes the hook exactly once per
-			// tool_use lifecycle before executing the tool, so leaving the
-			// resolution in the map only risks stale reads if the same
-			// toolUseID is re-evaluated within TTL (5 min).
-			this.deferredToolResponses.delete(toolUseID);
-			return {
-				hookSpecificOutput: {
-					hookEventName: "PreToolUse",
-					permissionDecision: resolved.behavior,
-					...(resolved.reason
-						? { permissionDecisionReason: resolved.reason }
-						: {}),
-					...(resolved.updatedInput
-						? { updatedInput: resolved.updatedInput }
-						: {}),
-				},
-			};
-		}
-		return {
-			hookSpecificOutput: {
-				hookEventName: "PreToolUse",
-				permissionDecision: "defer",
-			},
-		};
 	}
 
 	async sendMessage(
@@ -397,6 +355,7 @@ export class ClaudeSessionManager implements SessionManager {
 			effortLevel,
 			fastMode,
 			claudeEnvironment,
+			deferredToolUseId,
 		} = params;
 		const abortController = new AbortController();
 		const additionalDirectories = [...(params.additionalDirectories ?? [])];
@@ -410,16 +369,29 @@ export class ClaudeSessionManager implements SessionManager {
 		);
 
 		const { text, imagePaths } = parseImageRefs(promptWithContext);
-		// Resume-only streams (AskUserQuestion answer submission) arrive with
-		// `prompt === ""` — the Rust command layer rejects empty prompts in
-		// every other case (see `agents.rs: "Prompt cannot be empty"`), so
-		// this check is unambiguous. In that path we pass `""` as a plain
-		// string to `query()` (pre-Steer shape) so the SDK replays the
-		// session and re-invokes PreToolUse for the pending tool_use, which
-		// is how the stored `deferredToolResponses` resolution reaches
-		// Claude. Pushing a synthetic `{ role: "user", content: "" }` into
-		// the pushable — what streaming-input mode would do — makes the SDK
-		// treat it as a new empty user turn and skip that re-evaluation.
+		// Resume-only streams arrive with `prompt === ""` — the Rust command
+		// layer rejects empty prompts in every other case
+		// (`agents.rs: "Prompt cannot be empty"`), so this check is
+		// unambiguous. Two flavours:
+		//
+		//   1. AskUserQuestion answer delivery — `deferredToolUseId` is set
+		//      and a stored resolution exists. We push a synthetic
+		//      `tool_result` `SDKUserMessage` for the original tool_use_id
+		//      so the model sees the answer and continues the turn.
+		//      Verified empirically: passing `""` here causes the SDK to
+		//      start a fresh turn instead of re-evaluating the pending
+		//      tool_use, so the model re-asks the question.
+		//
+		//   2. Bare resume (no deferred answer to deliver) — we pass `""`
+		//      as a plain string and close the pushable. The SDK simply
+		//      replays the session.
+		// AskUserQuestion answer delivery no longer needs a separate
+		// resume-only stream: `canUseTool` blocks on a Promise that the
+		// `deferredToolResponse` IPC resolves, so the original `query()` is
+		// already waiting and resumes by itself. `deferredToolUseId` is
+		// kept on the Rust/IPC layer for backwards compat but is unused
+		// here.
+		void deferredToolUseId;
 		const promptSource = createPushable<SDKUserMessage>();
 		const isResumeOnly = text === "" && imagePaths.length === 0;
 		if (isResumeOnly) {
@@ -468,16 +440,6 @@ export class ClaudeSessionManager implements SessionManager {
 				effort: parseEffort(effortLevel),
 				thinking: { type: "adaptive", display: "summarized" },
 				...(effectiveFastMode ? { settings: { fastMode: true } } : {}),
-				hooks: {
-					PreToolUse: [
-						{
-							hooks: [
-								async (input, toolUseID) =>
-									this.handleDeferredToolHook(input, toolUseID),
-							],
-						},
-					],
-				},
 				onElicitation: async (request, options) => {
 					const elicitationId = request.elicitationId ?? randomUUID();
 					emitter.elicitationRequest(
@@ -505,9 +467,46 @@ export class ClaudeSessionManager implements SessionManager {
 				settingSources: ["user", "project", "local"],
 				canUseTool: async (_toolName, input, options) => {
 					if (DEFERRED_TOOL_NAMES.has(_toolName)) {
+						// Block here until the user submits an answer. The
+						// SDK keeps `query()` alive while we await, so when
+						// `resolveDeferredTool` fires from the
+						// `deferredToolResponse` IPC, this returns and the
+						// SDK continues the same turn — no resume, no
+						// synthetic tool_result. Mirrors the
+						// `pendingPermissions` shape just below.
+						const deferredToolUseID = options.toolUseID;
+						emitter.deferredToolUse(
+							requestId,
+							deferredToolUseID,
+							_toolName,
+							input,
+						);
+						const resolution = await new Promise<DeferredToolResolution>(
+							(resolve) => {
+								this.pendingDeferredTools.set(deferredToolUseID, resolve);
+								options.signal.addEventListener(
+									"abort",
+									() => {
+										this.pendingDeferredTools.delete(deferredToolUseID);
+										resolve({
+											behavior: "deny",
+											reason: "Aborted before user responded",
+											updatedInput: undefined,
+										});
+									},
+									{ once: true },
+								);
+							},
+						);
+						if (resolution.behavior === "deny") {
+							return {
+								behavior: "deny" as const,
+								message: resolution.reason ?? "User declined",
+							};
+						}
 						return {
 							behavior: "allow" as const,
-							updatedInput: input,
+							updatedInput: resolution.updatedInput ?? input,
 						};
 					}
 					// Intercept ExitPlanMode: capture plan content and deny to
@@ -581,15 +580,6 @@ export class ClaudeSessionManager implements SessionManager {
 		try {
 			for await (const message of q) {
 				logger.sdkEvent(requestId, message);
-				if (isDeferredToolResult(message)) {
-					emitter.deferredToolUse(
-						requestId,
-						message.deferred_tool_use.id,
-						message.deferred_tool_use.name,
-						message.deferred_tool_use.input,
-					);
-					continue;
-				}
 				const passthroughMessage = stripDeferredToolUseFromAssistant(message);
 				if (passthroughMessage) {
 					emitter.passthrough(requestId, passthroughMessage);
@@ -639,6 +629,17 @@ export class ClaudeSessionManager implements SessionManager {
 			for (const [elicitationId, resolve] of this.pendingElicitations) {
 				this.pendingElicitations.delete(elicitationId);
 				resolve({ action: "cancel" });
+			}
+			// Resolve any deferred tools still parked for this turn so the
+			// SDK callbacks return cleanly even when the stream torn down
+			// out from under them (abort, error, sidecar shutdown).
+			for (const [toolUseId, resolve] of this.pendingDeferredTools) {
+				this.pendingDeferredTools.delete(toolUseId);
+				resolve({
+					behavior: "deny",
+					reason: "Stream ended before user responded",
+					updatedInput: undefined,
+				});
 			}
 		}
 	}
@@ -1093,6 +1094,14 @@ export class ClaudeSessionManager implements SessionManager {
 			this.pendingElicitations.delete(elicitationId);
 			resolve({ action: "cancel" });
 		}
+		for (const [toolUseId, resolve] of this.pendingDeferredTools) {
+			this.pendingDeferredTools.delete(toolUseId);
+			resolve({
+				behavior: "deny",
+				reason: "Sidecar shutting down",
+				updatedInput: undefined,
+			});
+		}
 	}
 }
 
@@ -1106,36 +1115,13 @@ function isResultMessage(
 	);
 }
 
-function isDeferredToolResult(message: SDKMessage): message is SDKMessage & {
-	type: "result";
-	deferred_tool_use: {
-		id: string;
-		name: string;
-		input: Record<string, unknown>;
-	};
-} {
-	if (message.type !== "result") return false;
-	if (!("deferred_tool_use" in message)) return false;
-	const deferred = (message as { deferred_tool_use?: unknown })
-		.deferred_tool_use;
-	if (typeof deferred !== "object" || deferred === null) return false;
-	const value = deferred as { id?: unknown; name?: unknown; input?: unknown };
-	return (
-		typeof value.id === "string" &&
-		typeof value.name === "string" &&
-		typeof value.input === "object" &&
-		value.input !== null
-	);
-}
-
-/** Terminal result — success OR error, but NOT a deferred-tool pause.
- *  Deferred results are intermediate (the stream continues) and must
- *  not trigger `end`. Error results DO end the turn and still carry
- *  `usage`/`modelUsage`, so the ring gets updated on errors too. */
+/** Terminal result — success OR error. Both shapes carry
+ *  `usage`/`modelUsage`, so both should update the ring. The SDK never
+ *  emits a deferred-tool-result with our setup (we block in
+ *  `canUseTool` instead of returning `permissionDecision: "defer"`),
+ *  so any `result` is the real end of the turn. */
 function isTerminalResult(message: SDKMessage): boolean {
-	if (message.type !== "result") return false;
-	if (isDeferredToolResult(message)) return false;
-	return true;
+	return message.type === "result";
 }
 
 function stripDeferredToolUseFromAssistant(message: SDKMessage): object | null {

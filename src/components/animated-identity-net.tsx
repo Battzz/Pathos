@@ -1,6 +1,37 @@
 import { cn } from "@/lib/utils";
 
-export function AnimatedIdentityNet({ className }: { className?: string }) {
+const VARIANTS: { rotate: number; scale: number; flipX: boolean }[] = [
+	{ rotate: 0, scale: 1, flipX: false },
+	{ rotate: 64, scale: 1.18, flipX: true },
+	{ rotate: 142, scale: 0.92, flipX: false },
+	{ rotate: 218, scale: 1.12, flipX: true },
+	{ rotate: 292, scale: 1.05, flipX: false },
+];
+
+export function AnimatedIdentityNet({
+	className,
+	variant = 0,
+}: {
+	className?: string;
+	/**
+	 * Numeric variant 0-N. Each variant applies a different rotation /
+	 * scale / flip to the same underlying net so consecutive views read
+	 * as visually distinct without redrawing the pattern.
+	 */
+	variant?: number;
+}) {
+	const transform = VARIANTS[variant % VARIANTS.length] ?? VARIANTS[0];
+	const svgStyle =
+		variant === 0
+			? undefined
+			: {
+					transform:
+						`rotate(${transform.rotate}deg) scale(${transform.scale}) ${
+							transform.flipX ? "scaleX(-1)" : ""
+						}`.trim(),
+					transformOrigin: "center" as const,
+				};
+
 	return (
 		<div
 			aria-hidden
@@ -11,6 +42,7 @@ export function AnimatedIdentityNet({ className }: { className?: string }) {
 				className="identity-net absolute inset-0 h-full w-full"
 				viewBox="0 0 1200 760"
 				preserveAspectRatio="none"
+				style={svgStyle}
 			>
 				<defs>
 					<linearGradient id="identity-net-line" x1="0" x2="1" y1="0" y2="1">

@@ -1,7 +1,7 @@
 import { ChevronRight, type LucideIcon } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 import { CommandItem } from "@/components/ui/command";
-import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
+import { shortcutToInlineParts } from "@/features/shortcuts/format";
 import { cn } from "@/lib/utils";
 
 export type Segment = { label: string; primary?: boolean };
@@ -32,18 +32,17 @@ export function PaletteItem({
 			value={value}
 			disabled={disabled}
 			onSelect={onSelect}
+			hideCheckIcon
 			className={cn(
-				"group/palette flex h-12 items-center gap-3 rounded-lg px-3 py-0 transition-colors",
-				"data-selected:bg-foreground/[0.06]",
+				"group/palette flex h-11 w-full min-w-0 items-center gap-3 overflow-hidden rounded-lg px-2.5 py-0 transition-colors",
+				"data-selected:bg-foreground/[0.055]",
 				active && "bg-foreground/[0.035]",
 			)}
 		>
-			<Icon
-				className="size-[17px] shrink-0 text-muted-foreground/85 transition-colors group-data-selected/palette:text-foreground"
-				strokeWidth={1.6}
-				aria-hidden
-			/>
-			<span className="flex min-w-0 flex-1 items-center gap-1.5 text-[14px] leading-none tracking-[-0.005em]">
+			<span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/35 bg-background/40 text-muted-foreground/80 transition-colors group-data-selected/palette:border-border/55 group-data-selected/palette:text-foreground">
+				<Icon className="size-4" strokeWidth={1.65} aria-hidden />
+			</span>
+			<span className="flex min-w-0 flex-1 items-center gap-1.5 text-[14px] leading-none">
 				{segments.map((segment, index) => (
 					<Fragment key={`${segment.label}-${index}`}>
 						{index > 0 ? (
@@ -74,22 +73,37 @@ export function PaletteItem({
 					/>
 				) : null}
 			</span>
-			{trailing ? (
-				<span
-					data-slot="command-shortcut"
-					className="ml-auto flex shrink-0 items-center gap-2 text-[11.5px] font-medium text-muted-foreground/70 tabular-nums"
-				>
-					{trailing}
-				</span>
-			) : null}
-			{shortcut ? (
-				<span
-					data-slot="command-shortcut"
-					className="ml-auto flex shrink-0 items-center"
-				>
-					<InlineShortcutDisplay hotkey={shortcut} />
+			{trailing || shortcut ? (
+				<span className="ml-auto flex max-w-[42%] shrink-0 items-center justify-end gap-2.5 overflow-hidden">
+					{trailing ? (
+						<span className="flex min-w-0 items-center gap-2 truncate text-[11.5px] font-medium text-muted-foreground/65 tabular-nums">
+							{trailing}
+						</span>
+					) : null}
+					{shortcut ? <PaletteShortcut hotkey={shortcut} /> : null}
 				</span>
 			) : null}
 		</CommandItem>
+	);
+}
+
+export function PaletteShortcut({ hotkey }: { hotkey: string }) {
+	const parts = shortcutToInlineParts(hotkey);
+	if (parts.length === 0) return null;
+	return (
+		<span
+			data-slot="command-shortcut"
+			aria-hidden="true"
+			className="flex shrink-0 items-center gap-1 text-muted-foreground/85"
+		>
+			{parts.map((part, index) => (
+				<kbd
+					key={`${part}-${index}`}
+					className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] border border-border/55 bg-background/65 px-1 font-mono text-[10.5px] font-medium text-foreground/80"
+				>
+					{part}
+				</kbd>
+			))}
+		</span>
 	);
 }

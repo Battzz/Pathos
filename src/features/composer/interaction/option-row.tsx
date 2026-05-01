@@ -39,8 +39,10 @@ export function InteractionOptionRow({
 	return (
 		<div
 			className={cn(
-				"rounded-md px-2 py-1.5 transition-colors",
-				selected ? "bg-accent/55" : "hover:bg-accent/30",
+				"group/option rounded-md px-2 py-1.5 transition-colors",
+				selected
+					? "bg-accent/60 ring-1 ring-inset ring-border/50"
+					: "hover:bg-accent/30",
 				disabled && "opacity-60",
 				className,
 			)}
@@ -51,7 +53,7 @@ export function InteractionOptionRow({
 				disabled={disabled}
 				aria-pressed={selected}
 				onClick={onClick}
-				className="flex w-full cursor-pointer items-start gap-1.5 text-left disabled:cursor-not-allowed"
+				className="flex w-full cursor-pointer items-start gap-2 text-left disabled:cursor-not-allowed"
 			>
 				<span className="mt-0.5 shrink-0 text-muted-foreground">
 					{indicator === "radio" ? (
@@ -62,14 +64,16 @@ export function InteractionOptionRow({
 							/>
 						) : (
 							<Circle
-								className="size-3.5 text-muted-foreground/60"
+								className="size-3.5 text-muted-foreground/55 transition-colors group-hover/option:text-muted-foreground/80"
 								strokeWidth={1.9}
 							/>
 						)
 					) : selected ? (
-						<Check className="size-3.5 text-foreground" strokeWidth={2.4} />
+						<span className="flex size-3.5 items-center justify-center rounded-[5px] bg-foreground/85 text-background">
+							<Check className="size-2.5" strokeWidth={3} />
+						</span>
 					) : (
-						<span className="block size-3.5 rounded-[6px] bg-background/80 ring-1 ring-inset ring-border/45" />
+						<span className="block size-3.5 rounded-[5px] bg-background/80 ring-1 ring-inset ring-border/55 transition-colors group-hover/option:ring-border" />
 					)}
 				</span>
 				<div className="min-w-0 flex-1">

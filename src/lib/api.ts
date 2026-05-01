@@ -146,6 +146,11 @@ export type AgentSendRequest = {
 	 *  the chat bubble. */
 	promptPrefix?: string | null;
 	resumeOnly?: boolean | null;
+	/** Set when this resume stream delivers the user's answer to a paused
+	 *  deferred tool (e.g. AskUserQuestion). The sidecar pushes a synthetic
+	 *  `tool_result` SDKUserMessage referencing this tool_use_id so the model
+	 *  sees the answer instead of starting a fresh turn. */
+	deferredToolUseId?: string | null;
 	sessionId?: string | null;
 	pathosSessionId?: string | null;
 	workingDirectory?: string | null;

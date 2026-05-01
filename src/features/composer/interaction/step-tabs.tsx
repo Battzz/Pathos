@@ -24,6 +24,8 @@ type InteractionStepTabsProps = {
 	value: string;
 	onChange: (key: string) => void;
 	disabled?: boolean;
+	/** Override the default `px-1 pb-2` wrapper padding. */
+	className?: string;
 };
 
 export function InteractionStepTabs({
@@ -31,20 +33,33 @@ export function InteractionStepTabs({
 	value,
 	onChange,
 	disabled = false,
+	className,
 }: InteractionStepTabsProps) {
 	if (items.length <= 1) return null;
 
 	return (
-		<div className="px-1 pb-2">
+		<div className={cn("px-1 pb-2", className)}>
 			<Tabs value={value} onValueChange={onChange}>
-				<TabsList className="h-auto flex-wrap p-0.5">
+				<TabsList className="h-auto flex-wrap gap-0.5 p-0.5">
 					{items.map((item) => (
 						<TabsTrigger
 							key={item.key}
 							value={item.key}
 							disabled={disabled}
-							className={cn("h-6 px-2 text-xs", !item.complete && "opacity-55")}
+							className={cn(
+								"h-6 gap-1.5 px-2 text-xs",
+								!item.complete && "text-muted-foreground/70",
+							)}
 						>
+							<span
+								aria-hidden="true"
+								className={cn(
+									"size-1.5 shrink-0 rounded-full transition-colors",
+									item.complete
+										? "bg-foreground/70"
+										: "bg-transparent ring-1 ring-inset ring-border/60",
+								)}
+							/>
 							{item.required ? (
 								<span>
 									{item.label}

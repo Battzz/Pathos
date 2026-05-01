@@ -16,13 +16,11 @@ import { cn } from "@/lib/utils";
 import {
 	parseClaudeRateLimits,
 	parseCodexRateLimits,
-	type RateLimitWindowDisplay,
-	ringTier,
+	type RateLimitSnapshotDisplay,
 } from "../context-usage-ring/parse";
 import { LimitRow } from "../context-usage-ring/popover-parts";
 
 type Props = {
-	agentType: "claude" | "codex" | null;
 	disabled?: boolean;
 	className?: string;
 };
@@ -30,57 +28,47 @@ type Props = {
 const HOVER_OPEN_DELAY_MS = 180;
 const HOVER_CLOSE_DELAY_MS = 80;
 
-export function UsageStatsIndicator({ agentType, disabled, className }: Props) {
-	const { settings } = useSettings();
+export function UsageStatsIndicator({ disabled, className }: Props) {
+	const { settings, updateSettings } = useSettings();
 	const [open, setOpen] = useState(false);
 	const queryClient = useQueryClient();
-	const show =
-		settings.showUsageStats &&
-		(agentType === "claude" || agentType === "codex");
+	const provider = settings.usageStatsProvider;
+	const show = settings.showUsageStats;
 
 	const { data: codexRaw = null } = useQuery(
-		codexRateLimitsQueryOptions(show && !disabled && agentType === "codex"),
+		codexRateLimitsQueryOptions(show && !disabled && provider === "codex"),
 	);
 	const { data: claudeRaw = null } = useQuery(
-		claudeRateLimitsQueryOptions(show && !disabled && agentType === "claude"),
+		claudeRateLimitsQueryOptions(show && !disabled && provider === "claude"),
 	);
 
-	// Refresh on hover open. The Rust 30 s throttle keeps this from
-	// hammering upstream — within the throttle window the command just
-	// returns the cached body — so this can fire as eagerly as the user
-	// opens the popover.
 	const handleOpenChange = useCallback(
 		(next: boolean) => {
 			setOpen(next);
 			if (!next || disabled) return;
 			const key =
-				agentType === "claude"
+				provider === "claude"
 					? pathosQueryKeys.claudeRateLimits
-					: agentType === "codex"
-						? pathosQueryKeys.codexRateLimits
-						: null;
-			if (key) {
-				void queryClient.refetchQueries({ queryKey: key });
-			}
+					: pathosQueryKeys.codexRateLimits;
+			void queryClient.refetchQueries({ queryKey: key });
 		},
-		[agentType, disabled, queryClient],
+		[provider, disabled, queryClient],
 	);
 
-	const stats = useMemo(() => {
-		if (agentType === "claude") return parseClaudeRateLimits(claudeRaw);
-		if (agentType === "codex") return parseCodexRateLimits(codexRaw);
-		return null;
-	}, [agentType, claudeRaw, codexRaw]);
+	const cycleProvider = useCallback(() => {
+		void updateSettings({
+			usageStatsProvider: provider === "claude" ? "codex" : "claude",
+		});
+	}, [provider, updateSettings]);
 
-	if (!show || !stats) return null;
-	if (
-		!stats.primary &&
-		!stats.secondary &&
-		stats.extraWindows.length === 0 &&
-		stats.notes.length === 0
-	) {
-		return null;
-	}
+	const stats = useMemo(() => {
+		if (provider === "claude") return parseClaudeRateLimits(claudeRaw);
+		return parseCodexRateLimits(codexRaw);
+	}, [provider, claudeRaw, codexRaw]);
+
+	if (!show) return null;
+
+	const remainingLabel = formatRemaining(stats);
 
 	return (
 		<HoverCard
@@ -93,129 +81,94 @@ export function UsageStatsIndicator({ agentType, disabled, className }: Props) {
 				<button
 					type="button"
 					disabled={disabled}
-					aria-label="Usage Stats"
+					onClick={cycleProvider}
+					aria-label={`Usage stats — ${provider === "claude" ? "Claude" : "OpenAI"}`}
+					title="Click to switch provider"
 					className={cn(
-						"flex size-7 cursor-pointer items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-50",
+						"flex h-7 cursor-pointer items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
 						className,
 					)}
 				>
-					<UsageStatsGlyph
-						primary={stats.primary}
-						secondary={stats.secondary}
-					/>
+					{provider === "claude" ? (
+						<ClaudeIcon className="size-[13px]" />
+					) : (
+						<OpenAIIcon className="size-[13px]" />
+					)}
+					<span className="text-[11px] tabular-nums">{remainingLabel}</span>
 				</button>
 			</HoverCardTrigger>
-			<HoverCardContent side="top" align="end" className="w-[280px]">
-				<div className="flex flex-col gap-3 px-1 py-1">
-					<div className="flex items-center justify-between">
-						<div className="text-[14px] font-semibold text-foreground">
-							Usage Stats
+			{stats &&
+			(stats.primary ||
+				stats.secondary ||
+				stats.extraWindows.length > 0 ||
+				stats.notes.length > 0) ? (
+				<HoverCardContent
+					side="top"
+					align="end"
+					sideOffset={6}
+					collisionPadding={12}
+					className="w-[280px]"
+				>
+					<div className="flex flex-col gap-3 px-1 py-1">
+						<div className="flex items-center justify-between">
+							<div className="text-[14px] font-semibold text-foreground">
+								Usage Stats
+							</div>
+							<span
+								className="text-muted-foreground"
+								aria-label={provider === "claude" ? "Claude" : "OpenAI"}
+							>
+								{provider === "claude" ? (
+									<ClaudeIcon className="size-[13px]" />
+								) : (
+									<OpenAIIcon className="size-[13px]" />
+								)}
+							</span>
 						</div>
-						<span
-							className="text-muted-foreground"
-							aria-label={agentType === "claude" ? "Claude" : "Codex"}
-						>
-							{agentType === "claude" ? (
-								<ClaudeIcon className="size-[13px]" />
-							) : (
-								<OpenAIIcon className="size-[13px]" />
-							)}
-						</span>
+						{stats.primary ||
+						stats.secondary ||
+						stats.extraWindows.length > 0 ? (
+							<div className="flex flex-col gap-2.5">
+								{stats.primary ? <LimitRow window={stats.primary} /> : null}
+								{stats.secondary ? <LimitRow window={stats.secondary} /> : null}
+								{stats.extraWindows.map((entry) => (
+									<LimitRow
+										key={entry.id}
+										window={{ ...entry.window, label: entry.title }}
+									/>
+								))}
+							</div>
+						) : null}
+						{stats.notes.length > 0 ? (
+							<div className="flex flex-col gap-1.5 border-t border-border/40 pt-2.5">
+								{stats.notes.map((note) => (
+									<div
+										key={note.label}
+										className="flex items-center justify-between text-[12px]"
+									>
+										<span className="text-muted-foreground">{note.label}</span>
+										<span className="font-medium tabular-nums text-foreground">
+											{note.value}
+										</span>
+									</div>
+								))}
+							</div>
+						) : null}
 					</div>
-					{stats.primary || stats.secondary || stats.extraWindows.length > 0 ? (
-						<div className="flex flex-col gap-2.5">
-							{stats.primary ? <LimitRow window={stats.primary} /> : null}
-							{stats.secondary ? <LimitRow window={stats.secondary} /> : null}
-							{stats.extraWindows.map((entry) => (
-								<LimitRow
-									key={entry.id}
-									window={{ ...entry.window, label: entry.title }}
-								/>
-							))}
-						</div>
-					) : null}
-					{stats.notes.length > 0 ? (
-						<div className="flex flex-col gap-1.5 border-t border-border/40 pt-2.5">
-							{stats.notes.map((note) => (
-								<div
-									key={note.label}
-									className="flex items-center justify-between text-[12px]"
-								>
-									<span className="text-muted-foreground">{note.label}</span>
-									<span className="font-medium tabular-nums text-foreground">
-										{note.value}
-									</span>
-								</div>
-							))}
-						</div>
-					) : null}
-				</div>
-			</HoverCardContent>
+				</HoverCardContent>
+			) : null}
 		</HoverCard>
 	);
 }
 
-// Geometry mirrors CodexBar's menu-bar IconRenderer so this indicator
-// reads with the same visual weight users get from the system menu
-// equivalent: 15 pt-wide track, 6 pt top bar, 4 pt bottom bar, 3 pt
-// gap. The wrapper is `flex flex-col` rather than a fixed-size box, so
-// the 28 pt button host (`size-7`) handles centering — the bars
-// themselves stay tight against each other. Each fill colors
-// independently by its own usedPercent tier.
-const GLYPH_TRACK_WIDTH = 15;
-const GLYPH_PRIMARY_HEIGHT = 6;
-const GLYPH_SECONDARY_HEIGHT = 4;
-const GLYPH_GAP = 3;
-
-function UsageStatsGlyph({
-	primary,
-	secondary,
-}: {
-	primary: RateLimitWindowDisplay | null;
-	secondary: RateLimitWindowDisplay | null;
-}) {
-	return (
-		<div
-			className="flex flex-col items-start justify-center"
-			style={{ gap: GLYPH_GAP }}
-			aria-hidden
-		>
-			<GlyphBar window={primary} height={GLYPH_PRIMARY_HEIGHT} />
-			<GlyphBar window={secondary} height={GLYPH_SECONDARY_HEIGHT} />
-		</div>
-	);
-}
-
-function GlyphBar({
-	window,
-	height,
-}: {
-	window: RateLimitWindowDisplay | null;
-	height: number;
-}) {
-	// Render the *remaining* fraction so the icon and popover read the
-	// same way: longer bar = more headroom. Tier still tracks
-	// `usedPercent` so a near-empty bar lights up amber/destructive.
-	const used = window?.usedPercent ?? 0;
-	const left = window ? window.leftPercent : 0;
-	const tier = ringTier(used);
-	const fillClass =
-		tier === "danger"
-			? "bg-destructive"
-			: tier === "warning"
-				? "bg-amber-500"
-				: window
-					? "bg-foreground/65"
-					: "bg-foreground/35";
-	return (
-		<div
-			className="overflow-hidden rounded-full bg-muted"
-			style={{ width: GLYPH_TRACK_WIDTH, height }}
-		>
-			<div
-				className={cn("h-full rounded-full transition-[width]", fillClass)}
-				style={{ width: `${left}%` }}
-			/>
-		</div>
-	);
+function formatRemaining(stats: RateLimitSnapshotDisplay | null): string {
+	if (!stats) return "—";
+	const candidates: number[] = [];
+	if (stats.primary) candidates.push(stats.primary.leftPercent);
+	if (stats.secondary) candidates.push(stats.secondary.leftPercent);
+	for (const entry of stats.extraWindows) {
+		candidates.push(entry.window.leftPercent);
+	}
+	if (candidates.length === 0) return "—";
+	return `${Math.round(Math.min(...candidates))}%`;
 }

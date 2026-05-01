@@ -1,25 +1,35 @@
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
+import { AnimatedIdentityNet } from "@/components/animated-identity-net";
 import { cn } from "@/lib/utils";
 
 /**
- * Shared editorial chrome for the onboarding flow.
+ * Onboarding chrome split into two voices:
  *
- * - `Atmosphere` paints the warm radial wash + grain that backs every screen.
- * - `MetaLine` and `RuleSegment` render the printed-page metadata strips.
- * - `StepShell` wraps each non-intro onboarding step with a matching frame:
- *    metadata header, chapter eyebrow, display-serif title block, content
- *    slot, and Back / Continue footer in the same monospace marks as the
- *    intro CTA.
+ * - The welcome screen (`intro-preview.tsx`) keeps the editorial feel —
+ *   `Atmosphere`, `MetaLine`, `RuleSegment` and the `EDITORIAL_REVEAL`
+ *   timings drive its cinematic open.
+ * - The four setup screens use `StepShell`, a calm app-native frame —
+ *   solid background, small mono meta line, sans title, hairline card,
+ *   ghost/outline footer buttons.
  */
 
 export const EDITORIAL_REVEAL = {
 	rule: 60,
 	topMeta: 220,
-	title: 360,
-	subtitle: 640,
-	content: 820,
-	footer: 1020,
+	preTitle: 340,
+	title: 460,
+	subtitle: 760,
+	content: 940,
+	footer: 1100,
+} as const;
+
+const STEP_REVEAL = {
+	meta: 60,
+	title: 180,
+	subtitle: 320,
+	content: 460,
+	footer: 600,
 } as const;
 
 export function Atmosphere() {
@@ -113,15 +123,13 @@ export function StepBackButton({
 			type="button"
 			onClick={onClick}
 			disabled={disabled}
-			className="group/back inline-flex cursor-pointer items-center gap-3 py-2 font-mono text-[12px] uppercase tracking-[0.36em] text-muted-foreground/75 transition-colors duration-500 ease-[cubic-bezier(.16,1,.3,1)] hover:text-foreground disabled:cursor-default disabled:opacity-40"
+			className="group/back -ml-2 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2 text-[13px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:opacity-40"
 		>
 			<ArrowLeft
-				className="size-3.5 transition-transform duration-700 ease-[cubic-bezier(.16,1,.3,1)] group-hover/back:-translate-x-1"
-				strokeWidth={1.4}
+				className="size-3.5 transition-transform duration-300 ease-out group-hover/back:-translate-x-0.5"
+				strokeWidth={1.75}
 			/>
-			<span className="transition-transform duration-700 ease-[cubic-bezier(.16,1,.3,1)] group-hover/back:-translate-x-0.5">
-				Back
-			</span>
+			<span>Back</span>
 		</button>
 	);
 }
@@ -140,14 +148,12 @@ export function StepNextButton({
 			type="button"
 			onClick={onClick}
 			disabled={disabled}
-			className="group/next relative inline-flex cursor-pointer items-center gap-3 py-2 pr-1 font-mono text-[12px] uppercase tracking-[0.36em] text-foreground/85 transition-colors duration-500 ease-[cubic-bezier(.16,1,.3,1)] hover:text-foreground disabled:cursor-default disabled:opacity-40"
+			className="group/next inline-flex h-8 cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-40"
 		>
-			<span className="transition-transform duration-700 ease-[cubic-bezier(.16,1,.3,1)] group-hover/next:translate-x-0.5">
-				{label}
-			</span>
+			<span>{label}</span>
 			<ArrowRight
-				className="size-3.5 transition-transform duration-700 ease-[cubic-bezier(.16,1,.3,1)] group-hover/next:translate-x-1"
-				strokeWidth={1.4}
+				className="size-3.5 transition-transform duration-300 ease-out group-hover/next:translate-x-0.5"
+				strokeWidth={1.75}
 			/>
 		</button>
 	);
@@ -156,70 +162,81 @@ export function StepNextButton({
 export function StepShell({
 	active,
 	ariaLabel,
-	chapter,
-	folio,
+	metaLabel = "Pathos · Setup",
+	step,
+	totalSteps = 5,
 	title,
 	subtitle,
 	children,
 	footer,
 	contentClassName,
+	maxWidth = "max-w-[640px]",
+	netVariant,
 }: {
 	active: boolean;
 	ariaLabel: string;
-	chapter: { number: string; name: string };
-	folio: string;
+	metaLabel?: string;
+	step: number;
+	totalSteps?: number;
 	title: ReactNode;
 	subtitle: ReactNode;
 	children: ReactNode;
 	footer: ReactNode;
 	contentClassName?: string;
+	maxWidth?: string;
+	netVariant?: number;
 }) {
+	const stepLabel = String(step).padStart(2, "0");
+	const totalLabel = String(totalSteps).padStart(2, "0");
+	const variant = netVariant ?? step - 1;
+
 	return (
 		<section
 			aria-label={ariaLabel}
 			aria-hidden={!active}
 			className={cn(
 				"absolute inset-0 z-20 flex flex-col overflow-hidden bg-background text-foreground",
-				"transition-none",
 				active
-					? "editorial-active editorial-instant translate-y-0 opacity-100 blur-0"
-					: "pointer-events-none translate-y-0 opacity-0 blur-0",
+					? "editorial-active editorial-instant translate-y-0 opacity-100"
+					: "pointer-events-none translate-y-0 opacity-0",
 			)}
 		>
-			<Atmosphere />
+			<div
+				className="editorial-stage absolute inset-0 z-0"
+				style={{ animationDelay: `${STEP_REVEAL.meta}ms` }}
+			>
+				<AnimatedIdentityNet variant={variant} />
+			</div>
 
-			<header className="relative z-10 flex shrink-0 items-center justify-between gap-8 px-12 pl-32 pt-14">
-				<MetaLine delay={EDITORIAL_REVEAL.topMeta}>
-					<RuleSegment align="start" delay={EDITORIAL_REVEAL.rule} />
-					<span>
-						Chapter {chapter.number} · {chapter.name}
+			<div
+				className={cn(
+					"relative z-10 mx-auto flex w-full flex-1 flex-col px-10 pt-20 pb-10",
+					maxWidth,
+				)}
+			>
+				<div
+					className="editorial-stage flex shrink-0 items-center justify-between gap-4 font-mono text-[10.5px] uppercase tracking-[0.22em] text-muted-foreground/70"
+					style={{ animationDelay: `${STEP_REVEAL.meta}ms` }}
+				>
+					<span>{metaLabel}</span>
+					<span className="tabular-nums text-foreground/65">
+						{stepLabel}
+						<span className="mx-1.5 text-muted-foreground/40">/</span>
+						{totalLabel}
 					</span>
-				</MetaLine>
-				<MetaLine align="end" delay={EDITORIAL_REVEAL.topMeta}>
-					<span>{folio}</span>
-					<RuleSegment align="end" delay={EDITORIAL_REVEAL.rule} />
-				</MetaLine>
-			</header>
+				</div>
 
-			<div className="relative z-10 mx-auto flex w-full max-w-[1080px] flex-1 flex-col px-12 pt-12">
-				<div className="flex shrink-0 flex-col">
+				<div className="mt-12 flex shrink-0 flex-col">
 					<h2
-						className="font-display font-normal leading-[0.95] tracking-[-0.02em] text-foreground/95"
+						className="editorial-stage text-[28px] font-medium leading-[1.18] tracking-[-0.018em] text-foreground"
 						aria-label={typeof title === "string" ? title : undefined}
+						style={{ animationDelay: `${STEP_REVEAL.title}ms` }}
 					>
-						<span className="block overflow-hidden pb-1">
-							<span
-								className="editorial-mask block text-[clamp(2.6rem,4.4vw,4rem)]"
-								style={{ animationDelay: `${EDITORIAL_REVEAL.title}ms` }}
-							>
-								{title}
-							</span>
-						</span>
+						{title}
 					</h2>
-
 					<p
-						className="editorial-stage mt-5 max-w-[560px] text-[clamp(14px,1.15vw,15.5px)] leading-[1.65] text-muted-foreground/85"
-						style={{ animationDelay: `${EDITORIAL_REVEAL.subtitle}ms` }}
+						className="editorial-stage mt-2.5 max-w-[480px] text-[14px] leading-[1.6] text-muted-foreground"
+						style={{ animationDelay: `${STEP_REVEAL.subtitle}ms` }}
 					>
 						{subtitle}
 					</p>
@@ -227,21 +244,21 @@ export function StepShell({
 
 				<div
 					className={cn(
-						"editorial-stage mt-12 min-h-0 flex-1",
+						"editorial-stage mt-10 flex min-h-0 flex-1 flex-col",
 						contentClassName,
 					)}
-					style={{ animationDelay: `${EDITORIAL_REVEAL.content}ms` }}
+					style={{ animationDelay: `${STEP_REVEAL.content}ms` }}
 				>
 					{children}
 				</div>
-			</div>
 
-			<footer
-				className="editorial-stage relative z-10 flex shrink-0 items-center justify-between gap-8 px-12 pb-10"
-				style={{ animationDelay: `${EDITORIAL_REVEAL.footer}ms` }}
-			>
-				{footer}
-			</footer>
+				<footer
+					className="editorial-stage flex shrink-0 items-center justify-between gap-4 pt-8"
+					style={{ animationDelay: `${STEP_REVEAL.footer}ms` }}
+				>
+					{footer}
+				</footer>
+			</div>
 		</section>
 	);
 }

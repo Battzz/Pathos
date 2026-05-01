@@ -129,14 +129,11 @@ describe("WorkspacePanel", () => {
 		});
 
 		expect(screen.getByRole("heading", { name: "pathos" })).toBeInTheDocument();
-		expect(screen.getByText("No sessions yet")).toBeInTheDocument();
 		expect(
 			screen.getByText(
 				"Start a thread to work inside this project, or bring in another repository for something new.",
 			),
 		).toBeInTheDocument();
-		expect(screen.getByText("Sessions")).toBeInTheDocument();
-		expect(screen.getByText("0")).toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "Open project" }),
 		).toBeInTheDocument();
@@ -151,14 +148,11 @@ describe("WorkspacePanel", () => {
 		});
 
 		expect(screen.getByRole("heading", { name: "pathos" })).toBeInTheDocument();
-		expect(screen.getByText("No session selected")).toBeInTheDocument();
 		expect(
 			screen.getByText(
 				"Choose an existing thread from the sidebar, or start a fresh one when you are ready.",
 			),
 		).toBeInTheDocument();
-		expect(screen.getByText("Sessions")).toBeInTheDocument();
-		expect(screen.getByText("1")).toBeInTheDocument();
 	});
 
 	it("renders project picker guidance when no workspace is selected", () => {
@@ -171,7 +165,6 @@ describe("WorkspacePanel", () => {
 		expect(
 			screen.getByRole("heading", { name: "Choose a workspace" }),
 		).toBeInTheDocument();
-		expect(screen.getByText("Nothing selected")).toBeInTheDocument();
 		expect(
 			screen.queryByRole("heading", { name: "Pathos" }),
 		).not.toBeInTheDocument();

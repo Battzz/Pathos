@@ -1030,7 +1030,7 @@ describe("WorkspaceComposer", () => {
 		expect(
 			screen.getByText("Which checks should run before merge?"),
 		).toBeInTheDocument();
-		await user.click(screen.getByRole("tab", { name: "UI" }));
+		await user.click(screen.getByRole("button", { name: "Previous question" }));
 		await user.type(
 			screen.getByLabelText("Optional note for Claude"),
 			"Prefer the dedicated approval surface.",
@@ -1038,7 +1038,7 @@ describe("WorkspaceComposer", () => {
 		expect(screen.getByLabelText("Optional note for Claude")).toHaveValue(
 			"Prefer the dedicated approval surface.",
 		);
-		await user.click(screen.getByRole("tab", { name: "Checks" }));
+		await user.click(screen.getByRole("button", { name: "Next question" }));
 		expect(screen.getByText("Choose one or more options.")).toBeInTheDocument();
 		await user.click(screen.getByRole("button", { name: /Vitest/i }));
 		await user.click(screen.getByRole("button", { name: /Typecheck/i }));

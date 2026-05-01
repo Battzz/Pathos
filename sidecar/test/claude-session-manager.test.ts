@@ -58,6 +58,17 @@ type MockQueryImpl = (options: {
 		hooks?: {
 			PreToolUse?: Array<{ hooks: MockHookFn[] }>;
 		};
+		canUseTool?: (
+			toolName: string,
+			input: Record<string, unknown>,
+			options: {
+				toolUseID: string;
+				title?: string;
+				description?: string;
+				signal: AbortSignal;
+				suggestions?: unknown[];
+			},
+		) => Promise<unknown>;
 	};
 }) => MockQueryResult;
 
@@ -797,49 +808,138 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		});
 	});
 
-	test("suppresses deferred tool_use passthrough while keeping the deferred control event", async () => {
-		mockQueryImpl = async function* withDeferredTool() {
-			yield {
-				type: "assistant",
-				session_id: "sdk-session-1",
-				uuid: "assistant-1",
-				message: {
-					content: [
-						{ type: "text", text: "Need a quick decision." },
-						{
-							type: "tool_use",
-							id: "tool-ask-1",
-							name: "AskUserQuestion",
-							input: {
-								questions: [
-									{ question: "Which path should we take?", options: [] },
-								],
-							},
-						},
-					],
-				},
-			};
+	// AskUserQuestion now blocks INSIDE `canUseTool`: we emit
+	// `deferredToolUse` from there and await a Promise the
+	// `deferredToolResponse` IPC resolves. The same `query()` stays
+	// alive, so the SDK continues the turn in place — no resume stream,
+	// no synthetic tool_result, no terminal pause.
+	// Helper for canUseTool blocking tests: the iterator returns a
+	// terminal `result` only after `openGate()` is called. Lets the test
+	// keep `for await` parked while it interacts with the deferred-tool
+	// callback, then signal completion.
+	function gatedTerminalIterator(
+		gate: Promise<void>,
+		sessionId: string,
+	): MockQueryResult {
+		async function* gen() {
+			await gate;
 			yield {
 				type: "result",
-				session_id: "sdk-session-1",
-				result: "",
-				deferred_tool_use: {
-					id: "tool-ask-1",
-					name: "AskUserQuestion",
-					input: {
-						questions: [
-							{ question: "Which path should we take?", options: [] },
-						],
-					},
-				},
+				session_id: sessionId,
+				subtype: "success",
+				is_error: false,
+				result: "done",
 			};
+		}
+		const iter = gen();
+		return {
+			close: () => undefined,
+			[Symbol.asyncIterator]: () => iter,
+		};
+	}
+
+	test("AskUserQuestion: canUseTool blocks until resolveDeferredTool delivers answers", async () => {
+		let canUseToolPromise: Promise<unknown> | null = null;
+		let openGate: () => void = () => undefined;
+		const gate = new Promise<void>((resolve) => {
+			openGate = resolve;
+		});
+		mockQueryImpl = (queryArgs) => {
+			canUseToolPromise = queryArgs.options?.canUseTool?.(
+				"AskUserQuestion",
+				{
+					questions: [{ question: "Which path should we take?", options: [] }],
+				},
+				{
+					toolUseID: "tool-ask-1",
+					signal: new AbortController().signal,
+				},
+			) as Promise<unknown> | null;
+			return gatedTerminalIterator(gate, "sdk-session-ask");
 		};
 
-		await manager.sendMessage(
-			"REQ-DEFER",
+		const sendPromise = manager.sendMessage(
+			"REQ-ASK",
 			{
-				sessionId: "pathos-sess-defer",
-				prompt: "x",
+				sessionId: "pathos-sess-ask",
+				prompt: "Help me pick a strategy.",
+				model: undefined,
+				cwd: undefined,
+				resume: undefined,
+				permissionMode: "plan",
+				effortLevel: undefined,
+				fastMode: undefined,
+			},
+			emitter,
+		);
+
+		// `canUseTool` should have fired and emitted a `deferredToolUse`
+		// event before any user response arrives.
+		await waitForCondition(
+			() =>
+				captured.some(
+					(e) =>
+						(e as { type?: string }).type === "deferredToolUse" &&
+						(e as { toolUseId?: string }).toolUseId === "tool-ask-1",
+				),
+			"deferredToolUse event",
+		);
+		const deferredEvent = captured.find(
+			(e) => (e as { type?: string }).type === "deferredToolUse",
+		);
+		expect(deferredEvent).toEqual({
+			id: "REQ-ASK",
+			type: "deferredToolUse",
+			toolUseId: "tool-ask-1",
+			toolName: "AskUserQuestion",
+			toolInput: {
+				questions: [{ question: "Which path should we take?", options: [] }],
+			},
+		});
+
+		// User submits — `canUseTool` unblocks with the answer payload.
+		manager.resolveDeferredTool("tool-ask-1", "allow", undefined, {
+			questions: [{ question: "Which path should we take?", options: [] }],
+			answers: { "Which path should we take?": "Option A" },
+		});
+
+		expect(canUseToolPromise).not.toBeNull();
+		const result = await (canUseToolPromise as unknown as Promise<unknown>);
+		expect(result).toEqual({
+			behavior: "allow",
+			updatedInput: {
+				questions: [{ question: "Which path should we take?", options: [] }],
+				answers: { "Which path should we take?": "Option A" },
+			},
+		});
+
+		openGate();
+		await sendPromise;
+	});
+
+	test("AskUserQuestion: deny resolution surfaces as canUseTool deny", async () => {
+		let canUseToolPromise: Promise<unknown> | null = null;
+		let openGate: () => void = () => undefined;
+		const gate = new Promise<void>((resolve) => {
+			openGate = resolve;
+		});
+		mockQueryImpl = (queryArgs) => {
+			canUseToolPromise = queryArgs.options?.canUseTool?.(
+				"AskUserQuestion",
+				{ questions: [{ question: "Continue anyway?", options: [] }] },
+				{
+					toolUseID: "tool-ask-deny",
+					signal: new AbortController().signal,
+				},
+			) as Promise<unknown> | null;
+			return gatedTerminalIterator(gate, "sdk-session-ask-deny");
+		};
+
+		const sendPromise = manager.sendMessage(
+			"REQ-ASK-DENY",
+			{
+				sessionId: "pathos-sess-ask-deny",
+				prompt: "Should we go ahead?",
 				model: undefined,
 				cwd: undefined,
 				resume: undefined,
@@ -850,78 +950,62 @@ describe("ClaudeSessionManager.sendMessage", () => {
 			emitter,
 		);
 
-		expect(captured).toHaveLength(3);
-		expect(captured[0]?.type).toBe("assistant");
-		expect(
-			(
-				captured[0]?.message as {
-					content?: Array<{ type?: string; name?: string; text?: string }>;
-				}
-			).content ?? [],
-		).toEqual([{ type: "text", text: "Need a quick decision." }]);
-		expect(captured[1]).toEqual({
-			id: "REQ-DEFER",
-			type: "deferredToolUse",
-			toolUseId: "tool-ask-1",
-			toolName: "AskUserQuestion",
-			toolInput: {
-				questions: [{ question: "Which path should we take?", options: [] }],
-			},
+		await waitForCondition(
+			() =>
+				captured.some(
+					(e) =>
+						(e as { type?: string }).type === "deferredToolUse" &&
+						(e as { toolUseId?: string }).toolUseId === "tool-ask-deny",
+				),
+			"deferredToolUse event (deny)",
+		);
+
+		manager.resolveDeferredTool(
+			"tool-ask-deny",
+			"deny",
+			"User declined to answer",
+			undefined,
+		);
+
+		expect(canUseToolPromise).not.toBeNull();
+		const result = await (canUseToolPromise as unknown as Promise<unknown>);
+		expect(result).toEqual({
+			behavior: "deny",
+			message: "User declined to answer",
 		});
-		expect(captured[2]).toEqual({ id: "REQ-DEFER", type: "end" });
+
+		openGate();
+		await sendPromise;
 	});
 
-	// Regression for AskUserQuestion answer delivery: the Steer commit
-	// (1e0d07b) forced every sendMessage through streaming-input mode, which
-	// made resume-only streams push a synthetic `{ role: "user", content: "" }`
-	// into the SDK. Claude treated that as a new empty user turn and skipped
-	// re-invoking the PreToolUse hook, so the user's answer (stored in
-	// `deferredToolResponses`) never reached Claude. This test pins the fix:
-	// empty prompt => pass `""` (string) to `query()` so the hook re-fires.
-	test("empty prompt: query() gets string prompt and PreToolUse hook surfaces the stored resolution", async () => {
-		manager.resolveDeferredTool("tool-ask-1", "allow", undefined, {
-			questions: [{ question: "Which path should we take?", options: [] }],
-			answers: { "Which path should we take?": "Option A" },
-		});
-
-		let hookOutput: unknown = null;
+	test("AskUserQuestion: stream end resolves a still-pending deferred tool with deny", async () => {
+		// Defensive: if the SDK iterator finishes (or the user closes the
+		// app) while `canUseTool` is still parked, the manager's `finally`
+		// must flush every pending Promise so callbacks return cleanly
+		// instead of dangling forever.
+		let canUseToolPromise: Promise<unknown> | null = null;
 		mockQueryImpl = (queryArgs) => {
-			const hook = queryArgs.options?.hooks?.PreToolUse?.[0]?.hooks?.[0];
-			// Simulate the SDK re-invoking PreToolUse for the pending tool_use
-			// on resume. The real SDK does this inside its replay loop before
-			// executing the deferred tool.
-			if (hook) {
-				void (async () => {
-					hookOutput = await hook(
-						{
-							hook_event_name: "PreToolUse",
-							tool_name: "AskUserQuestion",
-						},
-						"tool-ask-1",
-					);
-				})();
-			}
-			return makeMockQuery({
-				stream: [
-					{
-						type: "result",
-						session_id: "sdk-session-resume",
-						subtype: "success",
-						is_error: false,
-						result: "done",
-					},
-				],
-			});
+			canUseToolPromise = queryArgs.options?.canUseTool?.(
+				"AskUserQuestion",
+				{ questions: [{ question: "Pick one", options: [] }] },
+				{
+					toolUseID: "tool-ask-orphan",
+					signal: new AbortController().signal,
+				},
+			) as Promise<unknown> | null;
+			// Empty stream — the for-await loop exits immediately, hitting
+			// the `finally` block while canUseTool is still parked.
+			return makeMockQuery({ stream: [] });
 		};
 
 		await manager.sendMessage(
-			"REQ-RESUME",
+			"REQ-ASK-ORPHAN",
 			{
-				sessionId: "pathos-sess-defer",
-				prompt: "",
+				sessionId: "pathos-sess-orphan",
+				prompt: "ask me something",
 				model: undefined,
 				cwd: undefined,
-				resume: "sdk-session-resume",
+				resume: undefined,
 				permissionMode: undefined,
 				effortLevel: undefined,
 				fastMode: undefined,
@@ -929,24 +1013,47 @@ describe("ClaudeSessionManager.sendMessage", () => {
 			emitter,
 		);
 
-		// Pre-Steer shape: plain empty string. If this ever becomes an object
-		// (pushable / iterable), AskUserQuestion answers stop reaching Claude.
+		expect(canUseToolPromise).not.toBeNull();
+		const result = await (canUseToolPromise as unknown as Promise<unknown>);
+		expect(result).toMatchObject({ behavior: "deny" });
+	});
+
+	// Resume without a deferredToolUseId (e.g. a session that paused for a
+	// reason other than a deferred tool) keeps the legacy empty-string
+	// prompt path so the SDK simply replays the session.
+	test("resume without deferredToolUseId keeps the empty-string prompt", async () => {
+		mockQueryImpl = () =>
+			makeMockQuery({
+				stream: [
+					{
+						type: "result",
+						session_id: "sdk-session-bare-resume",
+						subtype: "success",
+						is_error: false,
+						result: "done",
+					},
+				],
+			});
+
+		await manager.sendMessage(
+			"REQ-BARE-RESUME",
+			{
+				sessionId: "pathos-sess-bare",
+				prompt: "",
+				model: undefined,
+				cwd: undefined,
+				resume: "sdk-session-bare-resume",
+				permissionMode: undefined,
+				effortLevel: undefined,
+				fastMode: undefined,
+			},
+			emitter,
+		);
+
 		expect(typeof (lastQueryArgs as { prompt?: unknown } | null)?.prompt).toBe(
 			"string",
 		);
 		expect((lastQueryArgs as { prompt: string }).prompt).toBe("");
-
-		await waitForCondition(() => hookOutput !== null, "hook invocation");
-		expect(hookOutput).toEqual({
-			hookSpecificOutput: {
-				hookEventName: "PreToolUse",
-				permissionDecision: "allow",
-				updatedInput: {
-					questions: [{ question: "Which path should we take?", options: [] }],
-					answers: { "Which path should we take?": "Option A" },
-				},
-			},
-		});
 	});
 
 	test("stops after a successful result and ignores trailing SDK noise", async () => {

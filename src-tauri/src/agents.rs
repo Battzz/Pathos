@@ -173,6 +173,12 @@ pub struct AgentSendRequest {
     pub prompt_prefix: Option<String>,
     #[serde(default)]
     pub resume_only: bool,
+    /// Set when this resume stream delivers the user's answer to a paused
+    /// deferred tool (e.g. AskUserQuestion). Forwarded to the sidecar so it
+    /// can push a synthetic `tool_result` SDKUserMessage referencing this
+    /// `tool_use_id`. Empty/absent ⇒ vanilla resume (no answer to inject).
+    #[serde(default)]
+    pub deferred_tool_use_id: Option<String>,
     pub session_id: Option<String>,
     pub pathos_session_id: Option<String>,
     pub working_directory: Option<String>,
@@ -889,6 +895,7 @@ mod tests {
             files: None,
             images: None,
             custom_tags: None,
+            deferred_tool_use_id: None,
         };
 
         let resolved = resolve_stream_working_directory(&request).unwrap();
@@ -927,6 +934,7 @@ mod tests {
             files: None,
             images: None,
             custom_tags: None,
+            deferred_tool_use_id: None,
         };
 
         let error = resolve_stream_working_directory(&request).unwrap_err();

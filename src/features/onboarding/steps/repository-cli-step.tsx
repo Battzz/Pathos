@@ -231,19 +231,10 @@ export function RepositoryCliStep({
 		<StepShell
 			active={step === "corner"}
 			ariaLabel="Set up repository CLIs"
-			chapter={{ number: "III", name: "Repositories" }}
-			folio="Folio 3 of 5"
-			title={
-				<>
-					Set up repository <em className="not-italic">CLIs</em>.
-				</>
-			}
-			subtitle={
-				<>
-					Install and authenticate your GitHub or GitLab CLI so Pathos can open
-					pull requests and keep repository actions local.
-				</>
-			}
+			metaLabel="Pathos · Repositories"
+			step={3}
+			title="Set up repository CLIs"
+			subtitle="Authenticate your GitHub or GitLab CLI so Pathos can open pull requests and keep repository actions local."
 			footer={
 				<>
 					<StepBackButton onClick={onBack} />
@@ -251,9 +242,9 @@ export function RepositoryCliStep({
 				</>
 			}
 		>
-			<div className="flex flex-col">
+			<div className="overflow-hidden rounded-xl border border-border/60 bg-card/40 backdrop-blur-sm">
 				<RepositoryCliSetupItem
-					icon={<MarkGithubIcon size={20} />}
+					icon={<MarkGithubIcon size={16} />}
 					label="GitHub CLI"
 					description="Run gh auth login to connect GitHub locally."
 					status={github.status}
@@ -262,17 +253,8 @@ export function RepositoryCliStep({
 					onSetUp={handleGithubSetUp}
 				/>
 
-				<RepositoryCliTerminalSlot
-					active={activeTerminal?.provider === "github"}
-					terminal={
-						activeTerminal?.provider === "github" ? activeTerminal : null
-					}
-					onTerminalExit={handleTerminalExit}
-					onTerminalError={handleTerminalError}
-				/>
-
 				<RepositoryCliSetupItem
-					icon={<GitlabBrandIcon size={20} className="text-[#FC6D26]" />}
+					icon={<GitlabBrandIcon size={16} className="text-[#FC6D26]" />}
 					label="GitLab CLI"
 					description="Run glab auth login to connect GitLab locally."
 					status={gitlab.status}
@@ -280,19 +262,26 @@ export function RepositoryCliStep({
 					waiting={waitingProvider === "gitlab"}
 					onSetUp={handleGitlabSetUp}
 				/>
-
-				<RepositoryCliGitlabPanel
-					activePanel={activeGitlabPanel}
-					activeTerminal={
-						activeTerminal?.provider === "gitlab" ? activeTerminal : null
-					}
-					gitlabHost={gitlabHost}
-					onGitlabHostChange={setGitlabHost}
-					onGitlabHostSubmit={handleGitlabHostSubmit}
-					onTerminalExit={handleTerminalExit}
-					onTerminalError={handleTerminalError}
-				/>
 			</div>
+
+			<RepositoryCliTerminalSlot
+				active={activeTerminal?.provider === "github"}
+				terminal={activeTerminal?.provider === "github" ? activeTerminal : null}
+				onTerminalExit={handleTerminalExit}
+				onTerminalError={handleTerminalError}
+			/>
+
+			<RepositoryCliGitlabPanel
+				activePanel={activeGitlabPanel}
+				activeTerminal={
+					activeTerminal?.provider === "gitlab" ? activeTerminal : null
+				}
+				gitlabHost={gitlabHost}
+				onGitlabHostChange={setGitlabHost}
+				onGitlabHostSubmit={handleGitlabHostSubmit}
+				onTerminalExit={handleTerminalExit}
+				onTerminalError={handleTerminalError}
+			/>
 		</StepShell>
 	);
 }
@@ -421,20 +410,20 @@ function GitlabHostPanel({
 	return (
 		<div
 			className={cn(
-				"absolute inset-x-0 top-3 rounded-xl border border-border/40 bg-foreground/[0.015] p-5 transition-all duration-700 ease-[cubic-bezier(.22,.82,.2,1)]",
+				"absolute inset-x-0 top-3 rounded-xl border border-border/60 bg-card/40 p-4 backdrop-blur-sm transition-all duration-700 ease-[cubic-bezier(.22,.82,.2,1)]",
 				active
 					? "translate-x-0 opacity-100"
 					: "pointer-events-none translate-x-[calc(100%+3rem)] opacity-0",
 			)}
 		>
-			<div className="font-display text-[20px] leading-none text-foreground/95">
+			<div className="text-[14px] font-medium leading-tight text-foreground">
 				GitLab domain
 			</div>
-			<p className="mt-2 text-[13.5px] leading-[1.55] text-muted-foreground/85">
+			<p className="mt-1 text-[12.5px] leading-[1.55] text-muted-foreground">
 				Use gitlab.com or your self-hosted GitLab domain.
 			</p>
 			<form
-				className="mt-4 flex items-center gap-2"
+				className="mt-3 flex items-center gap-2"
 				onSubmit={(event) => {
 					event.preventDefault();
 					onSubmit();
@@ -445,10 +434,15 @@ function GitlabHostPanel({
 					onChange={(event) => onChange(event.target.value)}
 					placeholder={DEFAULT_GITLAB_HOST}
 					aria-label="GitLab domain"
-					className="h-10"
+					className="h-9"
 				/>
-				<Button type="submit" className="h-10 shrink-0 gap-2 px-3">
-					<LogIn className="size-4" />
+				<Button
+					type="submit"
+					size="sm"
+					variant="outline"
+					className="h-9 shrink-0 gap-1.5"
+				>
+					<LogIn className="size-3.5" />
 					Log in
 				</Button>
 			</form>

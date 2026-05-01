@@ -127,6 +127,7 @@ export function parseSendMessageParams(
 		permissionMode: optionalString(params, "permissionMode"),
 		effortLevel: optionalString(params, "effortLevel"),
 		fastMode: optionalBoolean(params, "fastMode"),
+		deferredToolUseId: optionalString(params, "deferredToolUseId"),
 		claudeEnvironment: parseOptionalStringRecord(params, "claudeEnvironment"),
 		additionalDirectories: parseOptionalStringArray(
 			params,

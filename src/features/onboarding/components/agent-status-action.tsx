@@ -35,11 +35,11 @@ export function AgentStatusAction({
 				onStartLogin?.(provider);
 			}}
 			className={cn(
-				"group/action inline-flex cursor-pointer items-center gap-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.32em] text-foreground/85 transition-colors duration-500 ease-[cubic-bezier(.16,1,.3,1)] hover:text-foreground",
-				waiting && "text-foreground/95",
+				"group/action inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[12px] font-medium text-foreground/95 transition-colors hover:bg-muted",
+				waiting && "border-foreground/25 bg-muted",
 			)}
 		>
-			<span className="transition-transform duration-700 ease-[cubic-bezier(.16,1,.3,1)] group-hover/action:translate-x-0.5">
+			<span>
 				{waiting ? (
 					<>
 						<span className="group-hover/action:hidden">Waiting…</span>
@@ -50,8 +50,8 @@ export function AgentStatusAction({
 				)}
 			</span>
 			<ArrowRight
-				className="size-3 transition-transform duration-700 ease-[cubic-bezier(.16,1,.3,1)] group-hover/action:translate-x-1"
-				strokeWidth={1.5}
+				className="size-3 transition-transform duration-300 ease-out group-hover/action:translate-x-0.5"
+				strokeWidth={2}
 			/>
 		</button>
 	);

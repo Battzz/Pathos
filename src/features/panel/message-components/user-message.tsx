@@ -209,17 +209,9 @@ export function ChatUserMessage({
 			>
 				{editing ? (
 					<div
-						className="group/edit relative w-full origin-top animate-in fade-in slide-in-from-bottom-1 overflow-hidden rounded-lg border border-primary/30 bg-card shadow-[0_0_0_1px_var(--color-primary)/0.04,0_8px_24px_-12px_var(--color-primary)/0.18] ring-1 ring-primary/10 backdrop-blur-sm duration-150"
+						className="group/edit relative w-full origin-top animate-in fade-in slide-in-from-bottom-1 overflow-hidden rounded-lg border border-border/55 bg-card duration-150 focus-within:border-border"
 						style={{ fontSize: `${settings.fontSize}px` }}
 					>
-						{/* Eyebrow: character count */}
-						<div className="flex items-center justify-end gap-3 px-4 pt-2.5 pb-1">
-							<span className="font-mono text-[10px] tabular-nums leading-none text-muted-foreground/60">
-								{draft.length.toLocaleString()}
-								<span className="text-muted-foreground/30"> ch</span>
-							</span>
-						</div>
-
 						<textarea
 							ref={editorRef}
 							value={draft}
@@ -234,32 +226,40 @@ export function ChatUserMessage({
 									handleCancelEdit();
 								}
 							}}
-							className="block max-h-[42vh] min-h-28 w-full resize-y border-0 bg-transparent px-4 pt-1 pb-3 leading-7 text-foreground outline-none placeholder:text-muted-foreground/45"
+							className="block max-h-[42vh] min-h-24 w-full resize-y border-0 bg-transparent px-4 pt-3 pb-2 leading-7 text-foreground outline-none placeholder:text-muted-foreground/45"
 							aria-label="Edit message"
 							placeholder="Refine your message…"
 							disabled={reverting}
 						/>
 
-						<div className="flex items-center justify-between gap-3 border-border/50 border-t bg-muted/20 px-3 py-2">
-							<div className="hidden items-center gap-2 font-mono text-[10.5px] tabular-nums text-muted-foreground/60 sm:flex">
+						<div className="flex items-center justify-between gap-3 border-t border-border/30 px-3 py-2">
+							<div className="hidden items-center gap-2 text-[11px] text-muted-foreground/55 sm:flex">
 								<span className="inline-flex items-center gap-1">
-									<kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded-[3px] border border-border/70 bg-card px-1 text-[10px] leading-none text-foreground/70 shadow-[0_1px_0_var(--color-border)]">
+									<kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded-[3px] border border-border/55 bg-background/60 px-1 font-mono text-[9.5px] leading-none text-muted-foreground">
 										⌘
 									</kbd>
-									<kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded-[3px] border border-border/70 bg-card px-1 text-[10px] leading-none text-foreground/70 shadow-[0_1px_0_var(--color-border)]">
+									<kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded-[3px] border border-border/55 bg-background/60 px-1 font-mono text-[9.5px] leading-none text-muted-foreground">
 										↵
 									</kbd>
-									<span className="text-muted-foreground/55">save</span>
+									<span>save</span>
 								</span>
 								<span className="text-muted-foreground/25">·</span>
 								<span className="inline-flex items-center gap-1">
-									<kbd className="inline-flex h-4 items-center justify-center rounded-[3px] border border-border/70 bg-card px-1 text-[10px] leading-none text-foreground/70 shadow-[0_1px_0_var(--color-border)]">
+									<kbd className="inline-flex h-4 items-center justify-center rounded-[3px] border border-border/55 bg-background/60 px-1 font-mono text-[9.5px] leading-none text-muted-foreground">
 										esc
 									</kbd>
-									<span className="text-muted-foreground/55">cancel</span>
+									<span>cancel</span>
 								</span>
+								{draft.length > 0 ? (
+									<>
+										<span className="text-muted-foreground/25">·</span>
+										<span className="tabular-nums">
+											{draft.length.toLocaleString()} chars
+										</span>
+									</>
+								) : null}
 							</div>
-							<div className="flex items-center gap-1.5 sm:ml-auto">
+							<div className="flex items-center gap-1 sm:ml-auto">
 								<Button
 									type="button"
 									variant="ghost"
@@ -267,10 +267,9 @@ export function ChatUserMessage({
 									aria-label="Cancel edit"
 									onClick={handleCancelEdit}
 									disabled={reverting}
-									className="h-7 gap-1 px-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
 								>
-									<X className="size-3" strokeWidth={2} />
-									Cancel
+									<X className="size-3.5" strokeWidth={2} />
+									<span>Cancel</span>
 								</Button>
 								<Button
 									type="button"
@@ -281,17 +280,16 @@ export function ChatUserMessage({
 										void handleSubmitEdit();
 									}}
 									disabled={reverting || draft.trim().length === 0}
-									className="h-7 gap-1.5 px-2.5 font-mono text-[11px] uppercase tracking-wider text-primary-foreground"
 								>
 									{reverting ? (
 										<>
-											<Check className="size-3" strokeWidth={2.4} />
-											Sending
+											<Check className="size-3.5" strokeWidth={2.4} />
+											<span>Sending</span>
 										</>
 									) : (
 										<>
-											<SendHorizontal className="size-3" strokeWidth={2.4} />
-											Rewind &amp; Send
+											<SendHorizontal className="size-3.5" strokeWidth={2} />
+											<span>Rewind &amp; send</span>
 										</>
 									)}
 								</Button>

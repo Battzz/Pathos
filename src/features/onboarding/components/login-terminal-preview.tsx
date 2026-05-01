@@ -162,6 +162,10 @@ export function LoginTerminalPreview({
 			title={`${providerLabels[resolvedProvider]} login`}
 			active={active}
 			terminalRef={termRef}
+			heightClassName="h-[258px]"
+			terminalClassName="h-[218px]"
+			panelClassName="shadow-none"
+			className="!relative !top-auto !right-auto !w-full !translate-y-0"
 			onData={handleData}
 			onResize={handleResize}
 		/>

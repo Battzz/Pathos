@@ -19,7 +19,7 @@
 ## Install
 
 <p align="center">
-  <img src="src/assets/pathos-screenshot-mix.png" alt="Pathos screenshot" width="100%" />
+  <img src="src/assets/pathos-screenshot-dark.png" alt="Pathos screenshot" width="100%" />
 </p>
 
 Right now there is no release, but you can build it

@@ -107,6 +107,18 @@ function createPendingElicitation(): PendingElicitation {
 	};
 }
 
+function createCodexPendingElicitation(): PendingElicitation {
+	return {
+		...createPendingElicitation(),
+		provider: "codex",
+		modelId: "gpt-5.4",
+		resolvedModel: "gpt-5.4",
+		providerSessionId: "codex-session-1",
+		elicitationId: "codex-input-1",
+		serverName: "Codex",
+	};
+}
+
 function getLastInteractionSnapshot(
 	interactionSnapshots: Map<string, string>[],
 ) {
@@ -171,6 +183,7 @@ describe("useConversationStreaming", () => {
 		apiMocks.loadSessionThreadMessages.mockReset();
 		apiMocks.renameSession.mockReset();
 		apiMocks.respondToDeferredTool.mockReset();
+		apiMocks.respondToElicitationRequest.mockReset();
 		apiMocks.respondToPermissionRequest.mockReset();
 		apiMocks.startAgentMessageStream.mockReset();
 		apiMocks.steerAgentStream.mockReset();
@@ -1520,6 +1533,39 @@ describe("useConversationStreaming", () => {
 		);
 		expect(result.current.pendingElicitation).toBeNull();
 		expect(result.current.isSending).toBe(true);
+	});
+
+	it("responds to Codex user input without starting a second turn", async () => {
+		const { Wrapper } = createWrapper();
+		const { result } = renderHook(
+			() =>
+				useConversationStreaming({
+					composerContextKey: "session:session-1",
+					displayedSelectedModelId: MODEL.id,
+					displayedSessionId: "session-1",
+					displayedWorkspaceId: "workspace-1",
+					selectionPending: false,
+					followUpBehavior: "steer",
+					submitQueue: noopSubmitQueue,
+				}),
+			{ wrapper: Wrapper },
+		);
+
+		await act(async () => {
+			await result.current.handleElicitationResponse(
+				createCodexPendingElicitation(),
+				"accept",
+				{ confirm_path: "Yes (Recommended)" },
+			);
+		});
+
+		expect(apiMocks.respondToElicitationRequest).toHaveBeenCalledWith(
+			"codex-input-1",
+			"accept",
+			{ confirm_path: "Yes (Recommended)" },
+		);
+		expect(apiMocks.startAgentMessageStream).not.toHaveBeenCalled();
+		expect(result.current.pendingElicitation).toBeNull();
 	});
 
 	describe("follow-up queue", () => {

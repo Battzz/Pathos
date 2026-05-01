@@ -1,12 +1,12 @@
 import {
 	Check,
 	ChevronDown,
-	ChevronUp,
 	Circle,
 	CircleDot,
 	ListChecks,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { ActionRow } from "@/components/action-row";
 import type { TodoItem, TodoListPart } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -31,50 +31,59 @@ export function PinnedTodoList({ part }: PinnedTodoListProps) {
 	return (
 		<div
 			data-testid="pinned-todo-list"
-			className="pointer-events-auto relative z-0 mx-auto w-[90%] overflow-hidden rounded-t-2xl border border-b-0 border-secondary/80 bg-background"
+			className="pointer-events-auto relative z-0 mx-auto w-[90%] overflow-hidden rounded-t-2xl border border-b-0 border-border/40 bg-sidebar"
 		>
 			<button
 				type="button"
 				aria-expanded={expanded}
 				aria-label={expanded ? "Collapse tasks" : "Expand tasks"}
 				onClick={() => setExpanded((v) => !v)}
-				className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left hover:bg-accent/30"
+				className="block w-full cursor-pointer text-left transition-colors hover:bg-accent/30"
 			>
-				<ListChecks
-					className={cn(
-						"size-3.5 shrink-0",
-						allDone ? "text-chart-2" : "text-muted-foreground/80",
-					)}
-					strokeWidth={1.8}
-					aria-hidden
+				<ActionRow
+					className="border-0 bg-transparent px-3 py-1.5"
+					leading={
+						<>
+							{allDone ? (
+								<Check
+									className="size-3.5 shrink-0 text-chart-2"
+									strokeWidth={2}
+									aria-hidden
+								/>
+							) : (
+								<ListChecks
+									className="size-3.5 shrink-0 text-muted-foreground/70"
+									strokeWidth={1.8}
+									aria-hidden
+								/>
+							)}
+							<span className="text-[12px] font-medium tracking-[0.01em] text-foreground tabular-nums">
+								Tasks {completed}/{total}
+							</span>
+							{!expanded && inProgress ? (
+								<span className="min-w-0 truncate text-[12px] font-medium tracking-[0.01em] text-muted-foreground/80">
+									· {inProgress.text}
+								</span>
+							) : null}
+						</>
+					}
+					trailing={
+						<>
+							<ProgressBar completed={completed} total={total} />
+							<ChevronDown
+								className={cn(
+									"size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-out",
+									expanded && "rotate-180",
+								)}
+								strokeWidth={1.8}
+								aria-hidden
+							/>
+						</>
+					}
 				/>
-				<span className="text-[12px] font-medium tracking-[0.01em] text-foreground">
-					Tasks {completed}/{total}
-				</span>
-				{!expanded && inProgress ? (
-					<span className="min-w-0 truncate text-[12px] text-muted-foreground">
-						· {inProgress.text}
-					</span>
-				) : null}
-				<div className="ml-auto flex items-center gap-2">
-					<ProgressBar completed={completed} total={total} />
-					{expanded ? (
-						<ChevronUp
-							className="size-3.5 text-muted-foreground"
-							strokeWidth={1.8}
-							aria-hidden
-						/>
-					) : (
-						<ChevronDown
-							className="size-3.5 text-muted-foreground"
-							strokeWidth={1.8}
-							aria-hidden
-						/>
-					)}
-				</div>
 			</button>
 			{expanded ? (
-				<ul className="flex flex-col gap-0.5 border-t border-secondary/60 px-3 py-2 text-[13px] leading-6">
+				<ul className="flex flex-col border-t border-t-border/30 py-1">
 					{part.items.map((item, index) => (
 						<TodoRow key={index} item={item} />
 					))}
@@ -117,15 +126,28 @@ function TodoRow({ item }: { item: TodoItem }) {
 			? "text-chart-2"
 			: item.status === "in_progress"
 				? "text-chart-2"
-				: "text-muted-foreground/60";
+				: "text-muted-foreground/50";
 	const textClass =
 		item.status === "completed"
-			? "text-muted-foreground line-through"
-			: "text-foreground";
+			? "text-muted-foreground/70 line-through decoration-muted-foreground/30"
+			: item.status === "in_progress"
+				? "text-foreground"
+				: "text-muted-foreground";
 	return (
-		<li className="flex items-center gap-1.5">
-			<Icon className={cn("size-3 shrink-0", iconClass)} strokeWidth={1.8} />
-			<span className={textClass}>{item.text}</span>
+		<li className="flex items-center gap-2 px-3 py-1">
+			<Icon
+				className={cn("size-3 shrink-0", iconClass)}
+				strokeWidth={2}
+				aria-hidden
+			/>
+			<span
+				className={cn(
+					"truncate text-[12px] font-medium tracking-[0.01em]",
+					textClass,
+				)}
+			>
+				{item.text}
+			</span>
 		</li>
 	);
 }

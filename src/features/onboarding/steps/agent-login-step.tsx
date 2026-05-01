@@ -60,19 +60,10 @@ export function AgentLoginStep({
 		<StepShell
 			active={step === "agents"}
 			ariaLabel="Log in to your agents"
-			chapter={{ number: "II", name: "Agents" }}
-			folio="Folio 2 of 5"
-			title={
-				<>
-					Log in to your <em className="not-italic">agents</em>.
-				</>
-			}
-			subtitle={
-				<>
-					Pathos uses your local Claude Code and Codex login sessions. You can
-					log in now, or continue and log in later.
-				</>
-			}
+			metaLabel="Pathos · Agents"
+			step={2}
+			title="Log in to your agents"
+			subtitle="Pathos uses your local Claude Code and Codex sessions. Sign in now or skip and connect them later."
 			footer={
 				<>
 					<StepBackButton onClick={onBack} />
@@ -80,53 +71,55 @@ export function AgentLoginStep({
 				</>
 			}
 		>
-			<div className="relative flex w-full gap-8">
-				<div
-					className={cn(
-						"flex-1 transition-[max-width] duration-700 ease-[cubic-bezier(.22,.82,.2,1)]",
-						terminalActive ? "max-w-[480px]" : "max-w-none",
-					)}
-				>
-					<div className="flex flex-col">
-						{loginItems.map(
-							({ icon: Icon, provider, label, description, status }) => (
-								<div
-									key={label}
-									className="group/setup grid grid-cols-[auto_1fr_auto] items-center gap-6 border-t border-border/30 py-5 first:border-t-0"
-								>
-									<div className="flex size-11 shrink-0 items-center justify-center rounded-full border border-border/45 bg-foreground/[0.015] text-foreground/85 transition-colors group-hover/setup:border-foreground/30">
-										<Icon className="size-5" />
-									</div>
-									<div className="min-w-0 flex-1">
-										<div className="font-display text-[22px] leading-none text-foreground/95">
-											{label}
-										</div>
-										<p className="mt-2 max-w-[480px] text-[13.5px] leading-[1.55] text-muted-foreground/85">
-											{description}
-										</p>
-									</div>
-									<div className="flex shrink-0 items-center">
-										<AgentStatusAction
-											provider={provider}
-											status={status}
-											waiting={waitingProvider === provider}
-											onPrimeLogin={setPrimedLoginProvider}
-											onStartLogin={startLogin}
-										/>
-									</div>
+			<div className="overflow-hidden rounded-xl border border-border/60 bg-card/40 backdrop-blur-sm">
+				{loginItems.map(
+					({ icon: Icon, provider, label, description, status }) => (
+						<div
+							key={label}
+							role="group"
+							aria-label={label}
+							className="flex items-start gap-3.5 border-t border-border/50 px-4 py-3.5 first:border-t-0"
+						>
+							<div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-foreground/[0.02] text-foreground/85">
+								<Icon className="size-4" />
+							</div>
+							<div className="min-w-0 flex-1 pt-px">
+								<div className="text-[14px] font-medium leading-tight text-foreground">
+									{label}
 								</div>
-							),
-						)}
-					</div>
-				</div>
+								<p className="mt-1 text-[12.5px] leading-[1.55] text-muted-foreground">
+									{description}
+								</p>
+							</div>
+							<div className="flex shrink-0 items-center pt-0.5">
+								<AgentStatusAction
+									provider={provider}
+									status={status}
+									waiting={waitingProvider === provider}
+									onPrimeLogin={setPrimedLoginProvider}
+									onStartLogin={startLogin}
+								/>
+							</div>
+						</div>
+					),
+				)}
+			</div>
 
-				<LoginTerminalPreview
-					provider={terminalProvider}
-					instanceId={loginInstanceId}
-					active={terminalActive}
-					onExit={handleTerminalExit}
-					onError={handleTerminalError}
-				/>
+			<div
+				className={cn(
+					"overflow-hidden transition-all duration-700 ease-[cubic-bezier(.22,.82,.2,1)]",
+					terminalActive ? "h-[282px]" : "h-0",
+				)}
+			>
+				<div className="relative h-[270px] pt-3">
+					<LoginTerminalPreview
+						provider={terminalProvider}
+						instanceId={loginInstanceId}
+						active={terminalActive}
+						onExit={handleTerminalExit}
+						onError={handleTerminalError}
+					/>
+				</div>
 			</div>
 		</StepShell>
 	);

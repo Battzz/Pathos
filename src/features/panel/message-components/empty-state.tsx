@@ -1,4 +1,4 @@
-import { Asterisk, FolderPlus } from "lucide-react";
+import { ArrowRight, Asterisk, FolderPlus } from "lucide-react";
 import { AnimatedIdentityNet } from "@/components/animated-identity-net";
 import { ClaudeIcon, OpenAIIcon } from "@/components/icons";
 import { PathosLogoAnimated } from "@/components/pathos-logo-animated";
@@ -22,24 +22,29 @@ function pickTagline(label: string): string {
 	return TAGLINES[Math.abs(hash) % TAGLINES.length] ?? TAGLINES[0]!;
 }
 
-function Atmosphere({ variant = "dots" }: { variant?: "dots" | "net" }) {
-	if (variant === "net") {
-		return (
-			<div
-				aria-hidden
-				className="pointer-events-none absolute inset-[-45vh_-38vw] -z-10 overflow-hidden opacity-60"
-			>
-				<AnimatedIdentityNet />
-			</div>
-		);
-	}
+function NetAtmosphere({ variant = 0 }: { variant?: number }) {
+	return (
+		<div
+			aria-hidden
+			className="pointer-events-none absolute inset-[-22vh_-22vw] -z-10 overflow-hidden"
+			style={{
+				maskImage:
+					"radial-gradient(ellipse 78% 70% at 50% 50%, black 18%, transparent 92%)",
+				WebkitMaskImage:
+					"radial-gradient(ellipse 78% 70% at 50% 50%, black 18%, transparent 92%)",
+			}}
+		>
+			<AnimatedIdentityNet variant={variant} />
+		</div>
+	);
+}
 
+function DotsAtmosphere() {
 	return (
 		<div
 			aria-hidden
 			className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
 		>
-			{/* Soft radial glow centered on the logo */}
 			<div
 				className="absolute left-1/2 top-1/2 h-[520px] w-[520px] -translate-x-1/2 -translate-y-[58%] rounded-full opacity-[0.55] dark:opacity-40"
 				style={{
@@ -47,7 +52,6 @@ function Atmosphere({ variant = "dots" }: { variant?: "dots" | "net" }) {
 						"radial-gradient(closest-side, color-mix(in oklch, var(--foreground) 6%, transparent), transparent 75%)",
 				}}
 			/>
-			{/* Fine dot grid, fading at the edges */}
 			<div
 				className="absolute inset-0 opacity-[0.5] dark:opacity-[0.35]"
 				style={{
@@ -77,9 +81,9 @@ function PrimaryAction({
 		<button
 			type="button"
 			onClick={onClick}
-			className="group/empty-action relative inline-flex h-9 cursor-pointer items-center gap-2 rounded-full border border-foreground/12 bg-foreground px-5 text-[12.5px] font-medium tracking-[-0.005em] text-background shadow-[0_8px_28px_-12px_rgba(0,0,0,0.45)] transition-[transform,background-color] duration-200 ease-out hover:-translate-y-px hover:bg-foreground/92 active:translate-y-0"
+			className="group/empty-action inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-border bg-background/80 px-3.5 text-[13px] font-medium text-foreground backdrop-blur-sm transition-colors duration-200 ease-out hover:bg-muted"
 		>
-			<Icon className="size-3.5 text-background/80" strokeWidth={1.75} />
+			<Icon className="size-3.5" strokeWidth={1.75} />
 			<span>{label}</span>
 		</button>
 	);
@@ -96,149 +100,66 @@ function GhostAction({
 		<button
 			type="button"
 			onClick={onClick}
-			className="group/empty-ghost inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium tracking-[-0.005em] text-muted-foreground/85 transition-colors duration-200 ease-out hover:text-foreground"
+			className="group/empty-ghost inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[13px] font-medium text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground"
 		>
 			<span>{label}</span>
-			<span
-				aria-hidden
-				className="inline-block translate-x-0 transition-transform duration-200 ease-out group-hover/empty-ghost:translate-x-0.5"
-			>
-				→
-			</span>
+			<ArrowRight
+				className="size-3.5 transition-transform duration-300 ease-out group-hover/empty-ghost:translate-x-0.5"
+				strokeWidth={1.75}
+			/>
 		</button>
 	);
 }
 
-function ProjectPickerEmpty({
+function HeroEmpty({
+	title,
+	description,
+	netVariant,
 	onCloneProject,
 	onOpenProject,
 }: {
+	title: string;
+	description: string;
+	netVariant: number;
 	onCloneProject?: () => void;
 	onOpenProject?: () => void;
 }) {
 	return (
-		<div className="relative flex w-full max-w-[620px] flex-col items-center px-6 text-center">
-			<Atmosphere variant="net" />
+		<div className="relative flex w-full max-w-[640px] flex-col items-center px-6 text-center">
+			<NetAtmosphere variant={netVariant} />
 
-			<div className="flex flex-col items-center gap-7">
-				<div
-					className="flex flex-col items-center gap-3 opacity-0"
+			<div className="flex flex-col items-center">
+				<h1
+					aria-label={title}
+					className="font-display font-normal leading-[0.96] tracking-[-0.025em] text-foreground/95 opacity-0"
+					style={{
+						animation: "empty-rise 880ms ease-out forwards",
+						animationDelay: "60ms",
+					}}
+				>
+					<span className="block text-[clamp(40px,5.5vw,60px)]">
+						{title}
+						<span aria-hidden style={{ color: "var(--editorial-accent)" }}>
+							.
+						</span>
+					</span>
+				</h1>
+
+				<p
+					className="mt-5 max-w-[440px] text-balance text-[14px] leading-[1.6] text-muted-foreground opacity-0"
 					style={{
 						animation: "empty-rise 760ms ease-out forwards",
-						animationDelay: "0ms",
+						animationDelay: "200ms",
 					}}
 				>
-					<div className="font-mono text-[10px] font-medium uppercase tracking-[0.26em] text-muted-foreground/55">
-						Nothing selected
-					</div>
-					<h1 className="max-w-[560px] text-balance text-[42px] font-medium leading-[1.02] tracking-[-0.035em] text-foreground/92">
-						Choose a workspace
-					</h1>
-					<p className="max-w-[420px] text-balance text-[13px] leading-6 text-muted-foreground/75">
-						Select a project or thread from the sidebar, or open another
-						repository to start a new workspace.
-					</p>
-				</div>
+					{description}
+				</p>
 
 				<div
-					className="flex items-center gap-1 opacity-0"
+					className="mt-8 flex items-center gap-1 opacity-0"
 					style={{
 						animation: "empty-rise 720ms ease-out forwards",
-						animationDelay: "140ms",
-					}}
-				>
-					<PrimaryAction
-						icon={FolderPlus}
-						label="Open project"
-						onClick={onOpenProject}
-					/>
-					<GhostAction label="Clone from URL" onClick={onCloneProject} />
-				</div>
-			</div>
-
-			<style>{`
-				@keyframes empty-rise {
-					0% { opacity: 0; transform: translateY(8px); filter: blur(2px); }
-					60% { filter: blur(0); }
-					100% { opacity: 1; transform: translateY(0); filter: blur(0); }
-				}
-			`}</style>
-		</div>
-	);
-}
-
-function WorkspaceSessionEmpty({
-	workspaceLabel,
-	sessionCount,
-	onCloneProject,
-	onOpenProject,
-}: {
-	workspaceLabel: string;
-	sessionCount: number;
-	onCloneProject?: () => void;
-	onOpenProject?: () => void;
-}) {
-	const eyebrow = sessionCount > 0 ? "No session selected" : "No sessions yet";
-	const body =
-		sessionCount > 0
-			? "Choose an existing thread from the sidebar, or start a fresh one when you are ready."
-			: "Start a thread to work inside this project, or bring in another repository for something new.";
-
-	return (
-		<div className="relative flex w-full max-w-[620px] flex-col items-center px-6 text-center">
-			<Atmosphere variant="net" />
-
-			<div className="flex flex-col items-center gap-7">
-				<div
-					className="flex flex-col items-center gap-3 opacity-0"
-					style={{
-						animation: "empty-rise 760ms ease-out forwards",
-						animationDelay: "0ms",
-					}}
-				>
-					<div className="font-mono text-[10px] font-medium uppercase tracking-[0.26em] text-muted-foreground/55">
-						{eyebrow}
-					</div>
-					<h1 className="max-w-[560px] text-balance text-[42px] font-medium leading-[1.02] tracking-[-0.035em] text-foreground/92">
-						{workspaceLabel}
-					</h1>
-					<p className="max-w-[420px] text-balance text-[13px] leading-6 text-muted-foreground/75">
-						{body}
-					</p>
-				</div>
-
-				<div
-					className="grid w-full max-w-[420px] grid-cols-3 gap-2 opacity-0"
-					style={{
-						animation: "empty-rise 720ms ease-out forwards",
-						animationDelay: "140ms",
-					}}
-				>
-					<div className="rounded-md border border-foreground/8 bg-foreground/[0.025] px-3 py-2.5 text-left">
-						<div className="text-[11px] text-muted-foreground/65">Project</div>
-						<div className="mt-1 truncate text-[12.5px] font-medium text-foreground/82">
-							{workspaceLabel}
-						</div>
-					</div>
-					<div className="rounded-md border border-foreground/8 bg-foreground/[0.025] px-3 py-2.5 text-left">
-						<div className="text-[11px] text-muted-foreground/65">Sessions</div>
-						<div className="mt-1 text-[12.5px] font-medium text-foreground/82">
-							{sessionCount}
-						</div>
-					</div>
-					<div className="rounded-md border border-foreground/8 bg-foreground/[0.025] px-3 py-2.5 text-left">
-						<div className="text-[11px] text-muted-foreground/65">Status</div>
-						<div className="mt-1 text-[12.5px] font-medium text-foreground/82">
-							Ready
-						</div>
-					</div>
-				</div>
-
-				<div
-					className="flex items-center gap-1 opacity-0"
-					style={{
-						animation: "empty-rise 720ms ease-out forwards",
-						animationDelay: "240ms",
+						animationDelay: "340ms",
 					}}
 				>
 					<PrimaryAction
@@ -292,10 +213,16 @@ export function EmptyState({
 
 	if (!hasSession) {
 		if (workspaceLabel) {
+			const description =
+				sessionCount > 0
+					? "Choose an existing thread from the sidebar, or start a fresh one when you are ready."
+					: "Start a thread to work inside this project, or bring in another repository for something new.";
+
 			return (
-				<WorkspaceSessionEmpty
-					workspaceLabel={workspaceLabel}
-					sessionCount={sessionCount}
+				<HeroEmpty
+					title={workspaceLabel}
+					description={description}
+					netVariant={2}
 					onCloneProject={onCloneProject}
 					onOpenProject={onOpenProject}
 				/>
@@ -303,7 +230,10 @@ export function EmptyState({
 		}
 
 		return (
-			<ProjectPickerEmpty
+			<HeroEmpty
+				title="Choose a workspace"
+				description="Select a project or thread from the sidebar, or open another repository to start a new workspace."
+				netVariant={0}
 				onCloneProject={onCloneProject}
 				onOpenProject={onOpenProject}
 			/>
@@ -323,7 +253,7 @@ export function EmptyState({
 
 	return (
 		<div className="relative flex w-full max-w-[520px] flex-col items-center px-6 text-center">
-			<Atmosphere />
+			<DotsAtmosphere />
 
 			<div className="flex flex-col items-center gap-6">
 				<div

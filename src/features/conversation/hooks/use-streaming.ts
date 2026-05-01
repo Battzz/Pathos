@@ -9,7 +9,6 @@ import {
 } from "react";
 import {
 	buildPendingDeferredTool,
-	getDeferredToolResumeModelId,
 	type PendingDeferredTool,
 } from "@/features/conversation/pending-deferred-tool";
 import {
@@ -902,6 +901,12 @@ export function useConversationStreaming({
 					content,
 				);
 				clearPendingElicitation(contextKey);
+
+				if (elicitation.provider === "codex") {
+					rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
+					return;
+				}
+
 				rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
 				if (displayedWorkspaceId) {
 					sendingWorkspaceMapRef.current.set(contextKey, displayedWorkspaceId);
@@ -1174,27 +1179,14 @@ export function useConversationStreaming({
 			},
 		) => {
 			if (!displayedSessionId) return;
-			const fallbackModelId =
-				selectedProvider === deferred.provider
-					? displayedSelectedModelId
-					: null;
-			const resumeModelId = getDeferredToolResumeModelId(
-				deferred,
-				fallbackModelId,
-			);
-			if (!resumeModelId) {
-				setSendErrorsByContext((current) => ({
-					...current,
-					[composerContextKey]:
-						"Unable to resume deferred tool: missing modelId.",
-				}));
-				return;
-			}
 			const contextKey = composerContextKey;
-			const cacheSessionId = displayedSessionId;
-			const resumeBaseSnapshot =
-				readSessionThread(queryClient, cacheSessionId) ?? [];
 
+			// The sidecar's `canUseTool` is parked on a Promise for this
+			// `toolUseId`; resolving it via `respondToDeferredTool` lets the
+			// SAME Claude `query()` continue the turn in place. No resume
+			// stream, no synthetic tool_result — the original stream
+			// listener (set up in handleComposerSubmit) keeps receiving
+			// assistant deltas / terminal result events naturally.
 			setPendingDeferredByContext((current) => ({
 				...current,
 				[contextKey]: null,
@@ -1206,242 +1198,17 @@ export function useConversationStreaming({
 				[contextKey]: null,
 			}));
 			rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
-			if (displayedWorkspaceId) {
-				sendingWorkspaceMapRef.current.set(contextKey, displayedWorkspaceId);
-			}
-			setSendingContextKeys((current) => {
-				const next = new Set(current);
-				next.add(contextKey);
-				return next;
-			});
 
 			try {
 				await respondToDeferredTool(deferred.toolUseId, behavior, {
 					reason: options?.reason,
 					updatedInput: options?.updatedInput,
 				});
-
-				const stopSessionId = displayedSessionId;
-				setActiveSessionByContext((current) => ({
-					...current,
-					[contextKey]: {
-						stopSessionId,
-						provider: deferred.provider,
-					},
-				}));
-
-				let frameId: number | null = null;
-				let baseMessages: ThreadMessageLike[] = [];
-				let pendingPartial: ThreadMessageLike | null = null;
-				let needsFlush = false;
-
-				const changesRefreshInterval = window.setInterval(() => {
-					void queryClient.invalidateQueries({
-						queryKey: ["workspaceChanges"],
-					});
-				}, 3_000);
-
-				const flushStreamMessages = () => {
-					frameId = null;
-					if (!needsFlush) return;
-					needsFlush = false;
-
-					const rendered = pendingPartial
-						? stabilizeStreamingMessages([...baseMessages, pendingPartial])
-						: baseMessages;
-					const nextMessages = [...resumeBaseSnapshot, ...rendered];
-					queryClient.setQueryData<ThreadMessageLike[]>(
-						sessionThreadCacheKey(cacheSessionId),
-						(prev) => shareMessages(prev ?? [], nextMessages),
-					);
-				};
-
-				const scheduleFlush = () => {
-					needsFlush = true;
-					if (frameId !== null) return;
-					frameId = window.requestAnimationFrame(() => flushStreamMessages());
-				};
-
-				const cleanup = () => {
-					window.clearInterval(changesRefreshInterval);
-					if (frameId !== null) {
-						window.cancelAnimationFrame(frameId);
-						frameId = null;
-					}
-				};
-
-				await startAgentMessageStream(
-					{
-						provider: deferred.provider,
-						modelId: resumeModelId,
-						prompt: "",
-						resumeOnly: true,
-						sessionId: deferred.providerSessionId,
-						pathosSessionId: displayedSessionId,
-						workingDirectory: deferred.workingDirectory,
-						permissionMode: deferred.permissionMode,
-					},
-					(event) => {
-						if (event.kind === "update") {
-							baseMessages = event.messages;
-							pendingPartial = null;
-							scheduleFlush();
-							return;
-						}
-
-						if (event.kind === "streamingPartial") {
-							pendingPartial = event.message;
-							scheduleFlush();
-							return;
-						}
-
-						if (event.kind === "permissionRequest") {
-							rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
-							appendPendingPermission(contextKey, {
-								permissionId: event.permissionId,
-								toolName: event.toolName,
-								toolInput: event.toolInput,
-								title: event.title,
-								description: event.description,
-							});
-							return;
-						}
-
-						if (event.kind === "planCaptured") {
-							rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
-							setPlanReviewActive(contextKey);
-							return;
-						}
-
-						if (event.kind === "elicitationRequest") {
-							rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
-							const nextElicitation = buildPendingElicitation(
-								event,
-								deferred.modelId,
-							);
-							if (!nextElicitation) {
-								setSendErrorsByContext((current) => ({
-									...current,
-									[contextKey]:
-										"Unable to continue elicitation: missing elicitationId or modelId.",
-								}));
-								return;
-							}
-							applyElicitationEvent(contextKey, nextElicitation);
-							return;
-						}
-
-						if (event.kind === "deferredToolUse") {
-							rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
-							const nextDeferred = buildPendingDeferredTool(
-								event,
-								deferred.modelId,
-							);
-							if (frameId !== null) {
-								window.cancelAnimationFrame(frameId);
-								frameId = null;
-							}
-							flushStreamMessages();
-							cleanup();
-							refreshSessionThreadFromDb(cacheSessionId);
-							if (!nextDeferred) {
-								setPendingDeferredByContext((current) => ({
-									...current,
-									[contextKey]: deferred,
-								}));
-								setSendErrorsByContext((current) => ({
-									...current,
-									[contextKey]:
-										"Unable to continue deferred tool: missing modelId.",
-								}));
-								clearSendingState(contextKey);
-								return;
-							}
-							applyDeferredToolEvent(contextKey, nextDeferred);
-							return;
-						}
-
-						if (event.kind === "done" || event.kind === "aborted") {
-							if (frameId !== null) {
-								window.cancelAnimationFrame(frameId);
-								frameId = null;
-							}
-							flushStreamMessages();
-							cleanup();
-							clearPendingPermissions(contextKey);
-							clearPendingElicitation(contextKey);
-							clearFastPrelude(contextKey);
-
-							if (event.kind === "done") {
-								const sid = event.sessionId ?? displayedSessionId;
-								if (sid && displayedWorkspaceId) {
-									onSessionCompletedRef.current?.(sid, displayedWorkspaceId);
-								}
-							} else if (event.kind === "aborted") {
-								const sid = event.sessionId ?? displayedSessionId;
-								if (sid && displayedWorkspaceId) {
-									onSessionAbortedRef.current?.(sid, displayedWorkspaceId);
-								}
-							}
-
-							void queryClient.invalidateQueries({
-								queryKey: ["workspaceChanges"],
-							});
-
-							setLiveSessionsByContext((current) => ({
-								...current,
-								[contextKey]: {
-									provider: event.provider,
-									providerSessionId:
-										event.sessionId ??
-										current[contextKey]?.providerSessionId ??
-										null,
-								},
-							}));
-							clearSendingState(contextKey);
-
-							if (event.persisted) {
-								void invalidateConversationQueries(displayedWorkspaceId, null);
-							}
-							return;
-						}
-
-						if (event.kind === "error") {
-							cleanup();
-							clearPendingPermissions(contextKey);
-							clearPendingElicitation(contextKey);
-							setPendingDeferredByContext((current) => ({
-								...current,
-								[contextKey]: deferred,
-							}));
-							if (event.internal) {
-								pushToast(
-									"Something went wrong. Please try again.",
-									"Error",
-									"destructive",
-								);
-							}
-							setSendErrorsByContext((current) => ({
-								...current,
-								[contextKey]:
-									event.internal || event.persisted ? null : event.message,
-							}));
-							clearSendingState(contextKey);
-
-							if (event.persisted) {
-								void invalidateConversationQueries(
-									displayedWorkspaceId,
-									displayedSessionId,
-								);
-							}
-						}
-					},
-				);
 			} catch (error) {
 				console.error("[conversation] deferred tool response:", error);
 				const { code, message: errorMsg } = extractError(
 					error,
-					"Failed to resume agent stream.",
+					"Failed to deliver answer to agent.",
 				);
 				if (isRecoverableByPurge(code) && displayedWorkspaceId) {
 					showWorkspaceBrokenToast({
@@ -1458,25 +1225,17 @@ export function useConversationStreaming({
 					...current,
 					[contextKey]: errorMsg,
 				}));
-				clearSendingState(contextKey);
 			}
 		},
 		[
-			applyDeferredToolEvent,
-			applyElicitationEvent,
-			appendPendingPermission,
-			clearSendingState,
 			clearPendingElicitation,
 			clearPendingPermissions,
 			composerContextKey,
-			displayedSelectedModelId,
 			displayedSessionId,
 			displayedWorkspaceId,
-			invalidateConversationQueries,
 			pushToast,
 			queryClient,
 			rememberInteractionWorkspace,
-			selectedProvider,
 		],
 	);
 

@@ -47,6 +47,7 @@ export type AppSettings = {
 	 *  `CONTEXT_USAGE_AUTO_REVEAL_THRESHOLD`. */
 	alwaysShowContextUsage: boolean;
 	showUsageStats: boolean;
+	usageStatsProvider: "claude" | "codex";
 	confirmDestructiveSidebarActions: boolean;
 	onboardingCompleted: boolean;
 	shortcuts: ShortcutOverrides;
@@ -77,6 +78,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	followUpBehavior: "steer",
 	alwaysShowContextUsage: true,
 	showUsageStats: true,
+	usageStatsProvider: "claude",
 	confirmDestructiveSidebarActions: true,
 	onboardingCompleted: false,
 	shortcuts: {},
@@ -107,6 +109,7 @@ const SETTINGS_KEY_MAP: Record<Exclude<keyof AppSettings, "theme">, string> = {
 	followUpBehavior: "app.follow_up_behavior",
 	alwaysShowContextUsage: "app.always_show_context_usage",
 	showUsageStats: "app.show_usage_stats",
+	usageStatsProvider: "app.usage_stats_provider",
 	confirmDestructiveSidebarActions: "app.confirm_destructive_sidebar_actions",
 	onboardingCompleted: "app.onboarding_completed",
 	shortcuts: "app.shortcuts",
@@ -234,6 +237,10 @@ export async function loadSettings(): Promise<AppSettings> {
 				raw[SETTINGS_KEY_MAP.showUsageStats] !== undefined
 					? raw[SETTINGS_KEY_MAP.showUsageStats] === "true"
 					: DEFAULT_SETTINGS.showUsageStats,
+			usageStatsProvider:
+				raw[SETTINGS_KEY_MAP.usageStatsProvider] === "codex"
+					? "codex"
+					: DEFAULT_SETTINGS.usageStatsProvider,
 			confirmDestructiveSidebarActions:
 				raw[SETTINGS_KEY_MAP.confirmDestructiveSidebarActions] !== undefined
 					? raw[SETTINGS_KEY_MAP.confirmDestructiveSidebarActions] === "true"

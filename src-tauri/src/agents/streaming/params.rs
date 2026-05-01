@@ -22,6 +22,11 @@ pub struct BuildSendMessageParamsInput<'a> {
     pub pathos_session_id: Option<&'a str>,
     pub claude_base_url: Option<&'a str>,
     pub claude_auth_token: Option<&'a str>,
+    /// Set on resume-only streams that deliver an answer to a paused
+    /// deferred tool. The sidecar pushes a synthetic `tool_result` for
+    /// this tool_use_id so the model sees the answer instead of starting
+    /// a fresh turn.
+    pub deferred_tool_use_id: Option<&'a str>,
 }
 
 /// Build the `sendMessage` request params that the sidecar receives.
@@ -61,6 +66,11 @@ pub fn build_send_message_params(input: BuildSendMessageParamsInput<'_>) -> Valu
                     "ANTHROPIC_AUTH_TOKEN": auth_token,
                 }),
             );
+        }
+    }
+    if let Some(id) = input.deferred_tool_use_id {
+        if let Some(obj) = params.as_object_mut() {
+            obj.insert("deferredToolUseId".to_string(), Value::from(id));
         }
     }
     params

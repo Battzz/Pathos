@@ -2297,6 +2297,9 @@ function AppShell({
 														<WorkspacesSidebarContainer
 															selectedWorkspaceId={selectedWorkspaceId}
 															selectedSessionId={selectedSessionId}
+															interactionRequiredSessionIds={
+																interactionRequiredSessionIds
+															}
 															addRepositoryShortcut={addRepositoryShortcut}
 															newChatShortcut={newChatShortcut}
 															deleteChatShortcut={deleteChatShortcut}

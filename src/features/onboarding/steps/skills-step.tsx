@@ -89,19 +89,10 @@ export function SkillsStep({
 		<StepShell
 			active={step === "skills"}
 			ariaLabel="Power up Pathos"
-			chapter={{ number: "IV", name: "Instruments" }}
-			folio="Folio 4 of 5"
-			title={
-				<>
-					Power up <em className="not-italic">Pathos</em>.
-				</>
-			}
-			subtitle={
-				<>
-					Install the CLI and skills so Pathos can split work, run agents, call
-					tools, and carry context across your workspaces.
-				</>
-			}
+			metaLabel="Pathos · Instruments"
+			step={4}
+			title="Power up Pathos"
+			subtitle="Install the CLI and skills so Pathos can split work, run agents, call tools, and carry context across your workspaces."
 			footer={
 				<>
 					<StepBackButton onClick={onBack} />
@@ -109,9 +100,9 @@ export function SkillsStep({
 				</>
 			}
 		>
-			<div className="flex flex-col">
+			<div className="overflow-hidden rounded-xl border border-border/60 bg-card/40 backdrop-blur-sm">
 				<SetupItem
-					icon={<Terminal className="size-5" strokeWidth={1.6} />}
+					icon={<Terminal className="size-4" strokeWidth={1.7} />}
 					label="Pathos CLI"
 					description="Control Pathos from your terminal: create workspaces, send prompts, inspect files, and script repeatable flows."
 					actionLabel={isInstallingCli ? "Installing" : "Set up"}
@@ -121,7 +112,7 @@ export function SkillsStep({
 					error={cliInstallFailed ? SETUP_FAILED_MESSAGE : null}
 				/>
 				<SetupItem
-					icon={<PackageCheck className="size-5" strokeWidth={1.6} />}
+					icon={<PackageCheck className="size-4" strokeWidth={1.7} />}
 					label="Pathos Skills (Beta)"
 					description="Install skills so Pathos can help with more workflows across every workspace."
 					actionLabel={isInstallingSkills ? "Installing" : "Set up"}

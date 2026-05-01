@@ -101,6 +101,7 @@ fn base_input<'a>(session_id: Option<&'a str>) -> BuildSendMessageParamsInput<'a
         pathos_session_id: session_id,
         claude_base_url: None,
         claude_auth_token: None,
+        deferred_tool_use_id: None,
     }
 }
 

@@ -15,11 +15,13 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { UsageStatsIndicator } from "@/features/composer/usage-stats-indicator";
 import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type { RepositoryFolder, RepositoryFolderChat } from "@/lib/api";
 import { useSettings } from "@/lib/settings";
@@ -76,6 +78,7 @@ export type WorkspacesSidebarProps = {
 	folders: RepositoryFolder[];
 	selectedWorkspaceId: string | null;
 	selectedSessionId: string | null;
+	interactionRequiredSessionIds?: Set<string>;
 	addRepositoryShortcut?: string | null;
 	newChatShortcut?: string | null;
 	deleteChatShortcut?: string | null;
@@ -109,6 +112,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	folders,
 	selectedWorkspaceId,
 	selectedSessionId,
+	interactionRequiredSessionIds,
 	addRepositoryShortcut,
 	newChatShortcut = "Mod+T",
 	deleteChatShortcut = "Mod+W",
@@ -360,6 +364,11 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 																selectedWorkspaceId === chat.workspaceId &&
 																selectedSessionId === chat.sessionId
 															}
+															isInteractionRequired={
+																interactionRequiredSessionIds?.has(
+																	chat.sessionId,
+																) ?? false
+															}
 															shortcutLabel={(() => {
 																const shortcutIndex =
 																	shortcutIndexBySessionId.get(chat.sessionId);
@@ -402,6 +411,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			</div>
 			<div className="flex shrink-0 items-center justify-between px-3 pb-3 pt-1">
 				<div className="flex items-center gap-[2px]">
+					{footerControls}
+					<Separator orientation="vertical" className="mx-1 h-4 self-center!" />
 					<DropdownMenu open={isAddMenuOpen} onOpenChange={setIsAddMenuOpen}>
 						<Tooltip>
 							<TooltipTrigger asChild>
@@ -442,17 +453,25 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 								) : null}
 							</TooltipContent>
 						</Tooltip>
-						<DropdownMenuContent align="start" className="min-w-44">
+						<DropdownMenuContent
+							align="start"
+							sideOffset={6}
+							className="min-w-44"
+						>
 							<DropdownMenuItem
 								disabled={addBusy}
 								onSelect={() => {
 									onAddRepository();
 								}}
+								className="cursor-pointer gap-1.5 px-2 py-1 text-[13px] leading-5"
 							>
 								{addBusy ? (
-									<LoaderCircle className="animate-spin" strokeWidth={2.1} />
+									<LoaderCircle
+										className="size-3.5 animate-spin"
+										strokeWidth={2.1}
+									/>
 								) : (
-									<FolderPlus strokeWidth={2} />
+									<FolderPlus className="size-3.5" strokeWidth={2} />
 								)}
 								<span>
 									{importingRepository ? "Adding project..." : "Open project"}
@@ -463,13 +482,14 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 								onSelect={() => {
 									onOpenCloneDialog();
 								}}
+								className="cursor-pointer gap-1.5 px-2 py-1 text-[13px] leading-5"
 							>
-								<Globe strokeWidth={2} />
+								<Globe className="size-3.5" strokeWidth={2} />
 								<span>Clone from URL</span>
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
-					{footerControls}
+					<UsageStatsIndicator />
 				</div>
 				{accountControl}
 			</div>

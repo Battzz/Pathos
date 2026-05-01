@@ -11,6 +11,7 @@ type WorkspaceToastVariant = "default" | "destructive";
 type WorkspacesSidebarContainerProps = {
 	selectedWorkspaceId: string | null;
 	selectedSessionId: string | null;
+	interactionRequiredSessionIds?: Set<string>;
 	addRepositoryShortcut?: string | null;
 	newChatShortcut?: string | null;
 	deleteChatShortcut?: string | null;
@@ -29,6 +30,7 @@ export const WorkspacesSidebarContainer = memo(
 	function WorkspacesSidebarContainer({
 		selectedWorkspaceId,
 		selectedSessionId,
+		interactionRequiredSessionIds,
 		addRepositoryShortcut,
 		newChatShortcut,
 		deleteChatShortcut,
@@ -87,6 +89,7 @@ export const WorkspacesSidebarContainer = memo(
 				folders={folders}
 				selectedWorkspaceId={selectedWorkspaceId}
 				selectedSessionId={selectedSessionId}
+				interactionRequiredSessionIds={interactionRequiredSessionIds}
 				addRepositoryShortcut={addRepositoryShortcut}
 				newChatShortcut={newChatShortcut}
 				deleteChatShortcut={deleteChatShortcut}

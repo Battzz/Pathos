@@ -22,7 +22,7 @@ import {
 	SquarePen,
 	Wrench,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
 	Command,
 	CommandDialog,
@@ -31,14 +31,13 @@ import {
 	CommandInput,
 	CommandList,
 } from "@/components/ui/command";
-import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type { RepositoryFolder, WorkspaceSessionSummary } from "@/lib/api";
 import {
 	requestCloneProject,
 	requestOpenProject,
 } from "@/lib/project-action-events";
 import { buildNavigationItems, buildRecentChatItems } from "./navigation-items";
-import { PaletteItem, type Segment } from "./palette-item";
+import { PaletteItem, PaletteShortcut, type Segment } from "./palette-item";
 
 type CommandBarProps = {
 	open: boolean;
@@ -160,10 +159,21 @@ export function CommandBar({
 	shortcuts,
 }: CommandBarProps) {
 	const [search, setSearch] = useState("");
+	const listRef = useRef<HTMLDivElement | null>(null);
 
 	useEffect(() => {
 		if (!open) setSearch("");
 	}, [open]);
+
+	useLayoutEffect(() => {
+		const list = listRef.current;
+		if (!list || !open) return;
+		list.scrollTop = 0;
+		const frame = window.requestAnimationFrame(() => {
+			list.scrollTop = 0;
+		});
+		return () => window.cancelAnimationFrame(frame);
+	}, [open, search]);
 
 	const navigationItems = useMemo(
 		() => buildNavigationItems(repositoryFolders),
@@ -386,31 +396,30 @@ export function CommandBar({
 		visibleSessions,
 	]);
 
-	const scopeLabel = currentWorkspace?.title ?? "no project";
-
 	return (
 		<CommandDialog
 			open={open}
 			onOpenChange={onOpenChange}
 			title="Command bar"
 			description="Run commands, jump to chats, and open projects."
-			className="top-[16%] w-[min(720px,calc(100vw-2rem))] max-w-none translate-y-0 overflow-hidden rounded-xl! border border-border/60 bg-popover/95 shadow-[0_28px_70px_-14px_rgba(0,0,0,0.6)] backdrop-blur-2xl sm:max-w-none"
+			className="top-[14%] w-[min(720px,calc(100vw-2rem))] max-w-none translate-y-0 overflow-hidden rounded-xl! border border-border/70 bg-popover/95 shadow-[0_28px_70px_-14px_rgba(0,0,0,0.6)] backdrop-blur-2xl sm:max-w-none"
 		>
 			<Command shouldFilter loop className="rounded-none! bg-transparent p-0">
-				{/* Header — borderless search, the surface IS the input */}
-				<div className="px-4 pt-3 pb-2">
+				<div className="px-3 pt-3 pb-2">
 					<CommandInput
 						autoFocus
 						value={search}
 						onValueChange={setSearch}
 						placeholder="Search commands, chats, projects..."
 						wrapperClassName="min-w-0 flex-1 p-0"
-						inputGroupClassName="h-11! border-transparent! bg-transparent! shadow-none! ring-0! *:data-[slot=input-group-addon]:pl-1!"
-						className="h-11 text-[15px] font-medium tracking-[-0.005em] placeholder:text-muted-foreground/50"
+						inputGroupClassName="h-11! rounded-lg! border-border/45 bg-background/45 shadow-none! ring-0! *:data-[slot=input-group-addon]:pl-3!"
+						className="h-11 text-[15px] font-medium placeholder:text-muted-foreground/50"
 					/>
 				</div>
-				<div className="mx-2 h-px bg-border/40" />
-				<CommandList className="min-h-[20rem] max-h-[min(30rem,60vh)] scroll-py-2 px-2 py-2">
+				<CommandList
+					ref={listRef}
+					className="min-h-[20rem] max-h-[min(30rem,60vh)] scroll-py-2 px-2 pb-2 pt-1"
+				>
 					<CommandEmpty>
 						<div className="flex flex-col items-center gap-2.5 py-12 text-muted-foreground/60">
 							<Search className="size-4 opacity-70" strokeWidth={1.5} />
@@ -435,13 +444,8 @@ export function CommandBar({
 						))}
 					</CommandGroup>
 				</CommandList>
-				{/* Footer — scope chips on the left, kbd legend on the right */}
-				<div className="flex min-h-10 items-center justify-between gap-4 border-t border-border/40 bg-background/35 px-3 py-1.5">
-					<div className="flex min-w-0 items-center gap-1.5">
-						<ScopePill>Global</ScopePill>
-						<ScopePill muted>{scopeLabel}</ScopePill>
-					</div>
-					<div className="flex items-center gap-3 text-[11px] font-medium text-muted-foreground/80">
+				<div className="flex min-h-9 items-center justify-end border-t border-border/40 bg-background/30 px-3 py-1.5">
+					<div className="flex items-center gap-3 text-[11px] font-medium text-muted-foreground/75">
 						<FooterHint label="Execute">
 							<KbdGlyph>
 								<CornerDownLeft className="size-2.5" strokeWidth={2.25} />
@@ -454,7 +458,7 @@ export function CommandBar({
 							<>
 								<span className="hidden h-3 w-px bg-border/50 sm:block" />
 								<span className="hidden items-center sm:flex">
-									<InlineShortcutDisplay hotkey={shortcuts.openCommandBar} />
+									<PaletteShortcut hotkey={shortcuts.openCommandBar} />
 								</span>
 							</>
 						) : null}
@@ -463,32 +467,6 @@ export function CommandBar({
 			</Command>
 		</CommandDialog>
 	);
-}
-
-function ScopePill({
-	children,
-	muted = false,
-}: {
-	children: React.ReactNode;
-	muted?: boolean;
-}) {
-	return (
-		<span
-			className={cnPill(muted)}
-			// Tabular for tidy alignment when scope is a numeric id
-			style={{ fontVariantNumeric: "tabular-nums" }}
-		>
-			{children}
-		</span>
-	);
-}
-
-function cnPill(muted: boolean) {
-	const base =
-		"inline-flex h-6 items-center rounded-md border px-2 text-[11px] font-medium tracking-[-0.005em]";
-	return muted
-		? `${base} border-border/35 bg-transparent text-muted-foreground/75`
-		: `${base} border-border/55 bg-background/55 text-foreground/85`;
 }
 
 function FooterHint({
@@ -508,7 +486,7 @@ function FooterHint({
 
 function KbdGlyph({ children }: { children: React.ReactNode }) {
 	return (
-		<kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] border border-border/55 bg-background/60 px-1 font-mono text-[10.5px] font-medium text-foreground/85">
+		<kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] border border-border/55 bg-background/65 px-1 font-mono text-[10.5px] font-medium text-foreground/80">
 			{children}
 		</kbd>
 	);

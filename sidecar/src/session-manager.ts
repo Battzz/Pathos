@@ -19,6 +19,14 @@ export interface SendMessageParams {
 	readonly permissionMode: string | undefined;
 	readonly effortLevel: string | undefined;
 	readonly fastMode: boolean | undefined;
+	/**
+	 * When set, this resume-only stream is delivering the user's answer to
+	 * a paused deferred tool (e.g. `AskUserQuestion`). The session manager
+	 * pushes a synthetic `tool_result` `SDKUserMessage` referencing this
+	 * `tool_use_id` so the model sees the answer directly instead of
+	 * re-issuing the question.
+	 */
+	readonly deferredToolUseId?: string;
 	readonly claudeEnvironment?: Readonly<Record<string, string>>;
 	/**
 	 * Extra directories the user linked via `/add-dir`. Passed to Claude as
