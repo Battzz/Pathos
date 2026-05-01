@@ -1030,19 +1030,11 @@ describe("WorkspaceComposer", () => {
 		expect(
 			screen.getByText("Which checks should run before merge?"),
 		).toBeInTheDocument();
-		await user.click(screen.getByRole("button", { name: "Previous question" }));
-		await user.type(
-			screen.getByLabelText("Optional note for Claude"),
-			"Prefer the dedicated approval surface.",
-		);
-		expect(screen.getByLabelText("Optional note for Claude")).toHaveValue(
-			"Prefer the dedicated approval surface.",
-		);
 		await user.click(screen.getByRole("button", { name: "Next question" }));
 		expect(screen.getByText("Choose one or more options.")).toBeInTheDocument();
 		await user.click(screen.getByRole("button", { name: /Vitest/i }));
 		await user.click(screen.getByRole("button", { name: /Typecheck/i }));
-		await user.click(screen.getByRole("button", { name: "Send Answers" }));
+		await user.click(screen.getByRole("button", { name: "Submit" }));
 
 		expect(handleDeferredToolResponse).toHaveBeenCalledWith(
 			expect.objectContaining({ toolUseId: "tool-ask-1" }),
@@ -1056,7 +1048,6 @@ describe("WorkspaceComposer", () => {
 					annotations: {
 						"Which UI path should we take?": {
 							preview: "<div>New approval panel</div>",
-							notes: "Prefer the dedicated approval surface.",
 						},
 					},
 				}),
@@ -1194,8 +1185,8 @@ describe("WorkspaceComposer", () => {
 			screen.queryByText("This field is required."),
 		).not.toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "Send Response" }),
-		).toBeDisabled();
+			screen.queryByRole("button", { name: "Submit" }),
+		).not.toBeInTheDocument();
 		expect(
 			screen.queryByRole("button", { name: "Send" }),
 		).not.toBeInTheDocument();
@@ -1204,15 +1195,10 @@ describe("WorkspaceComposer", () => {
 			screen.getByPlaceholderText("Project name"),
 			"Pathos Elicitation",
 		);
-		expect(
-			screen.getByRole("button", { name: "Send Response" }),
-		).toBeDisabled();
 		await user.click(screen.getByRole("button", { name: "Next field" }));
 		await user.click(screen.getByRole("button", { name: "Yes" }));
-		expect(
-			screen.getByRole("button", { name: "Send Response" }),
-		).not.toBeDisabled();
-		await user.click(screen.getByRole("button", { name: "Send Response" }));
+		expect(screen.getByRole("button", { name: "Submit" })).not.toBeDisabled();
+		await user.click(screen.getByRole("button", { name: "Submit" }));
 
 		expect(onElicitationResponse).toHaveBeenCalledWith(
 			expect.objectContaining({ elicitationId: "elicitation-form-1" }),
@@ -1451,6 +1437,78 @@ describe("WorkspaceComposer", () => {
 			screen.getByRole("button", { name: "Plan mode" }),
 		).not.toBeDisabled();
 		expect(onChangePermissionMode).not.toHaveBeenCalled();
+		expect(
+			screen.queryByRole("button", { name: "Send" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("shows a red send button and hides stop when sending another message while streaming", async () => {
+		const queryClient = createPathosQueryClient();
+
+		render(
+			<QueryClientProvider client={queryClient}>
+				<WorkspaceComposer
+					contextKey="session:session-1"
+					onSubmit={vi.fn()}
+					onStop={vi.fn()}
+					disabled={false}
+					submitDisabled={false}
+					sending={true}
+					selectedModelId="opus-1m"
+					modelSections={MODEL_SECTIONS}
+					onSelectModel={vi.fn()}
+					provider="claude"
+					effortLevel="high"
+					onSelectEffort={vi.fn()}
+					permissionMode="acceptEdits"
+					onChangePermissionMode={vi.fn()}
+					restoreDraft="Add one more change"
+					restoreImages={[]}
+					restoreFiles={[]}
+					restoreCustomTags={[]}
+				/>
+			</QueryClientProvider>,
+		);
+
+		const sendButton = await screen.findByRole("button", { name: "Send" });
+		expect(sendButton).toBeEnabled();
+		expect(sendButton).toHaveAttribute("data-variant", "destructive");
+		expect(
+			screen.queryByRole("button", { name: "Stop" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("keeps stop visible while streaming until the user starts another message", () => {
+		const queryClient = createPathosQueryClient();
+
+		render(
+			<QueryClientProvider client={queryClient}>
+				<WorkspaceComposer
+					contextKey="session:session-1"
+					onSubmit={vi.fn()}
+					onStop={vi.fn()}
+					disabled={false}
+					submitDisabled={false}
+					sending={true}
+					selectedModelId="opus-1m"
+					modelSections={MODEL_SECTIONS}
+					onSelectModel={vi.fn()}
+					provider="claude"
+					effortLevel="high"
+					onSelectEffort={vi.fn()}
+					permissionMode="acceptEdits"
+					onChangePermissionMode={vi.fn()}
+					restoreImages={[]}
+					restoreFiles={[]}
+					restoreCustomTags={[]}
+				/>
+			</QueryClientProvider>,
+		);
+
+		expect(screen.getByRole("button", { name: "Stop" })).toHaveAttribute(
+			"data-variant",
+			"destructive",
+		);
 		expect(
 			screen.queryByRole("button", { name: "Send" }),
 		).not.toBeInTheDocument();

@@ -4,9 +4,7 @@ import {
 	ChevronRight,
 	Circle,
 	CircleDot,
-	ClipboardList,
 	MessageSquareMore,
-	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -19,7 +17,6 @@ import type {
 import {
 	InteractionFooter,
 	InteractionHeader,
-	InteractionOptionalInput,
 	InteractionOptionRow,
 } from "../interaction";
 import { DeferredToolCard, type DeferredToolPanelProps } from "./shared";
@@ -265,8 +262,11 @@ export function AskUserQuestionPanel({
 								>
 									<ChevronLeft className="size-3" strokeWidth={2} />
 								</Button>
-								<span className="max-w-[12rem] truncate px-1.5 text-[11px] font-medium leading-none text-muted-foreground">
-									{currentQuestion.header}
+								<span className="flex max-w-[14rem] items-center gap-1.5 px-1.5 text-[11px] font-medium leading-none text-muted-foreground">
+									<span className="truncate">{currentQuestion.header}</span>
+									<span className="shrink-0 tabular-nums text-muted-foreground/70">
+										{questionIndex + 1}/{questions.length}
+									</span>
 								</span>
 								<Button
 									type="button"
@@ -395,38 +395,51 @@ export function AskUserQuestionPanel({
 				</div>
 			</div>
 
-			<InteractionOptionalInput
-				icon={ClipboardList}
-				placeholder="Optional note for Claude"
-				value={currentResponse.notes}
-				onChange={(value) => {
-					updateResponse(currentQuestion.key, (current) => ({
-						...current,
-						notes: value,
-					}));
-				}}
-				disabled={disabled}
-			/>
-
 			<InteractionFooter>
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={disabled}
-					onClick={() => onResponse(deferred, "deny")}
-				>
-					<X className="size-3.5" strokeWidth={2} />
-					<span>Decline</span>
-				</Button>
-				<Button
-					variant="default"
-					size="sm"
-					disabled={!canSubmit}
-					onClick={handleSubmitAnswers}
-				>
-					<Check className="size-3.5" strokeWidth={2} />
-					<span>Send Answers</span>
-				</Button>
+				{questionIndex === 0 ? (
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={disabled}
+						onClick={() => onResponse(deferred, "deny")}
+					>
+						<span>Decline</span>
+					</Button>
+				) : (
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={disabled}
+						onClick={() =>
+							setQuestionIndex((current) => Math.max(0, current - 1))
+						}
+					>
+						<span>Back</span>
+					</Button>
+				)}
+				{questionIndex === questions.length - 1 ? (
+					<Button
+						variant="default"
+						size="sm"
+						disabled={!canSubmit}
+						onClick={handleSubmitAnswers}
+					>
+						<span>Submit</span>
+					</Button>
+				) : (
+					<Button
+						variant="default"
+						size="sm"
+						disabled={disabled}
+						onClick={() =>
+							setQuestionIndex((current) =>
+								Math.min(questions.length - 1, current + 1),
+							)
+						}
+					>
+						<span>Next</span>
+					</Button>
+				)}
 			</InteractionFooter>
 		</DeferredToolCard>
 	);

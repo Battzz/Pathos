@@ -9,7 +9,7 @@ import {
 	ExternalLink,
 	Globe,
 	Info,
-	ShieldQuestion,
+	MessageSquareMore,
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -30,7 +30,6 @@ import {
 	InteractionFooter,
 	InteractionHeader,
 	InteractionOptionRow,
-	InteractionStepTabs,
 } from "../interaction";
 
 type ElicitationPanelProps = {
@@ -364,10 +363,6 @@ function FormElicitationPanel({
 		}));
 	}, []);
 
-	const currentValidation = currentField
-		? fieldValidation[currentField.key]
-		: null;
-
 	const handleSubmit = useCallback(() => {
 		const content = buildResponseContent(viewModel, responses);
 		if (!content) {
@@ -383,66 +378,51 @@ function FormElicitationPanel({
 	return (
 		<DeferredToolCard>
 			<InteractionHeader
-				icon={ShieldQuestion}
+				icon={MessageSquareMore}
 				title={currentField.label}
 				description={currentField.description || viewModel.message}
 				trailing={
-					<>
-						<span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-							{viewModel.serverName}
-						</span>
-						<span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-							{fieldIndex + 1}/{viewModel.fields.length}
-						</span>
-						{viewModel.fields.length > 1 ? (
-							<div className="flex shrink-0 items-center gap-1">
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon-xs"
-									aria-label="Previous field"
-									disabled={disabled || fieldIndex === 0}
-									onClick={() =>
-										setFieldIndex((current) => Math.max(0, current - 1))
-									}
-								>
-									<ChevronLeft className="size-3.5" strokeWidth={2} />
-								</Button>
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon-xs"
-									aria-label="Next field"
-									disabled={
-										disabled || fieldIndex === viewModel.fields.length - 1
-									}
-									onClick={() =>
-										setFieldIndex((current) =>
-											Math.min(viewModel.fields.length - 1, current + 1),
-										)
-									}
-								>
-									<ChevronRight className="size-3.5" strokeWidth={2} />
-								</Button>
-							</div>
-						) : null}
-					</>
+					viewModel.fields.length > 1 ? (
+						<div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/40 bg-background/40 p-0.5">
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-xs"
+								aria-label="Previous field"
+								disabled={disabled || fieldIndex === 0}
+								onClick={() =>
+									setFieldIndex((current) => Math.max(0, current - 1))
+								}
+								className="size-5"
+							>
+								<ChevronLeft className="size-3" strokeWidth={2} />
+							</Button>
+							<span className="flex max-w-[14rem] items-center gap-1.5 px-1.5 text-[11px] font-medium leading-none text-muted-foreground">
+								<span className="truncate">{currentField.label}</span>
+								<span className="shrink-0 tabular-nums text-muted-foreground/70">
+									{fieldIndex + 1}/{viewModel.fields.length}
+								</span>
+							</span>
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-xs"
+								aria-label="Next field"
+								disabled={
+									disabled || fieldIndex === viewModel.fields.length - 1
+								}
+								onClick={() =>
+									setFieldIndex((current) =>
+										Math.min(viewModel.fields.length - 1, current + 1),
+									)
+								}
+								className="size-5"
+							>
+								<ChevronRight className="size-3" strokeWidth={2} />
+							</Button>
+						</div>
+					) : null
 				}
-			/>
-
-			<InteractionStepTabs
-				items={viewModel.fields.map((field) => ({
-					key: field.key,
-					label: field.label,
-					complete: !fieldValidation[field.key]?.blocking,
-					required: field.required,
-				}))}
-				value={currentField.key}
-				onChange={(value) => {
-					const nextIndex = viewModel.fields.findIndex((f) => f.key === value);
-					if (nextIndex >= 0) setFieldIndex(nextIndex);
-				}}
-				disabled={disabled}
 			/>
 
 			<div className="grid gap-1 px-1">
@@ -584,45 +564,51 @@ function FormElicitationPanel({
 						) : null}
 					</div>
 				) : null}
-
-				<p
-					className={cn(
-						"px-3 pt-1 text-[11px] leading-5 min-h-5",
-						currentValidation?.message ? "text-muted-foreground" : "invisible",
-					)}
-				>
-					{currentValidation?.message || "\u00A0"}
-				</p>
 			</div>
 
 			<InteractionFooter>
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={disabled}
-					onClick={() => onResponse(elicitation, "cancel")}
-				>
-					<X className="size-3.5" strokeWidth={2} />
-					<span>Cancel</span>
-				</Button>
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={disabled}
-					onClick={() => onResponse(elicitation, "decline")}
-				>
-					<Info className="size-3.5" strokeWidth={2} />
-					<span>Decline</span>
-				</Button>
-				<Button
-					variant="default"
-					size="sm"
-					disabled={disabled || !canSubmit}
-					onClick={handleSubmit}
-				>
-					<Check className="size-3.5" strokeWidth={2} />
-					<span>Send Response</span>
-				</Button>
+				{fieldIndex === 0 ? (
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={disabled}
+						onClick={() => onResponse(elicitation, "decline")}
+					>
+						<span>Decline</span>
+					</Button>
+				) : (
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={disabled}
+						onClick={() => setFieldIndex((current) => Math.max(0, current - 1))}
+					>
+						<span>Back</span>
+					</Button>
+				)}
+				{fieldIndex === viewModel.fields.length - 1 ? (
+					<Button
+						variant="default"
+						size="sm"
+						disabled={disabled || !canSubmit}
+						onClick={handleSubmit}
+					>
+						<span>Submit</span>
+					</Button>
+				) : (
+					<Button
+						variant="default"
+						size="sm"
+						disabled={disabled}
+						onClick={() =>
+							setFieldIndex((current) =>
+								Math.min(viewModel.fields.length - 1, current + 1),
+							)
+						}
+					>
+						<span>Next</span>
+					</Button>
+				)}
 			</InteractionFooter>
 		</DeferredToolCard>
 	);

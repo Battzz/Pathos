@@ -28,7 +28,7 @@ export function SubmitQueueList({
 	return (
 		<div
 			data-testid="submit-queue-list"
-			className="pointer-events-auto relative z-0 mx-auto w-[90%] overflow-hidden rounded-t-2xl border border-b-0 border-secondary/80 bg-background"
+			className="pointer-events-auto relative z-0 mx-auto w-[90%] overflow-hidden rounded-t-2xl border border-b-0 border-border/40 bg-sidebar"
 		>
 			{items.map((item, idx) => (
 				<QueueRow

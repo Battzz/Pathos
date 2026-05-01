@@ -1111,29 +1111,30 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 									</Button>
 								</div>
 							) : sending ? (
-								<div className="ml-1.5 flex items-center gap-1.5">
-									<Button
-										variant="destructive"
-										size="icon"
-										aria-label="Stop"
-										onClick={onStop}
-										disabled={disabled || submitDisabled}
-										className="rounded-[9px]"
-									>
-										<Square className="size-3 fill-current" strokeWidth={0} />
-									</Button>
+								<div className="ml-1.5 flex items-center">
 									{hasContent ? (
 										<Button
-											variant="outline"
+											variant="destructive"
 											size="icon"
-											aria-label="Steer"
+											aria-label="Send"
 											onClick={handleSubmit}
 											disabled={steerDisabled}
 											className="rounded-[9px]"
 										>
 											<ArrowUp className="size-[15px]" strokeWidth={2.2} />
 										</Button>
-									) : null}
+									) : (
+										<Button
+											variant="destructive"
+											size="icon"
+											aria-label="Stop"
+											onClick={onStop}
+											disabled={disabled || submitDisabled}
+											className="rounded-[9px]"
+										>
+											<Square className="size-3 fill-current" strokeWidth={0} />
+										</Button>
+									)}
 								</div>
 							) : (
 								<Button
