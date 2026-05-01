@@ -86,6 +86,41 @@ export function resolvePaneWidthSnapshot(
 	return { bucket, width };
 }
 
+export function findFirstRowEndingAtOrAfter(
+	rows: readonly { top: number; height: number }[],
+	offset: number,
+) {
+	let low = 0;
+	let high = rows.length;
+	while (low < high) {
+		const mid = Math.floor((low + high) / 2);
+		const row = rows[mid]!;
+		if (row.top + row.height >= offset) {
+			high = mid;
+		} else {
+			low = mid + 1;
+		}
+	}
+	return low;
+}
+
+export function collectRowsInWindow<T extends { top: number; height: number }>(
+	rows: readonly T[],
+	windowTop: number,
+	windowBottom: number,
+): T[] {
+	const start = findFirstRowEndingAtOrAfter(rows, windowTop);
+	const result: T[] = [];
+	for (let index = start; index < rows.length; index += 1) {
+		const row = rows[index]!;
+		if (row.top > windowBottom) {
+			break;
+		}
+		result.push(row);
+	}
+	return result;
+}
+
 export function ActiveThreadViewport({
 	isShellResizing = false,
 	hasSession,
@@ -254,6 +289,27 @@ function ChatThread({
 		streamingStartTimes.delete(sessionId);
 	}
 	const sendingStartTime = streamingStartTimes.get(sessionId) ?? 0;
+	const messageContext = useMemo(() => {
+		const previousAssistantByIndex: Array<RenderedMessage | null> = [];
+		const previousUserByIndex: Array<RenderedMessage | null> = [];
+		let previousUserMessage: RenderedMessage | null = null;
+		let previousAssistantMessage: RenderedMessage | null = null;
+
+		for (let index = 0; index < threadMessages.length; index += 1) {
+			const message = threadMessages[index]!;
+			previousUserByIndex[index] = previousUserMessage;
+			previousAssistantByIndex[index] = previousAssistantMessage;
+
+			if (message.role === "user") {
+				previousUserMessage = message;
+				previousAssistantMessage = null;
+			} else if (message.role === "assistant") {
+				previousAssistantMessage = message;
+			}
+		}
+
+		return { previousAssistantByIndex, previousUserByIndex };
+	}, [threadMessages]);
 
 	const previousSendingRef = useRef(sending);
 	const sendingJustStarted = sending && !previousSendingRef.current;
@@ -288,39 +344,30 @@ function ChatThread({
 
 	const itemContent = useCallback(
 		(index: number, message: RenderedMessage) => {
-			let previousAssistantMessage: RenderedMessage | null = null;
-			let previousUserMessage: RenderedMessage | null = null;
-			for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-				const candidate = threadMessages[cursor];
-				if (candidate?.role === "assistant") {
-					previousAssistantMessage = candidate;
-				}
-				if (candidate?.role === "user") {
-					previousUserMessage = candidate;
-					break;
-				}
-			}
-
 			return (
 				<MemoConversationMessage
 					message={message}
-					previousAssistantMessage={previousAssistantMessage}
+					previousAssistantMessage={
+						messageContext.previousAssistantByIndex[index] ?? null
+					}
 					sessionId={sessionId}
 					onRevertMessage={onRevertMessage}
 					onSubmitEditedMessage={onSubmitEditedMessage}
 					onRedoAssistantMessage={sending ? undefined : onRedoAssistantMessage}
 					itemIndex={index}
-					previousUserMessage={previousUserMessage}
+					previousUserMessage={
+						messageContext.previousUserByIndex[index] ?? null
+					}
 				/>
 			);
 		},
 		[
+			messageContext,
 			onRedoAssistantMessage,
 			onRevertMessage,
 			onSubmitEditedMessage,
 			sending,
 			sessionId,
-			threadMessages,
 		],
 	);
 
@@ -882,13 +929,10 @@ function ProgressiveConversationViewport({
 							0,
 							totalRowsHeight - tauriStableBottomTailHeight,
 						);
-						return rows.filter((row) => row.top + row.height >= tailWindowTop);
+						return rows.slice(findFirstRowEndingAtOrAfter(rows, tailWindowTop));
 					}
 
-					const inWindow = rows.filter((row) => {
-						const rowBottom = row.top + row.height;
-						return rowBottom >= windowTop && row.top <= windowBottom;
-					});
+					const inWindow = collectRowsInWindow(rows, windowTop, windowBottom);
 					if (!pinTailRows || rows.length === 0) {
 						return inWindow;
 					}
@@ -924,9 +968,9 @@ function ProgressiveConversationViewport({
 	// is already included in `totalRowsHeight`, so we don't re-add it here.
 	const totalContentHeight =
 		headerHeight + totalRowsHeight + CONVERSATION_BOTTOM_SPACER_HEIGHT;
-	const rowsRef = useRef(rows);
+	const rowByKeyRef = useRef(new Map(rows.map((row) => [row.key, row])));
 	useLayoutEffect(() => {
-		rowsRef.current = rows;
+		rowByKeyRef.current = new Map(rows.map((row) => [row.key, row]));
 	}, [rows]);
 
 	useLayoutEffect(() => {
@@ -958,7 +1002,7 @@ function ProgressiveConversationViewport({
 	const handleHeightChange = useCallback(
 		(rowKey: string, nextHeight: number) => {
 			const roundedHeight = Math.max(24, Math.ceil(nextHeight));
-			const row = rowsRef.current.find((entry) => entry.key === rowKey);
+			const row = rowByKeyRef.current.get(rowKey);
 			// Only message rows flow through here. The indicator pseudo row
 			// has a fixed height and does not use `MeasuredConversationRow`.
 			if (!row || row.kind !== "message") {

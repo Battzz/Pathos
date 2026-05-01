@@ -5,7 +5,14 @@ import {
 	RotateCcw,
 	StickyNote,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import { toast } from "sonner";
 import {
 	createFilePreviewLoader,
@@ -88,19 +95,55 @@ function BubbleCustomTagBadge({
 	);
 }
 
-function useMessageAge(createdAt?: string): string | null {
-	const [nowTick, setNowTick] = useState(0);
+let minuteTickerIntervalId: number | null = null;
+let minuteTickerSnapshot = Math.floor(Date.now() / 60_000);
+const minuteTickerListeners = new Set<() => void>();
 
-	useEffect(() => {
-		if (!createdAt) return;
-		const interval = window.setInterval(() => {
-			setNowTick((tick) => tick + 1);
-		}, 60_000);
-		return () => window.clearInterval(interval);
-	}, [createdAt]);
+function subscribeMinuteTicker(listener: () => void) {
+	minuteTickerListeners.add(listener);
+	if (
+		minuteTickerIntervalId === null &&
+		typeof window !== "undefined" &&
+		minuteTickerListeners.size > 0
+	) {
+		minuteTickerIntervalId = window.setInterval(() => {
+			const nextSnapshot = Math.floor(Date.now() / 60_000);
+			if (nextSnapshot === minuteTickerSnapshot) {
+				return;
+			}
+			minuteTickerSnapshot = nextSnapshot;
+			for (const notify of minuteTickerListeners) {
+				notify();
+			}
+		}, 15_000);
+	}
+
+	return () => {
+		minuteTickerListeners.delete(listener);
+		if (
+			minuteTickerListeners.size === 0 &&
+			minuteTickerIntervalId !== null &&
+			typeof window !== "undefined"
+		) {
+			window.clearInterval(minuteTickerIntervalId);
+			minuteTickerIntervalId = null;
+		}
+	};
+}
+
+function getMinuteTickerSnapshot() {
+	return minuteTickerSnapshot;
+}
+
+function useMessageAge(createdAt?: string): string | null {
+	const nowTick = useSyncExternalStore(
+		subscribeMinuteTicker,
+		getMinuteTickerSnapshot,
+		getMinuteTickerSnapshot,
+	);
 
 	return useMemo(
-		() => formatCompactElapsedTime(createdAt),
+		() => (createdAt ? formatCompactElapsedTime(createdAt) : null),
 		[createdAt, nowTick],
 	);
 }

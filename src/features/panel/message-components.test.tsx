@@ -8,6 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ThreadMessageLike } from "@/lib/api";
 import { MemoConversationMessage } from "./message-components";
+import { shouldRenderAssistantTextAsPlain } from "./message-components/assistant-message";
 import { serializeMessageForClipboard } from "./message-components/copy-message";
 import { AssistantToolCall } from "./message-components/tool-call";
 import { ChatUserMessage } from "./message-components/user-message";
@@ -257,7 +258,7 @@ describe("MemoConversationMessage plan review", () => {
 		expect(writeTextMock).toHaveBeenCalledWith("Ship the action slot.");
 	});
 
-	it("replays the preceding user message from an assistant action", async () => {
+	it("replays the preceding user message from the turn metadata action", async () => {
 		const onRedoAssistantMessage = vi.fn().mockResolvedValue(undefined);
 		const userMessage: ThreadMessageLike = {
 			id: "user-redo-source",
@@ -283,13 +284,26 @@ describe("MemoConversationMessage plan review", () => {
 				},
 			],
 		};
+		const systemMessage: ThreadMessageLike = {
+			id: "turn-completed",
+			role: "system",
+			createdAt: "2026-04-12T12:02:02.000Z",
+			content: [
+				{
+					type: "text",
+					id: "turn-completed:turn-result",
+					text: "1.6s",
+				},
+			],
+		};
 
 		render(
 			<MemoConversationMessage
-				message={assistantMessage}
+				message={systemMessage}
+				previousAssistantMessage={assistantMessage}
 				previousUserMessage={userMessage}
 				sessionId="session-1"
-				itemIndex={1}
+				itemIndex={2}
 				onRedoAssistantMessage={onRedoAssistantMessage}
 			/>,
 		);
@@ -526,5 +540,25 @@ describe("MemoConversationMessage plan review", () => {
 		expect(screen.getByText("Thinking")).toBeInTheDocument();
 		// Historical blocks default closed, so the body is not rendered.
 		expect(screen.queryByText("Old thinking content.")).toBeNull();
+	});
+});
+
+describe("assistant text rendering", () => {
+	it("routes simple prose through the plain text path", () => {
+		expect(shouldRenderAssistantTextAsPlain("Done. I updated the files.")).toBe(
+			true,
+		);
+	});
+
+	it("keeps markdown-looking content on the markdown renderer path", () => {
+		expect(shouldRenderAssistantTextAsPlain("```ts\nconst x = 1;\n```")).toBe(
+			false,
+		);
+		expect(shouldRenderAssistantTextAsPlain("- item one\n- item two")).toBe(
+			false,
+		);
+		expect(shouldRenderAssistantTextAsPlain("See https://example.com")).toBe(
+			false,
+		);
 	});
 });

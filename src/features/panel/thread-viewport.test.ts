@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+	collectRowsInWindow,
+	findFirstRowEndingAtOrAfter,
 	getPaneWidthBucket,
 	resolveConversationRowHeight,
 	resolvePaneWidthSnapshot,
@@ -41,5 +43,28 @@ describe("resolvePaneWidthSnapshot", () => {
 
 		expect(next).not.toBe(current);
 		expect(next).toEqual({ bucket: 21, width: 657 });
+	});
+});
+
+describe("progressive viewport row windowing", () => {
+	const rows = [
+		{ top: 0, height: 40, id: "a" },
+		{ top: 40, height: 80, id: "b" },
+		{ top: 120, height: 60, id: "c" },
+		{ top: 180, height: 40, id: "d" },
+	];
+
+	it("finds the first row whose bottom reaches the requested offset", () => {
+		expect(findFirstRowEndingAtOrAfter(rows, 0)).toBe(0);
+		expect(findFirstRowEndingAtOrAfter(rows, 41)).toBe(1);
+		expect(findFirstRowEndingAtOrAfter(rows, 180)).toBe(2);
+		expect(findFirstRowEndingAtOrAfter(rows, 221)).toBe(4);
+	});
+
+	it("collects only rows that intersect the viewport window", () => {
+		expect(collectRowsInWindow(rows, 41, 179).map((row) => row.id)).toEqual([
+			"b",
+			"c",
+		]);
 	});
 });

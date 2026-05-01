@@ -48,20 +48,15 @@ function ConversationMessage({
 	}
 
 	if (message.role === "assistant") {
-		return (
-			<ChatAssistantMessage
-				message={message}
-				previousUserMessage={previousUserMessage}
-				streaming={streaming}
-				onRedoAssistantMessage={onRedoAssistantMessage}
-			/>
-		);
+		return <ChatAssistantMessage message={message} streaming={streaming} />;
 	}
 
 	return (
 		<ChatSystemMessage
 			message={message}
 			previousAssistantMessage={previousAssistantMessage}
+			previousUserMessage={previousUserMessage}
+			onRedoAssistantMessage={onRedoAssistantMessage}
 		/>
 	);
 }

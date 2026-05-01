@@ -4,7 +4,10 @@ import {
 	AlertTriangle,
 	Info,
 	MessageSquareText,
+	RotateCcw,
 } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
 	Tooltip,
@@ -17,7 +20,10 @@ import type {
 	SystemNoticePart,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { CopyMessageButton } from "./copy-message";
+import {
+	CopyMessageButton,
+	serializeMessageForClipboard,
+} from "./copy-message";
 import type { RenderedMessage } from "./shared";
 import {
 	isPromptSuggestionPart,
@@ -132,15 +138,57 @@ function shouldShowTimestamp(parts: MessagePart[]) {
 export function ChatSystemMessage({
 	message,
 	previousAssistantMessage,
+	previousUserMessage,
+	onRedoAssistantMessage,
 }: {
 	message: RenderedMessage;
 	previousAssistantMessage?: RenderedMessage | null;
+	previousUserMessage?: RenderedMessage | null;
+	onRedoAssistantMessage?: (
+		userMessageId: string,
+		prompt: string,
+	) => void | Promise<void>;
 }) {
 	const parts = message.content as MessagePart[];
 	const copyTarget =
 		previousAssistantMessage?.role === "assistant"
 			? previousAssistantMessage
 			: message;
+	const [redoing, setRedoing] = useState(false);
+	const showsTimestamp = shouldShowTimestamp(parts);
+	const redoPrompt = useMemo(
+		() =>
+			previousUserMessage
+				? serializeMessageForClipboard(previousUserMessage)
+				: "",
+		[previousUserMessage],
+	);
+	const canRedo = Boolean(
+		showsTimestamp &&
+			previousAssistantMessage?.role === "assistant" &&
+			previousUserMessage?.id &&
+			redoPrompt.trim() &&
+			onRedoAssistantMessage,
+	);
+	const handleRedo = useCallback(async () => {
+		if (!previousUserMessage?.id || !onRedoAssistantMessage) {
+			return;
+		}
+		const prompt = redoPrompt.trim();
+		if (!prompt) {
+			return;
+		}
+		setRedoing(true);
+		try {
+			await onRedoAssistantMessage(previousUserMessage.id, prompt);
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : "Failed to redo model run.",
+			);
+		} finally {
+			setRedoing(false);
+		}
+	}, [onRedoAssistantMessage, previousUserMessage?.id, redoPrompt]);
 
 	return (
 		<div
@@ -161,7 +209,7 @@ export function ChatSystemMessage({
 					}
 					return null;
 				})}
-				{shouldShowTimestamp(parts) ? (
+				{showsTimestamp ? (
 					<MessageTimestamp createdAt={message.createdAt} />
 				) : null}
 			</div>
@@ -169,6 +217,21 @@ export function ChatSystemMessage({
 				message={copyTarget}
 				className="size-5 shrink-0 text-muted-foreground/30 opacity-0 hover:text-muted-foreground group-hover/sys:opacity-100"
 			/>
+			{canRedo ? (
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-xs"
+					aria-label="Redo run"
+					onClick={() => {
+						void handleRedo();
+					}}
+					disabled={redoing}
+					className="size-5 shrink-0 text-muted-foreground/30 opacity-0 transition-none hover:text-muted-foreground group-hover/sys:opacity-100"
+				>
+					<RotateCcw className="size-3" strokeWidth={1.8} />
+				</Button>
+			) : null}
 		</div>
 	);
 }

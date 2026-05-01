@@ -23,6 +23,13 @@ const LazyStreamdown = lazy(async () => {
 	function StreamdownWithOverrides(
 		props: React.ComponentProps<typeof Streamdown>,
 	) {
+		const components = useMemo(
+			() =>
+				props.components
+					? { ...streamdownComponents, ...props.components }
+					: streamdownComponents,
+			[props.components],
+		);
 		const plugins = useMemo<StreamdownProps["plugins"]>(
 			() => ({
 				...props.plugins,
@@ -30,13 +37,7 @@ const LazyStreamdown = lazy(async () => {
 			}),
 			[props.plugins],
 		);
-		return (
-			<Streamdown
-				{...props}
-				components={{ ...streamdownComponents, ...props.components }}
-				plugins={plugins}
-			/>
-		);
+		return <Streamdown {...props} components={components} plugins={plugins} />;
 	}
 
 	return { default: StreamdownWithOverrides };

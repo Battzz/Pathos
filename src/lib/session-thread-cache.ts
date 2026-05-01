@@ -39,13 +39,30 @@ export function shareMessages(
 	next: ThreadMessageLike[],
 ): ThreadMessageLike[] {
 	if (prev === next) return next;
-	const prevById = new Map<string, ThreadMessageLike>();
-	for (const message of prev) {
-		if (message.id != null) prevById.set(message.id, message);
-	}
+	let prevById: Map<string, ThreadMessageLike> | null = null;
+	const findPreviousById = (
+		message: ThreadMessageLike,
+		index: number,
+	): ThreadMessageLike | undefined => {
+		if (message.id == null) {
+			return undefined;
+		}
+
+		const sameIndexCandidate = prev[index];
+		if (sameIndexCandidate?.id === message.id) {
+			return sameIndexCandidate;
+		}
+
+		prevById ??= new Map(
+			prev
+				.filter((candidate) => candidate.id != null)
+				.map((candidate) => [candidate.id!, candidate]),
+		);
+		return prevById.get(message.id);
+	};
 	let allReused = next.length === prev.length;
 	const shared = next.map((message, index) => {
-		const candidate = message.id != null ? prevById.get(message.id) : undefined;
+		const candidate = findPreviousById(message, index);
 		if (candidate && messagesStructurallyEqual(candidate, message)) {
 			if (allReused && prev[index] !== candidate) {
 				allReused = false;
