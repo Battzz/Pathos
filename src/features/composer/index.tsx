@@ -9,15 +9,7 @@ import {
 	$isTextNode,
 	type LexicalEditor,
 } from "lexical";
-import {
-	ArrowUp,
-	Check,
-	ClipboardList,
-	MessageSquareMore,
-	Plus,
-	Square,
-	Zap,
-} from "lucide-react";
+import { ArrowUp, ClipboardList, Plus, Square, Zap } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ModelIcon } from "@/components/model-icon";
 import { Button } from "@/components/ui/button";
@@ -1087,26 +1079,26 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 							    evenly spaced. */}
 							{hasPlanReview && permissionMode === "plan" ? (
 								<div className="ml-1.5 flex items-center gap-2">
-									<Button
-										variant="ghost"
-										size="sm"
-										aria-label="Request Changes"
-										onClick={handlePlanRequestChanges}
-										disabled={disabled || !hasContent}
-										className="my-0.5 h-7 cursor-pointer gap-1 rounded-lg px-2 text-[12px] transition-none text-muted-foreground hover:text-foreground"
-									>
-										<MessageSquareMore className="size-3.5" strokeWidth={1.8} />
-										Request Changes
-									</Button>
+									{hasContent ? (
+										<Button
+											variant="ghost"
+											size="sm"
+											aria-label="Request Changes"
+											onClick={handlePlanRequestChanges}
+											disabled={disabled}
+											className="my-0.5 h-7 cursor-pointer rounded-lg px-2 text-[12px] transition-none text-muted-foreground hover:text-foreground"
+										>
+											Request Changes
+										</Button>
+									) : null}
 									<Button
 										variant="default"
 										size="sm"
 										aria-label="Implement"
 										onClick={handlePlanImplement}
 										disabled={disabled}
-										className="my-0.5 h-7 cursor-pointer gap-1 rounded-lg px-2 text-[12px] transition-none"
+										className="my-0.5 h-7 cursor-pointer rounded-lg px-2 text-[12px] transition-none"
 									>
-										<Check className="size-3.5" strokeWidth={2} />
 										Implement
 									</Button>
 								</div>

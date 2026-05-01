@@ -1263,7 +1263,7 @@ describe("WorkspaceComposer", () => {
 		});
 	});
 
-	it("shows Approve and Request Changes buttons when ExitPlanMode permission is pending", () => {
+	it("shows Implement and hides Request Changes when ExitPlanMode permission is pending", () => {
 		const queryClient = createPathosQueryClient();
 
 		render(
@@ -1294,8 +1294,8 @@ describe("WorkspaceComposer", () => {
 			screen.getByRole("button", { name: "Implement" }),
 		).toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "Request Changes" }),
-		).toBeInTheDocument();
+			screen.queryByRole("button", { name: "Request Changes" }),
+		).not.toBeInTheDocument();
 		expect(
 			screen.queryByRole("button", { name: "Send" }),
 		).not.toBeInTheDocument();
@@ -1340,7 +1340,7 @@ describe("WorkspaceComposer", () => {
 		);
 	});
 
-	it("disables Request Changes when input is empty", () => {
+	it("shows Request Changes once plan feedback exists", async () => {
 		const queryClient = createPathosQueryClient();
 
 		render(
@@ -1359,6 +1359,7 @@ describe("WorkspaceComposer", () => {
 					onSelectEffort={vi.fn()}
 					permissionMode="plan"
 					onChangePermissionMode={vi.fn()}
+					restoreDraft="Please simplify the approach"
 					restoreImages={[]}
 					restoreFiles={[]}
 					restoreCustomTags={[]}
@@ -1367,9 +1368,11 @@ describe("WorkspaceComposer", () => {
 			</QueryClientProvider>,
 		);
 
-		expect(
-			screen.getByRole("button", { name: "Request Changes" }),
-		).toBeDisabled();
+		await waitFor(() => {
+			expect(
+				screen.getByRole("button", { name: "Request Changes" }),
+			).toBeInTheDocument();
+		});
 	});
 
 	it("shows plan review placeholder when plan is captured", () => {
