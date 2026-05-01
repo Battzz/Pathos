@@ -393,6 +393,7 @@ export type RepositoryFolderChat = {
 	agentType?: string | null;
 	status: string;
 	unreadCount: number;
+	needsPlanImplementation: boolean;
 	pinnedAt?: string | null;
 	createdAt: string;
 	updatedAt: string;

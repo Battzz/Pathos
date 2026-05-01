@@ -403,6 +403,7 @@ export function useFolderSidebarController({
 							agentType: null,
 							status: "idle",
 							unreadCount: 0,
+							needsPlanImplementation: false,
 							pinnedAt: null,
 							createdAt: now,
 							updatedAt: now,

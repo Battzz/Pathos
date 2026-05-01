@@ -395,6 +395,7 @@ export function useConversationStreaming({
 								typeof session?.unreadCount === "number"
 									? session.unreadCount
 									: 0,
+							needsPlanImplementation: false,
 							pinnedAt:
 								typeof session?.pinnedAt === "string" ? session.pinnedAt : null,
 							createdAt:
@@ -473,6 +474,7 @@ export function useConversationStreaming({
 							return {
 								...chat,
 								agentType,
+								needsPlanImplementation: false,
 								updatedAt: now,
 								lastUserMessageAt: now,
 							};
@@ -493,6 +495,7 @@ export function useConversationStreaming({
 										? {
 												...chat,
 												agentType,
+												needsPlanImplementation: false,
 												updatedAt: now,
 												lastUserMessageAt: now,
 											}
@@ -500,6 +503,36 @@ export function useConversationStreaming({
 								),
 							)
 						: current,
+			);
+		},
+		[queryClient],
+	);
+
+	const setSidebarPlanImplementationNeeded = useCallback(
+		(sessionId: string, needed: boolean) => {
+			queryClient.setQueryData<RepositoryFolder[] | undefined>(
+				pathosQueryKeys.repositoryFolders,
+				(current) =>
+					current?.map((folder) => {
+						let changed = false;
+						const chats = folder.chats.map((chat) => {
+							if (chat.sessionId !== sessionId) {
+								return chat;
+							}
+							changed = true;
+							return { ...chat, needsPlanImplementation: needed };
+						});
+						return changed ? { ...folder, chats } : folder;
+					}),
+			);
+			queryClient.setQueryData<RepositoryFolderChat[] | undefined>(
+				pathosQueryKeys.genericChats,
+				(current) =>
+					current?.map((chat) =>
+						chat.sessionId === sessionId
+							? { ...chat, needsPlanImplementation: needed }
+							: chat,
+					),
 			);
 		},
 		[queryClient],
@@ -1034,6 +1067,9 @@ export function useConversationStreaming({
 						if (event.kind === "planCaptured") {
 							rememberInteractionWorkspace(contextKey, displayedWorkspaceId);
 							setPlanReviewActive(contextKey);
+							if (displayedSessionId) {
+								setSidebarPlanImplementationNeeded(displayedSessionId, true);
+							}
 							return;
 						}
 
@@ -1195,6 +1231,7 @@ export function useConversationStreaming({
 			refreshSessionThreadFromDb,
 			rememberInteractionWorkspace,
 			setPlanReviewActive,
+			setSidebarPlanImplementationNeeded,
 		],
 	);
 
@@ -1679,6 +1716,7 @@ export function useConversationStreaming({
 						if (event.kind === "planCaptured") {
 							rememberInteractionWorkspace(contextKey, targetWorkspaceId);
 							setPlanReviewActive(contextKey);
+							setSidebarPlanImplementationNeeded(targetSessionId, true);
 							return;
 						}
 
@@ -1890,6 +1928,7 @@ export function useConversationStreaming({
 			refreshSessionThreadFromDb,
 			seedStartedProjectChat,
 			setFastPreludeActive,
+			setSidebarPlanImplementationNeeded,
 			touchProjectChatActivity,
 			activeSessionByContext,
 			sendingContextKeys,

@@ -109,6 +109,42 @@ pub fn list_generic_chats() -> Result<Vec<RepositoryFolderChat>> {
               agent_type,
               status,
               unread_count,
+              EXISTS (
+                SELECT 1
+                FROM session_messages plan_msg
+                WHERE plan_msg.session_id = sessions.id
+                  AND CASE
+                    WHEN json_valid(plan_msg.content) THEN
+                      CASE
+                        WHEN json_extract(plan_msg.content, '$.type') = 'exit_plan_mode' THEN 1
+                        WHEN json_extract(plan_msg.content, '$.type') = 'item.completed'
+                          AND json_extract(plan_msg.content, '$.item.type') = 'plan' THEN 1
+                        WHEN json_type(plan_msg.content) = 'array'
+                          AND EXISTS (
+                            SELECT 1
+                            FROM json_each(plan_msg.content) part
+                            WHERE
+                              CASE
+                                WHEN json_valid(part.value) THEN json_extract(part.value, '$.type')
+                                ELSE NULL
+                              END = 'plan-review'
+                          ) THEN 1
+                        ELSE 0
+                      END
+                    ELSE 0
+                  END = 1
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM session_messages user_msg
+                    WHERE user_msg.session_id = sessions.id
+                      AND user_msg.rowid > plan_msg.rowid
+                      AND user_msg.role = 'user'
+                      AND CASE
+                        WHEN json_valid(user_msg.content) THEN json_extract(user_msg.content, '$.type')
+                        ELSE NULL
+                      END = 'user_prompt'
+                  )
+              ) AS needs_plan_implementation,
               pinned_at,
               created_at,
               updated_at,
@@ -135,10 +171,11 @@ pub fn list_generic_chats() -> Result<Vec<RepositoryFolderChat>> {
                 agent_type: row.get(3)?,
                 status: row.get(4)?,
                 unread_count: row.get(5)?,
-                pinned_at: row.get(6)?,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
-                last_user_message_at: row.get(9)?,
+                needs_plan_implementation: row.get::<_, i64>(6)? != 0,
+                pinned_at: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+                last_user_message_at: row.get(10)?,
             })
         })
         .context("Failed to load generic chats")?

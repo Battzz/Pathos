@@ -107,6 +107,7 @@ function repositoryFolders(
 				agentType: item.agentType,
 				status: item.status,
 				unreadCount: item.unreadCount,
+				needsPlanImplementation: false,
 				pinnedAt: item.pinnedAt,
 				createdAt: item.createdAt,
 				updatedAt: item.updatedAt,

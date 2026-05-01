@@ -22,6 +22,7 @@ function makeChat(index: number): RepositoryFolderChat {
 		agentType: "codex",
 		status: "idle",
 		unreadCount: 0,
+		needsPlanImplementation: false,
 		createdAt: "2026-04-30T00:00:00Z",
 		updatedAt: "2026-04-30T00:00:00Z",
 		lastUserMessageAt: null,
@@ -145,6 +146,21 @@ describe("WorkspacesSidebar", () => {
 		expect(
 			screen.queryByRole("button", { name: /show more/i }),
 		).not.toBeInTheDocument();
+	});
+
+	it("marks chats with plans waiting for implementation", () => {
+		const folder = makeFolder(1);
+		folder.chats[0] = {
+			...folder.chats[0],
+			needsPlanImplementation: true,
+		};
+
+		renderSidebar(folder);
+
+		expect(
+			screen.getByLabelText("Plan ready to implement"),
+		).toBeInTheDocument();
+		expect(screen.queryByLabelText("ChatGPT")).not.toBeInTheDocument();
 	});
 
 	it("confirms before deleting an individual chat by default", () => {

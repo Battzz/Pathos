@@ -1,4 +1,5 @@
 import {
+	ClipboardCheck,
 	Command,
 	MessageCircleQuestion,
 	MessageSquare,
@@ -70,6 +71,7 @@ export const ChatRow = memo(function ChatRow({
 }: ChatRowProps) {
 	const hasUnread = chat.unreadCount > 0;
 	const isPinned = Boolean(chat.pinnedAt);
+	const needsPlanImplementation = chat.needsPlanImplementation;
 	const activityTime = useChatActivityTime(chat);
 	const sendingSessionIds = useSendingSessionIds();
 	const isSending = sendingSessionIds.has(chat.sessionId);
@@ -135,6 +137,15 @@ export const ChatRow = memo(function ChatRow({
 								aria-label="Awaiting your input"
 								className={cn(
 									"size-3.5 shrink-0 animate-pulse text-yellow-500 transition-opacity",
+									onTogglePin && "group-hover/chat:opacity-0",
+								)}
+								strokeWidth={2}
+							/>
+						) : needsPlanImplementation ? (
+							<ClipboardCheck
+								aria-label="Plan ready to implement"
+								className={cn(
+									"size-3.5 shrink-0 text-[var(--workspace-sidebar-status-progress)] transition-opacity",
 									onTogglePin && "group-hover/chat:opacity-0",
 								)}
 								strokeWidth={2}

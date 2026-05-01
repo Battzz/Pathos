@@ -166,6 +166,7 @@ pub struct RepositoryFolderChat {
     pub agent_type: Option<String>,
     pub status: String,
     pub unread_count: i64,
+    pub needs_plan_implementation: bool,
     pub pinned_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -291,6 +292,42 @@ fn load_chats_for_workspace(record: &WorkspaceRecord) -> Result<Vec<RepositoryFo
           agent_type,
           status,
           unread_count,
+          EXISTS (
+            SELECT 1
+            FROM session_messages plan_msg
+            WHERE plan_msg.session_id = sessions.id
+              AND CASE
+                WHEN json_valid(plan_msg.content) THEN
+                  CASE
+                    WHEN json_extract(plan_msg.content, '$.type') = 'exit_plan_mode' THEN 1
+                    WHEN json_extract(plan_msg.content, '$.type') = 'item.completed'
+                      AND json_extract(plan_msg.content, '$.item.type') = 'plan' THEN 1
+                    WHEN json_type(plan_msg.content) = 'array'
+                      AND EXISTS (
+                        SELECT 1
+                        FROM json_each(plan_msg.content) part
+                        WHERE
+                          CASE
+                            WHEN json_valid(part.value) THEN json_extract(part.value, '$.type')
+                            ELSE NULL
+                          END = 'plan-review'
+                      ) THEN 1
+                    ELSE 0
+                  END
+                ELSE 0
+              END = 1
+              AND NOT EXISTS (
+                SELECT 1
+                FROM session_messages user_msg
+                WHERE user_msg.session_id = sessions.id
+                  AND user_msg.rowid > plan_msg.rowid
+                  AND user_msg.role = 'user'
+                  AND CASE
+                    WHEN json_valid(user_msg.content) THEN json_extract(user_msg.content, '$.type')
+                    ELSE NULL
+                  END = 'user_prompt'
+              )
+          ) AS needs_plan_implementation,
           pinned_at,
           created_at,
           updated_at,
@@ -322,10 +359,11 @@ fn load_chats_for_workspace(record: &WorkspaceRecord) -> Result<Vec<RepositoryFo
                 agent_type: row.get(3)?,
                 status: row.get(4)?,
                 unread_count: row.get(5)?,
-                pinned_at: row.get(6)?,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
-                last_user_message_at: row.get(9)?,
+                needs_plan_implementation: row.get::<_, i64>(6)? != 0,
+                pinned_at: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+                last_user_message_at: row.get(10)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -1384,6 +1422,91 @@ mod tests {
 
         assert_eq!(folder.chats.len(), 1);
         assert_eq!(folder.chats[0].session_id, "s-started");
+    }
+
+    #[test]
+    fn repository_folders_mark_unresolved_plan_reviews() {
+        let env = TestEnv::new("folders-unresolved-plan-review");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        conn.execute(
+            r#"
+            INSERT INTO workspaces (
+              id,
+              repository_id,
+              directory_name,
+              state,
+              status,
+              kind,
+              branch
+            ) VALUES ('w-project', 'r1', '', 'ready', 'in-progress', 'project', 'main')
+            "#,
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO sessions (id, workspace_id, status, title)
+            VALUES
+              ('s-needs-implementation', 'w-project', 'idle', 'Needs implementation'),
+              ('s-codex-plan', 'w-project', 'idle', 'Codex plan'),
+              ('s-accepted', 'w-project', 'idle', 'Accepted'),
+              ('s-normal-assistant', 'w-project', 'idle', 'Normal assistant')
+            "#,
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO session_messages (id, session_id, role, content, sent_at)
+            VALUES
+              ('m-needs-user', 's-needs-implementation', 'user', '{"type":"user_prompt","text":"plan it"}', '2026-04-30T00:00:00Z'),
+              ('m-needs-plan', 's-needs-implementation', 'assistant', '{"type":"exit_plan_mode","toolUseId":"plan-1","toolName":"ExitPlanMode","plan":"do it"}', '2026-04-30T00:01:00Z'),
+              ('m-needs-synthetic-user', 's-needs-implementation', 'user', '{"type":"user","message":{"content":[{"type":"tool_result","content":"Plan captured by the client."}],"role":"user"}}', '2026-04-30T00:02:00Z'),
+              ('m-codex-user', 's-codex-plan', 'user', '{"type":"user_prompt","text":"plan it"}', '2026-04-30T00:00:00Z'),
+              ('m-codex-plan', 's-codex-plan', 'assistant', '{"type":"item.completed","item":{"type":"plan","id":"plan-1","text":"do it"}}', '2026-04-30T00:01:00Z'),
+              ('m-accepted-user', 's-accepted', 'user', '{"type":"user_prompt","text":"plan it"}', '2026-04-30T00:00:00Z'),
+              ('m-accepted-plan', 's-accepted', 'assistant', '[{"type":"plan-review","toolUseId":"plan-2","toolName":"ExitPlanMode"}]', '2026-04-30T00:01:00Z'),
+              ('m-accepted-go', 's-accepted', 'user', '{"type":"user_prompt","text":"Go ahead with the plan."}', '2026-04-30T00:02:00Z'),
+              ('m-normal-user', 's-normal-assistant', 'user', '{"type":"user_prompt","text":"hello"}', '2026-04-30T00:00:00Z'),
+              ('m-normal-assistant', 's-normal-assistant', 'assistant', '{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}', '2026-04-30T00:01:00Z')
+            "#,
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let folders = list_repository_folders().unwrap();
+        let folder = folders
+            .iter()
+            .find(|folder| folder.repo_id == "r1")
+            .unwrap();
+
+        let needs_implementation = folder
+            .chats
+            .iter()
+            .find(|chat| chat.session_id == "s-needs-implementation")
+            .unwrap();
+        let accepted = folder
+            .chats
+            .iter()
+            .find(|chat| chat.session_id == "s-accepted")
+            .unwrap();
+        let codex_plan = folder
+            .chats
+            .iter()
+            .find(|chat| chat.session_id == "s-codex-plan")
+            .unwrap();
+        let normal_assistant = folder
+            .chats
+            .iter()
+            .find(|chat| chat.session_id == "s-normal-assistant")
+            .unwrap();
+
+        assert!(needs_implementation.needs_plan_implementation);
+        assert!(codex_plan.needs_plan_implementation);
+        assert!(!accepted.needs_plan_implementation);
+        assert!(!normal_assistant.needs_plan_implementation);
     }
 
     #[test]
