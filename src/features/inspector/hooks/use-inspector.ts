@@ -21,11 +21,18 @@ import {
 import { getScriptState, startScript, stopScript } from "../script-store";
 
 const DEFAULT_CHANGES_RATIO = 0.6;
+const DEFAULT_ACTIONS_HEIGHT = 180;
 const CHANGES_HEIGHT_VAR = "--pathos-inspector-changes-height";
+const ACTIONS_HEIGHT_VAR = "--pathos-inspector-actions-height";
+
+export type InspectorResizeTarget = "changes" | "actions";
+export type InspectorResizeEdge = "end" | "start";
 
 type ResizeState = {
 	pointerY: number;
-	initialChangesHeight: number;
+	target: InspectorResizeTarget;
+	edge: InspectorResizeEdge;
+	initialHeight: number;
 };
 
 type UseWorkspaceInspectorSidebarArgs = {
@@ -42,6 +49,7 @@ export function useWorkspaceInspectorSidebar({
 	const [tabsOpen, setTabsOpen] = useState(false);
 	const [activeTab, setActiveTab] = useState("setup");
 	const [changesHeight, setChangesHeight] = useState(0);
+	const [actionsHeight, setActionsHeight] = useState(DEFAULT_ACTIONS_HEIGHT);
 	const [resizeState, setResizeState] = useState<ResizeState | null>(null);
 
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -51,13 +59,20 @@ export function useWorkspaceInspectorSidebar({
 		containerRef.current?.style.setProperty(CHANGES_HEIGHT_VAR, `${height}px`);
 	}, []);
 
+	const applyActionsHeight = useCallback((height: number) => {
+		containerRef.current?.style.setProperty(ACTIONS_HEIGHT_VAR, `${height}px`);
+	}, []);
+
 	useEffect(() => {
 		const element = containerRef.current;
 		if (!element || changesHeight > 0) {
 			return;
 		}
 
-		const overhead = 36 * 2 + 8;
+		// Account for: 3 section headers (32px each) + actions body + tabs body
+		// + the section borders. 36 * 2 was the legacy estimate; bumping to
+		// 36 * 3 covers the new ActionsSection header.
+		const overhead = 36 * 3 + 8 + actionsHeight;
 		const available = Math.max(0, element.clientHeight - overhead);
 		const resizableAvailable = Math.max(MIN_SECTION_HEIGHT, available);
 		const nextHeight = Math.round(
@@ -68,13 +83,17 @@ export function useWorkspaceInspectorSidebar({
 		);
 		applyChangesHeight(nextHeight);
 		setChangesHeight(nextHeight);
-	}, [applyChangesHeight, changesHeight]);
+	}, [applyChangesHeight, changesHeight, actionsHeight]);
 
 	useEffect(() => {
 		if (changesHeight > 0) {
 			applyChangesHeight(changesHeight);
 		}
 	}, [applyChangesHeight, changesHeight]);
+
+	useEffect(() => {
+		applyActionsHeight(actionsHeight);
+	}, [applyActionsHeight, actionsHeight]);
 
 	const repoScriptsQuery = useQuery({
 		queryKey: ["repoScripts", repoId, workspaceId],
@@ -105,7 +124,8 @@ export function useWorkspaceInspectorSidebar({
 	}, [repoId, workspaceId, repoScripts]);
 
 	const isResizing = resizeState !== null;
-	const isTabsResizing = resizeState !== null;
+	const isChangesResizing = resizeState?.target === "changes";
+	const isActionsResizing = resizeState?.target === "actions";
 
 	const changesQuery = useQuery({
 		...workspaceChangesQueryOptions(workspaceRootPath ?? ""),
@@ -212,19 +232,26 @@ export function useWorkspaceInspectorSidebar({
 			return;
 		}
 
-		let pendingChanges = resizeState.initialChangesHeight;
+		let pendingHeight = resizeState.initialHeight;
 		let animationFrameId: number | null = null;
 		const releaseTerminalFit = suspendTerminalFit();
+		const apply =
+			resizeState.target === "changes"
+				? applyChangesHeight
+				: applyActionsHeight;
+		const commit =
+			resizeState.target === "changes" ? setChangesHeight : setActionsHeight;
 		const flush = () => {
 			animationFrameId = null;
-			applyChangesHeight(pendingChanges);
+			apply(pendingHeight);
 		};
 
 		const handleMouseMove = (event: globalThis.MouseEvent) => {
-			const deltaY = event.clientY - resizeState.pointerY;
-			pendingChanges = Math.max(
+			const direction = resizeState.edge === "start" ? -1 : 1;
+			const deltaY = (event.clientY - resizeState.pointerY) * direction;
+			pendingHeight = Math.max(
 				MIN_SECTION_HEIGHT,
-				resizeState.initialChangesHeight + deltaY,
+				resizeState.initialHeight + deltaY,
 			);
 
 			if (animationFrameId === null) {
@@ -238,7 +265,7 @@ export function useWorkspaceInspectorSidebar({
 				animationFrameId = null;
 			}
 			flush();
-			setChangesHeight(pendingChanges);
+			commit(pendingHeight);
 			setResizeState(null);
 		};
 
@@ -263,26 +290,34 @@ export function useWorkspaceInspectorSidebar({
 	}, [resizeState]);
 
 	const handleResizeStart = useCallback(
-		() => (event: ReactMouseEvent<HTMLDivElement>) => {
-			event.preventDefault();
-			setResizeState({
-				pointerY: event.clientY,
-				initialChangesHeight: changesHeight,
-			});
-		},
-		[changesHeight],
+		(
+			target: InspectorResizeTarget = "changes",
+			edge: InspectorResizeEdge = "end",
+		) =>
+			(event: ReactMouseEvent<HTMLElement>) => {
+				event.preventDefault();
+				setResizeState({
+					pointerY: event.clientY,
+					target,
+					edge,
+					initialHeight: target === "changes" ? changesHeight : actionsHeight,
+				});
+			},
+		[changesHeight, actionsHeight],
 	);
 
 	return {
 		activeTab,
+		actionsHeight,
 		changes,
 		changesHeight,
 		containerRef,
 		flashingPaths,
 		handleResizeStart,
 		handleToggleTabs,
+		isActionsResizing,
+		isChangesResizing,
 		isResizing,
-		isTabsResizing,
 		repoScripts,
 		scriptsLoaded,
 		setActiveTab,

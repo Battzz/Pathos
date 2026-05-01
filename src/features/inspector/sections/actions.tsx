@@ -139,6 +139,8 @@ type ActionsSectionProps = WorkspaceActionsProps & {
 	sectionRef?: React.RefObject<HTMLElement | null>;
 	bodyHeight: number;
 	expanded: boolean;
+	onHeaderMouseDown?: (event: React.MouseEvent<HTMLElement>) => void;
+	headerResizeActive?: boolean;
 };
 
 function buildSyncResolutionPrompt(
@@ -197,6 +199,8 @@ export function ActionsSection({
 	sectionRef,
 	bodyHeight,
 	expanded,
+	onHeaderMouseDown,
+	headerResizeActive = false,
 	onCommitAction,
 	currentSessionId,
 	onQueuePendingPromptForSession,
@@ -231,8 +235,28 @@ export function ActionsSection({
 				expanded && "flex-1",
 			)}
 		>
-			<div className={INSPECTOR_SECTION_HEADER_CLASS}>
-				<span className={INSPECTOR_SECTION_TITLE_CLASS}>Actions</span>
+			<div
+				aria-label={onHeaderMouseDown ? "Resize actions panel" : undefined}
+				aria-orientation={onHeaderMouseDown ? "horizontal" : undefined}
+				aria-valuenow={onHeaderMouseDown ? bodyHeight : undefined}
+				role={onHeaderMouseDown ? "separator" : undefined}
+				onMouseDown={onHeaderMouseDown}
+				className={cn(
+					INSPECTOR_SECTION_HEADER_CLASS,
+					onHeaderMouseDown &&
+						"cursor-ns-resize touch-none select-none hover:bg-muted/35",
+					headerResizeActive && "bg-muted/40",
+				)}
+			>
+				<div className="flex h-full min-w-0 flex-1 items-center justify-start gap-1.5 text-left">
+					<ListChecksIcon
+						className="size-3.5 shrink-0 text-muted-foreground"
+						strokeWidth={1.8}
+					/>
+					<span className={cn(INSPECTOR_SECTION_TITLE_CLASS, "truncate")}>
+						Actions
+					</span>
+				</div>
 			</div>
 
 			<ScrollArea
@@ -241,7 +265,13 @@ export function ActionsSection({
 					"min-h-0 bg-muted/18 text-[11.5px]",
 					expanded && "flex-1",
 				)}
-				style={expanded ? undefined : { height: `${bodyHeight}px` }}
+				style={
+					expanded
+						? undefined
+						: {
+								height: `var(--pathos-inspector-actions-height, ${bodyHeight}px)`,
+							}
+				}
 			>
 				<ActionsRows model={model} bottomSpacerHeight={bottomSpacerHeight} />
 			</ScrollArea>

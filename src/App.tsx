@@ -36,7 +36,6 @@ import { useDockUnreadBadge } from "@/features/dock-badge";
 import { WorkspaceEditorSurface } from "@/features/editor";
 import { WorkspaceInspectorSidebar } from "@/features/inspector";
 import { DiffStatsBadge } from "@/features/inspector/diff-stats-badge";
-import { ActionsMenu } from "@/features/inspector/sections/actions";
 import { WorkspacesSidebarContainer } from "@/features/navigation/container";
 import { AppOnboarding } from "@/features/onboarding";
 import { seedNewSessionInCache } from "@/features/panel/session-cache";
@@ -2596,37 +2595,6 @@ function AppShell({
 													headerActions={
 														selectedWorkspaceId && displayedSessionId ? (
 															<div className="flex items-center gap-1">
-																<ActionsMenu
-																	workspaceId={selectedWorkspaceId}
-																	workspaceState={
-																		selectedWorkspaceDetailQuery.data?.state ??
-																		null
-																	}
-																	repoId={
-																		selectedWorkspaceDetailQuery.data?.repoId ??
-																		null
-																	}
-																	workspaceBranch={
-																		selectedWorkspaceDetailQuery.data?.branch ??
-																		null
-																	}
-																	workspaceDefaultBranch={
-																		selectedWorkspaceDetailQuery.data
-																			?.defaultBranch ?? null
-																	}
-																	workspaceRemote={
-																		selectedWorkspaceDetailQuery.data?.remote ??
-																		null
-																	}
-																	onCommitAction={handleInspectorCommitAction}
-																	currentSessionId={displayedSessionId}
-																	onQueuePendingPromptForSession={
-																		queuePendingPromptForSession
-																	}
-																	commitButtonMode={commitButtonMode}
-																	commitButtonState={commitButtonState}
-																	changeRequest={workspaceChangeRequest}
-																/>
 																{installedEditors.length > 0 &&
 																preferredEditor ? (
 																	<div className="flex items-center">
@@ -2751,7 +2719,7 @@ function AppShell({
 																			}
 																			variant="ghost"
 																			size="sm"
-																			className="h-7 rounded-full border border-border/70 bg-muted/45 px-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+																			className="h-7 border-transparent bg-transparent px-1.5 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
 																		>
 																			<span className="inline-flex h-5 items-center gap-1.5 rounded-full px-1.5">
 																				<DiffStatsBadge
@@ -2845,6 +2813,10 @@ function AppShell({
 													workspaceBranch={
 														selectedWorkspaceDetailQuery.data?.branch ?? null
 													}
+													workspaceDefaultBranch={
+														selectedWorkspaceDetailQuery.data?.defaultBranch ??
+														null
+													}
 													workspaceRemote={
 														selectedWorkspaceDetailQuery.data?.remote ?? null
 													}
@@ -2860,6 +2832,10 @@ function AppShell({
 													activeEditorPath={editorSession?.path ?? null}
 													onOpenEditorFile={handleOpenEditorFile}
 													onCommitAction={handleInspectorCommitAction}
+													currentSessionId={displayedSessionId}
+													onQueuePendingPromptForSession={
+														queuePendingPromptForSession
+													}
 													commitButtonMode={commitButtonMode}
 													commitButtonState={commitButtonState}
 													changeRequest={workspaceChangeRequest}

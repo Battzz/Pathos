@@ -75,35 +75,18 @@ function renderInspector(
 	props: Partial<ComponentProps<typeof WorkspaceInspectorSidebar>> = {},
 ) {
 	return renderWithProviders(
-		<>
-			<ActionsSection
-				workspaceId={props.workspaceId ?? "workspace-1"}
-				workspaceState={props.workspaceState}
-				repoId={props.repoId}
-				workspaceBranch={props.workspaceBranch ?? "feature/actions"}
-				workspaceDefaultBranch={props.workspaceTargetBranch ?? "main"}
-				workspaceRemote={props.workspaceRemote ?? "testuser"}
-				bodyHeight={180}
-				expanded={false}
-				onCommitAction={props.onCommitAction}
-				currentSessionId={props.currentSessionId ?? "session-1"}
-				onQueuePendingPromptForSession={props.onQueuePendingPromptForSession}
-				commitButtonMode={props.commitButtonMode}
-				commitButtonState={props.commitButtonState}
-				changeRequest={props.changeRequest ?? null}
-			/>
-			<WorkspaceInspectorSidebar
-				workspaceId="workspace-1"
-				workspaceRootPath="/tmp/workspace"
-				workspaceBranch="feature/actions"
-				workspaceTargetBranch="main"
-				workspaceRemote="testuser"
-				editorMode={false}
-				onOpenEditorFile={vi.fn()}
-				currentSessionId="session-1"
-				{...props}
-			/>
-		</>,
+		<WorkspaceInspectorSidebar
+			workspaceId="workspace-1"
+			workspaceRootPath="/tmp/workspace"
+			workspaceBranch="feature/actions"
+			workspaceDefaultBranch="main"
+			workspaceTargetBranch="main"
+			workspaceRemote="testuser"
+			editorMode={false}
+			onOpenEditorFile={vi.fn()}
+			currentSessionId="session-1"
+			{...props}
+		/>,
 	);
 }
 
@@ -245,7 +228,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		).toBeInTheDocument();
 	});
 
-	it("resizes the tabs panel through a CSS variable during drag", async () => {
+	it("resizes the changes panel through a CSS variable during drag", async () => {
 		const originalRequestAnimationFrame = window.requestAnimationFrame;
 		const originalCancelAnimationFrame = window.cancelAnimationFrame;
 		window.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
@@ -270,7 +253,10 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 				10,
 			);
 
-			fireEvent.mouseDown(screen.getByRole("separator"), {
+			// With both Changes and Actions resize handles visible when tabs
+			// are open, the first separator is the changes/actions divider.
+			const [changesSeparator] = screen.getAllByRole("separator");
+			fireEvent.mouseDown(changesSeparator, {
 				clientY: 100,
 			});
 			fireEvent.mouseMove(window, { clientY: 150 });
@@ -283,6 +269,51 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 			expect(
 				inspector.style.getPropertyValue("--pathos-inspector-changes-height"),
 			).toBe(`${initialHeight + 50}px`);
+		} finally {
+			window.requestAnimationFrame = originalRequestAnimationFrame;
+			window.cancelAnimationFrame = originalCancelAnimationFrame;
+		}
+	});
+
+	it("resizes the actions panel from the Actions header during drag", async () => {
+		const originalRequestAnimationFrame = window.requestAnimationFrame;
+		const originalCancelAnimationFrame = window.cancelAnimationFrame;
+		window.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+			callback(0);
+			return 1;
+		});
+		window.cancelAnimationFrame = vi.fn();
+
+		try {
+			renderInspector();
+
+			await screen.findByText("No uncommitted changes");
+
+			const inspector = screen.getByLabelText("Inspector section Changes")
+				.parentElement as HTMLElement;
+			const initialHeight = Number.parseInt(
+				inspector.style.getPropertyValue("--pathos-inspector-actions-height"),
+				10,
+			);
+			const actionsBody = screen.getByLabelText("Actions panel body");
+			expect(actionsBody).toHaveStyle({
+				height: `var(--pathos-inspector-actions-height, ${initialHeight}px)`,
+			});
+
+			fireEvent.mouseDown(
+				screen.getByRole("separator", { name: "Resize actions panel" }),
+				{ clientY: 100 },
+			);
+			fireEvent.mouseMove(window, { clientY: 70 });
+
+			expect(
+				inspector.style.getPropertyValue("--pathos-inspector-actions-height"),
+			).toBe(`${initialHeight + 30}px`);
+
+			fireEvent.mouseUp(window);
+			expect(
+				inspector.style.getPropertyValue("--pathos-inspector-actions-height"),
+			).toBe(`${initialHeight + 30}px`);
 		} finally {
 			window.requestAnimationFrame = originalRequestAnimationFrame;
 			window.cancelAnimationFrame = originalCancelAnimationFrame;

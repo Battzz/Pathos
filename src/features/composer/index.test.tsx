@@ -1661,4 +1661,37 @@ describe("WorkspaceComposer", () => {
 		await userEvent.click(planButton);
 		expect(onChangePermissionMode).toHaveBeenCalledWith("bypassPermissions");
 	});
+
+	it("renders active plan mode in monochrome green", () => {
+		const queryClient = createPathosQueryClient();
+
+		render(
+			<QueryClientProvider client={queryClient}>
+				<WorkspaceComposer
+					contextKey="session:session-1"
+					onSubmit={vi.fn()}
+					disabled={false}
+					submitDisabled={false}
+					sending={false}
+					selectedModelId="opus-1m"
+					modelSections={MODEL_SECTIONS}
+					onSelectModel={vi.fn()}
+					provider="claude"
+					effortLevel="high"
+					onSelectEffort={vi.fn()}
+					permissionMode="plan"
+					onChangePermissionMode={vi.fn()}
+					restoreImages={[]}
+					restoreFiles={[]}
+					restoreCustomTags={[]}
+				/>
+			</QueryClientProvider>,
+		);
+
+		const planButton = screen.getByRole("button", { name: "Plan mode" });
+		expect(planButton).toHaveClass(
+			"text-emerald-500",
+			"hover:text-emerald-500",
+		);
+	});
 });

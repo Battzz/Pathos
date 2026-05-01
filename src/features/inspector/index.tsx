@@ -16,6 +16,7 @@ import { useScriptStatus } from "./hooks/use-script-status";
 import { useSetupAutoRun } from "./hooks/use-setup-auto-run";
 import { HorizontalResizeHandle, InspectorTabsSection } from "./layout";
 import type { ScriptStatus } from "./script-store";
+import { ActionsSection } from "./sections/actions";
 import { ChangesSection } from "./sections/changes";
 import { OpenDevServerButton, RunTab } from "./sections/run";
 import { SetupTab } from "./sections/setup";
@@ -33,6 +34,7 @@ type WorkspaceInspectorSidebarProps = {
 	repoId?: string | null;
 	workspaceRootPath?: string | null;
 	workspaceBranch?: string | null;
+	workspaceDefaultBranch?: string | null;
 	workspaceTargetBranch?: string | null;
 	workspaceRemote?: string | null;
 	workspaceState?: string | null;
@@ -63,6 +65,8 @@ type WorkspaceInspectorSidebarProps = {
 export function WorkspaceInspectorSidebar({
 	workspaceId,
 	workspaceRootPath,
+	workspaceBranch,
+	workspaceDefaultBranch,
 	workspaceTargetBranch,
 	workspaceRemote,
 	workspaceState,
@@ -71,6 +75,8 @@ export function WorkspaceInspectorSidebar({
 	activeEditorPath,
 	onOpenEditorFile,
 	onCommitAction,
+	currentSessionId,
+	onQueuePendingPromptForSession,
 	commitButtonMode,
 	commitButtonState,
 	changeRequest,
@@ -79,14 +85,16 @@ export function WorkspaceInspectorSidebar({
 }: WorkspaceInspectorSidebarProps) {
 	const {
 		activeTab,
+		actionsHeight,
 		changes,
 		changesHeight,
 		containerRef,
 		flashingPaths,
 		handleResizeStart,
 		handleToggleTabs,
+		isActionsResizing,
+		isChangesResizing,
 		isResizing,
-		isTabsResizing,
 		repoScripts,
 		scriptsLoaded,
 		setActiveTab,
@@ -366,10 +374,34 @@ export function WorkspaceInspectorSidebar({
 
 			{tabsOpen && (
 				<HorizontalResizeHandle
-					onMouseDown={handleResizeStart()}
-					isActive={isTabsResizing}
+					onMouseDown={handleResizeStart("changes")}
+					isActive={isChangesResizing}
 				/>
 			)}
+
+			<ActionsSection
+				workspaceId={workspaceId ?? null}
+				workspaceState={workspaceState ?? null}
+				repoId={repoId ?? null}
+				workspaceBranch={workspaceBranch ?? null}
+				workspaceDefaultBranch={workspaceDefaultBranch ?? null}
+				workspaceRemote={workspaceRemote ?? null}
+				bodyHeight={actionsHeight}
+				expanded={false}
+				onHeaderMouseDown={handleResizeStart("actions", "start")}
+				headerResizeActive={isActionsResizing}
+				onCommitAction={onCommitAction}
+				currentSessionId={currentSessionId ?? null}
+				onQueuePendingPromptForSession={onQueuePendingPromptForSession}
+				commitButtonMode={commitButtonMode}
+				commitButtonState={commitButtonState}
+				changeRequest={changeRequest ?? null}
+			/>
+
+			<HorizontalResizeHandle
+				onMouseDown={handleResizeStart("actions")}
+				isActive={isActionsResizing}
+			/>
 
 			<InspectorTabsSection
 				wrapperRef={tabsWrapperRef}
