@@ -5,7 +5,6 @@ import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { ActionRow, ActionRowButton } from "@/components/action-row";
 import { ShimmerText } from "@/components/ui/shimmer-text";
-import { ShineBorder } from "@/components/ui/shine-border";
 import type { PendingDeferredTool } from "@/features/conversation/pending-deferred-tool";
 import type { PendingElicitation } from "@/features/conversation/pending-elicitation";
 import {
@@ -808,65 +807,54 @@ export const WorkspaceComposerContainer = memo(
 			// inside a stacking context whose outer z defaults to `auto`.
 			<div className="relative isolate z-20 flex flex-col">
 				{isActionSession ? (
-					<ActionRow
-						className={cn(
-							"relative z-0 -mb-px w-full rounded-t-2xl border-b-0",
-							autoCloseEnabled ? "border-transparent" : "border-secondary/80",
-						)}
-						overlay={
-							autoCloseEnabled ? (
-								<>
-									<ShineBorder
-										borderWidth={1}
-										duration={8}
-										shineColor="var(--primary)"
-									/>
-									<div className="pointer-events-none absolute inset-x-px bottom-0 z-[1] h-[2px] bg-background" />
-								</>
-							) : null
-						}
-						leading={
-							sending ? (
-								<ShimmerText
-									durationMs={1900}
-									className="truncate text-[12px] font-medium tracking-[0.02em] text-muted-foreground"
+					<div className="pointer-events-auto relative z-20 -mb-px w-full overflow-hidden rounded-t-2xl border border-b-0 border-border/40 bg-sidebar">
+						<ActionRow
+							className="border-0 bg-transparent px-3 pb-1 pt-1.5"
+							leading={
+								sending ? (
+									<ShimmerText
+										durationMs={1900}
+										className="truncate text-[12px] font-medium tracking-[0.02em] text-muted-foreground"
+									>
+										Working...
+									</ShimmerText>
+								) : (
+									<>
+										<CircleAlert
+											className="size-3.5 shrink-0 text-muted-foreground/60"
+											strokeWidth={1.8}
+											aria-hidden="true"
+										/>
+										<span className="truncate text-[12px] font-medium tracking-[0.01em] text-muted-foreground">
+											{autoCloseHelpText}
+										</span>
+									</>
+								)
+							}
+							trailing={
+								<ActionRowButton
+									active={autoCloseEnabled}
+									aria-label={
+										autoCloseEnabled
+											? "Disable Auto Close"
+											: "Enable Auto Close"
+									}
+									disabled={composerUnavailable}
+									onClick={() => {
+										void handleToggleAutoClose();
+									}}
 								>
-									Working...
-								</ShimmerText>
-							) : (
-								<>
-									<CircleAlert
-										className="size-3.5 shrink-0 text-muted-foreground/60"
+									<TimerReset
+										className="size-[13px] shrink-0"
 										strokeWidth={1.8}
-										aria-hidden="true"
 									/>
-									<span className="truncate text-[12px] font-medium tracking-[0.01em] text-muted-foreground">
-										{autoCloseHelpText}
+									<span className="inline-flex items-center">
+										{autoCloseEnabled ? "Auto Close On" : "Enable Auto Close"}
 									</span>
-								</>
-							)
-						}
-						trailing={
-							<ActionRowButton
-								active={autoCloseEnabled}
-								aria-label={
-									autoCloseEnabled ? "Disable Auto Close" : "Enable Auto Close"
-								}
-								disabled={composerUnavailable}
-								onClick={() => {
-									void handleToggleAutoClose();
-								}}
-							>
-								<TimerReset
-									className="size-[13px] shrink-0"
-									strokeWidth={1.8}
-								/>
-								<span className="inline-flex items-center">
-									{autoCloseEnabled ? "Auto Close On" : "Enable Auto Close"}
-								</span>
-							</ActionRowButton>
-						}
-					/>
+								</ActionRowButton>
+							}
+						/>
+					</div>
 				) : null}
 
 				<div className="relative z-10">
