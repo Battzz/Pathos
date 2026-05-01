@@ -10,13 +10,9 @@ import { CommandPopoverContent } from "@/components/ui/command-popover";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-// Scoped thin scrollbar: 3px, sits in the right padding gap.
-// Uses high-specificity selector to override the global 8px scrollbar.
 const scrollbarStyle = `
-.branch-picker [data-slot="command-list"]::-webkit-scrollbar { width: 3px; background: transparent; }
-.branch-picker [data-slot="command-list"]::-webkit-scrollbar-track { background: transparent; }
-.branch-picker [data-slot="command-list"]::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in oklch, var(--foreground) 18%, transparent); }
-.branch-picker [data-slot="command-list"] { scrollbar-width: thin; }
+.branch-picker [data-slot="command-list"]::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.branch-picker [data-slot="command-list"] { scrollbar-width: none; -ms-overflow-style: none; }
 `;
 
 /**

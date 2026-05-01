@@ -179,4 +179,49 @@ describe("AssistantToolCall default-collapsed", () => {
 			screen.queryByText("File written successfully"),
 		).not.toBeInTheDocument();
 	});
+
+	it("syntax-highlights Edit hover previews using the target file extension", () => {
+		render(
+			<AssistantToolCall
+				toolName="Edit"
+				args={{
+					file_path: "/src/features/panel/tool-call.tsx",
+					old_string: "const oldValue = 1;\n",
+					new_string: "const newValue = 2;\n",
+				}}
+			/>,
+		);
+
+		fireEvent.mouseEnter(screen.getByText("tool-call.tsx"));
+
+		const codeBlocks = screen.getAllByTestId("code-block");
+		expect(codeBlocks).toHaveLength(2);
+		expect(codeBlocks[0]).toHaveAttribute("data-language", "tsx");
+		expect(codeBlocks[1]).toHaveAttribute("data-language", "tsx");
+		expect(codeBlocks[0]).toHaveTextContent("const oldValue");
+		expect(codeBlocks[1]).toHaveTextContent("const newValue");
+	});
+
+	it("syntax-highlights apply_patch hover previews as diffs", () => {
+		render(
+			<AssistantToolCall
+				toolName="apply_patch"
+				args={{
+					changes: [
+						{
+							path: "/src/features/panel/tool-call.tsx",
+							diff: "@@ -1,1 +1,1 @@\n-const oldValue = 1;\n+const newValue = 2;",
+						},
+					],
+				}}
+				result="Patch applied"
+			/>,
+		);
+
+		fireEvent.mouseEnter(screen.getByText("tool-call.tsx"));
+
+		const codeBlock = screen.getByTestId("code-block");
+		expect(codeBlock).toHaveAttribute("data-language", "diff");
+		expect(codeBlock).toHaveTextContent("const newValue");
+	});
 });

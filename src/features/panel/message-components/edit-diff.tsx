@@ -1,7 +1,9 @@
 import { type ReactNode, useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { CodeBlock } from "@/components/ai/code-block";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { inferLanguageFromPath } from "./code-language";
 
 export function EditDiffTrigger({
 	file,
@@ -25,6 +27,7 @@ export function EditDiffTrigger({
 	const triggerRef = useRef<HTMLSpanElement>(null);
 	const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+	const language = inferLanguageFromPath(file);
 
 	const show = useCallback(() => {
 		if (hideTimer.current) {
@@ -83,105 +86,60 @@ export function EditDiffTrigger({
 							<div className="border-b border-border/50 px-3 py-1.5 text-[11px] text-muted-foreground">
 								{file}
 							</div>
-							<div className="max-h-[24rem] overflow-auto font-mono text-[11px] leading-5">
-								{oldStr
-									? oldStr.split("\n").map((line, index) => (
-											<div
-												key={`d${index}`}
-												className="flex whitespace-pre-wrap bg-destructive/10"
-											>
-												<span className="w-8 shrink-0 select-none border-r border-border/20 pr-1 text-right text-destructive/40">
-													{index + 1}
-												</span>
-												<span className="w-4 shrink-0 select-none text-center text-destructive/60">
-													-
-												</span>
-												<span className="min-w-0 text-destructive/80">
-													{line}
-												</span>
-											</div>
-										))
-									: null}
+							<div className="max-h-[24rem] overflow-auto">
+								{oldStr ? (
+									<DiffPreviewBlock
+										code={oldStr}
+										language={language}
+										tone="delete"
+									/>
+								) : null}
 								{oldStr && newStr ? (
 									<Separator className="my-0.5 bg-border/30" />
 								) : null}
-								{newStr
-									? newStr.split("\n").map((line, index) => (
-											<div
-												key={`a${index}`}
-												className="flex whitespace-pre-wrap bg-chart-2/10"
-											>
-												<span className="w-8 shrink-0 select-none border-r border-border/20 pr-1 text-right text-chart-2/50">
-													{index + 1}
-												</span>
-												<span className="w-4 shrink-0 select-none text-center text-chart-2/70">
-													+
-												</span>
-												<span className="min-w-0 text-chart-2">{line}</span>
-											</div>
-										))
-									: null}
-								{!oldStr && !newStr && unifiedDiff
-									? unifiedDiff.split("\n").map((line, index) => {
-											const isAdd =
-												line.startsWith("+") && !line.startsWith("+++");
-											const isDel =
-												line.startsWith("-") && !line.startsWith("---");
-											const isHeader =
-												line.startsWith("@@") ||
-												line.startsWith("diff --git") ||
-												line.startsWith("index ") ||
-												line.startsWith("--- ") ||
-												line.startsWith("+++ ");
-											return (
-												<div
-													key={`u${index}`}
-													className={
-														isAdd
-															? "flex whitespace-pre-wrap bg-chart-2/10"
-															: isDel
-																? "flex whitespace-pre-wrap bg-destructive/10"
-																: isHeader
-																	? "flex whitespace-pre-wrap bg-accent/35"
-																	: "flex whitespace-pre-wrap"
-													}
-												>
-													<span className="w-8 shrink-0 select-none border-r border-border/20 pr-1 text-right text-muted-foreground/35">
-														{index + 1}
-													</span>
-													<span
-														className={
-															isAdd
-																? "w-4 shrink-0 select-none text-center text-chart-2/70"
-																: isDel
-																	? "w-4 shrink-0 select-none text-center text-destructive/60"
-																	: "w-4 shrink-0 select-none text-center text-muted-foreground/35"
-														}
-													>
-														{isAdd ? "+" : isDel ? "-" : ""}
-													</span>
-													<span
-														className={
-															isAdd
-																? "min-w-0 text-chart-2"
-																: isDel
-																	? "min-w-0 text-destructive/80"
-																	: isHeader
-																		? "min-w-0 text-muted-foreground"
-																		: "min-w-0 text-foreground/80"
-														}
-													>
-														{line}
-													</span>
-												</div>
-											);
-										})
-									: null}
+								{newStr ? (
+									<DiffPreviewBlock
+										code={newStr}
+										language={language}
+										tone="add"
+									/>
+								) : null}
+								{!oldStr && !newStr && unifiedDiff ? (
+									<CodeBlock
+										code={unifiedDiff}
+										language="diff"
+										variant="plain"
+										wrapLines
+										className="[&>div>div>pre]:text-[11px] [&>div>div>pre]:leading-5"
+									/>
+								) : null}
 							</div>
 						</div>,
 						document.body,
 					)
 				: null}
 		</>
+	);
+}
+
+function DiffPreviewBlock({
+	code,
+	language,
+	tone,
+}: {
+	code: string;
+	language: string | null;
+	tone: "add" | "delete";
+}) {
+	return (
+		<div className={cn(tone === "add" ? "bg-chart-2/10" : "bg-destructive/10")}>
+			<CodeBlock
+				code={code}
+				language={language ?? undefined}
+				variant="plain"
+				wrapLines
+				className="[&>div>div>pre]:text-[11px] [&>div>div>pre]:leading-5"
+			/>
+		</div>
 	);
 }

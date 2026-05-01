@@ -60,6 +60,26 @@ body {
 .conversation-scroll-viewport {
 	overscroll-behavior: none;
 	overflow-anchor: none;
+	/*
+	 * Smooth chat scrolling on Tauri's WKWebView:
+	 *   - `scroll-behavior: smooth` animates programmatic jumps (e.g. the
+	 *     scroll-to-bottom button) instead of snapping.
+	 *   - `will-change: scroll-position` + `transform: translateZ(0)` promote
+	 *     the viewport to its own compositor layer so wheel/trackpad scrolling
+	 *     is GPU-composited rather than repainted on the main thread. This is
+	 *     what removes the "steppy" feel on long threads where every scroll
+	 *     tick re-windows visible rows.
+	 *   - `contain: paint` scopes repaints to this subtree so absolute-
+	 *     positioned rows above/below the window can't dirty the rest of the
+	 *     app while scrolling.
+	 *   - `-webkit-overflow-scrolling: touch` keeps momentum scrolling on
+	 *     legacy WebKit paths.
+	 */
+	scroll-behavior: smooth;
+	will-change: scroll-position;
+	transform: translateZ(0);
+	contain: paint;
+	-webkit-overflow-scrolling: touch;
 }
 
 @keyframes pathos-logo-spin {
@@ -421,31 +441,6 @@ body {
 	margin-inline-start: 8px !important;
 }
 
-/*
- * Conversation scrollbar entry animation — fires once per app load.
- *
- * The chat <ScrollArea> uses `type="always"`, so the scrollbar is in the
- * tree from the very first frame. We hold it invisible briefly then fade it
- * in gently so the user doesn't see the thumb placed at a bogus size while
- * initial measured heights converge.
- *
- * Note: Phase 2 iter 8 (`09df3fd`) removed the `key={sessionId}` on
- * <ScrollArea>, so this animation no longer re-fires per session switch.
- */
-.conversation-scroll-area [data-slot="scroll-area-scrollbar"] {
-	animation: conversation-scrollbar-fade-in 300ms ease-out 400ms both;
-}
-
-@keyframes conversation-scrollbar-fade-in {
-	from {
-		opacity: 0;
-	}
-
-	to {
-		opacity: 1;
-	}
-}
-
 .conversation-thread-enter {
 	animation: conversation-fade-in 70ms ease-out;
 }
@@ -715,91 +710,27 @@ body {
 	}
 }
 
-/*
- * Global scrollbar styling lives in @layer utilities so that Tailwind v4
- * `@utility` classes such as `no-scrollbar` (from shadcn) can win via
- * specificity. Without the layer, these rules are unlayered and beat every
- * layered utility per CSS cascade spec (unlayered > layered), which silently
- * breaks `no-scrollbar` in production builds while still working in dev.
- */
 @layer utilities {
 	* {
-		scrollbar-width: thin;
-		scrollbar-color: color-mix(in oklch, var(--foreground) 12%, transparent)
-			transparent;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
 	}
 
 	*::-webkit-scrollbar {
-		width: 7px;
-		height: 7px;
-		background: transparent;
-		background-color: transparent;
-	}
-
-	*::-webkit-scrollbar-track,
-	*::-webkit-scrollbar-track-piece {
-		background: transparent !important;
-		background-color: transparent !important;
-		border: 0;
-		box-shadow: none;
-	}
-
-	*::-webkit-scrollbar-thumb {
-		border: 2px solid transparent;
-		border-radius: 999px;
-		background: transparent;
-		background-clip: padding-box;
-		transition:
-			background-color 320ms cubic-bezier(0.22, 1, 0.36, 1),
-			border-color 320ms cubic-bezier(0.22, 1, 0.36, 1);
-	}
-
-	/*
-	 * Overlay-style: thumb stays invisible until the user hovers the scrollable
-	 * region or actively scrolls. Keeps chat / sidebar / inspector chrome quiet
-	 * while still giving a clear, rounded indicator on interaction.
-	 */
-	*:hover::-webkit-scrollbar-thumb,
-	*:focus-within::-webkit-scrollbar-thumb {
-		background: color-mix(in oklch, var(--foreground) 14%, transparent);
-		background-clip: padding-box;
-	}
-
-	*::-webkit-scrollbar-thumb:hover {
-		background: color-mix(
-			in oklch,
-			var(--foreground) 28%,
-			transparent
-		) !important;
-		background-clip: padding-box;
-	}
-
-	*::-webkit-scrollbar-thumb:active {
-		background: color-mix(
-			in oklch,
-			var(--foreground) 38%,
-			transparent
-		) !important;
-		background-clip: padding-box;
-	}
-
-	*::-webkit-scrollbar-corner,
-	*::-webkit-scrollbar-button {
-		background: transparent !important;
-		background-color: transparent !important;
 		display: none;
+		width: 0;
+		height: 0;
 	}
 }
 
-/* xterm: custom scrollbar shape to match app style */
-.xterm .xterm-scrollable-element > .scrollbar {
-	width: 8px !important;
+/* Hide custom scrollbars from Radix ScrollArea, xterm.js, and Monaco. */
+[data-slot="scroll-area-scrollbar"],
+.monaco-scrollable-element > .scrollbar {
+	display: none !important;
 }
 
-.xterm .xterm-scrollable-element > .scrollbar > .slider {
-	border-radius: 999px !important;
-	left: 2px !important;
-	width: calc(100% - 4px) !important;
+.xterm .xterm-scrollable-element > .scrollbar {
+	display: none !important;
 }
 
 .xterm .xterm-scrollable-element > .shadow.top {
@@ -1093,11 +1024,5 @@ body {
 		animation-iteration-count: 1 !important;
 		transition-duration: 0.01ms !important;
 		scroll-behavior: auto !important;
-	}
-
-	/* Skip the 1s delayed fade-in entirely so the conversation scrollbar
-	   does not appear to "blink in" for users who opt out of motion. */
-	.conversation-scroll-area [data-slot="scroll-area-scrollbar"] {
-		animation: none !important;
 	}
 }

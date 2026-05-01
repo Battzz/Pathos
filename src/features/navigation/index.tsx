@@ -300,7 +300,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 
 			<div
 				className={cn(
-					"scrollbar-stable min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]",
+					"scrollbar-stable min-h-0 flex-1 overflow-y-auto",
 					"pr-1 pl-2",
 				)}
 			>

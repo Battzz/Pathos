@@ -22,10 +22,8 @@ import type { WorkspaceBranches } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const scrollbarStyle = `
-.branch-switcher [data-slot="command-list"]::-webkit-scrollbar { width: 3px; background: transparent; }
-.branch-switcher [data-slot="command-list"]::-webkit-scrollbar-track { background: transparent; }
-.branch-switcher [data-slot="command-list"]::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in oklch, var(--foreground) 18%, transparent); }
-.branch-switcher [data-slot="command-list"] { scrollbar-width: thin; }
+.branch-switcher [data-slot="command-list"]::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.branch-switcher [data-slot="command-list"] { scrollbar-width: none; -ms-overflow-style: none; }
 `;
 
 export function BranchSwitcherPopover({
