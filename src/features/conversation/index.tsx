@@ -308,74 +308,74 @@ export const WorkspaceConversationContainer = memo(
 					workspaceRootPath,
 				}}
 			>
-				<WorkspacePanelContainer
-					selectedWorkspaceId={selectedWorkspaceId}
-					displayedWorkspaceId={displayedWorkspaceId}
-					selectedSessionId={selectedSessionId}
-					displayedSessionId={displayedSessionId}
-					sessionSelectionHistory={sessionSelectionHistory}
-					sending={isSending}
-					sendingSessionIds={sendingSessionIds}
-					interactionRequiredSessionIds={interactionRequiredSessionIds}
-					modelSelections={composerModelSelections}
-					workspaceChangeRequest={workspaceChangeRequest}
-					onSelectSession={onSelectSession}
-					onResolveDisplayedSession={onResolveDisplayedSession}
-					onQueuePendingPromptForSession={onQueuePendingPromptForSession}
-					onRequestCloseSession={onRequestCloseSession}
-					headerActions={headerActions}
-					headerLeading={headerLeading}
-					onCloneProject={requestCloneProject}
-					onOpenProject={requestOpenProject}
-				/>
+				<div className="relative flex min-h-0 flex-1 flex-col">
+					<WorkspacePanelContainer
+						selectedWorkspaceId={selectedWorkspaceId}
+						displayedWorkspaceId={displayedWorkspaceId}
+						selectedSessionId={selectedSessionId}
+						displayedSessionId={displayedSessionId}
+						sessionSelectionHistory={sessionSelectionHistory}
+						sending={isSending}
+						sendingSessionIds={sendingSessionIds}
+						interactionRequiredSessionIds={interactionRequiredSessionIds}
+						modelSelections={composerModelSelections}
+						workspaceChangeRequest={workspaceChangeRequest}
+						onSelectSession={onSelectSession}
+						onResolveDisplayedSession={onResolveDisplayedSession}
+						onQueuePendingPromptForSession={onQueuePendingPromptForSession}
+						onRequestCloseSession={onRequestCloseSession}
+						headerActions={headerActions}
+						headerLeading={headerLeading}
+						onCloneProject={requestCloneProject}
+						onOpenProject={requestOpenProject}
+					/>
 
-				{canCompose ? (
-					<div className="mt-auto px-4 pb-4 pt-0">
-						<div>
-							<WorkspaceComposerContainer
-								displayedWorkspaceId={displayedWorkspaceId}
-								displayedSessionId={displayedSessionId}
-								disabled={selectionPending}
-								sending={isSending}
-								sendError={activeSendError}
-								restoreDraft={restoreDraft}
-								restoreImages={restoreImages}
-								restoreFiles={restoreFiles}
-								restoreCustomTags={restoreCustomTags}
-								restoreNonce={restoreNonce}
-								pendingElicitation={pendingElicitation}
-								onElicitationResponse={handleElicitationResponse}
-								elicitationResponsePending={elicitationResponsePending}
-								pendingDeferredTool={effectivePendingDeferredTool}
-								onDeferredToolResponse={effectiveDeferredToolResponse}
-								hasPlanReview={hasPlanReview}
-								modelSelections={composerModelSelections}
-								effortLevels={composerEffortLevels}
-								permissionModes={composerPermissionModes}
-								fastModes={composerFastModes}
-								activeFastPreludes={activeFastPreludes}
-								onSelectModel={handleSelectModel}
-								onSelectEffort={handleSelectEffort}
-								onChangePermissionMode={handleChangePermissionMode}
-								onChangeFastMode={handleChangeFastMode}
-								onSwitchSession={onSelectSession}
-								onSubmit={handleComposerSubmitWrapper}
-								onStop={handleStopStream}
-								pendingPromptForSession={pendingPromptForSession}
-								onPendingPromptConsumed={onPendingPromptConsumed}
-								pendingInsertRequests={relevantPendingInsertRequests}
-								onPendingInsertRequestsConsumed={
-									onPendingInsertRequestsConsumed
-								}
-								queueItems={queueItems}
-								onSteerQueued={handleSteerQueued}
-								onRemoveQueued={handleRemoveQueued}
-							/>
+					{canCompose ? (
+						<div className="pointer-events-none absolute inset-x-0 bottom-5 z-30 px-4">
+							<div className="pointer-events-auto mx-auto w-full max-w-[1120px]">
+								<WorkspaceComposerContainer
+									displayedWorkspaceId={displayedWorkspaceId}
+									displayedSessionId={displayedSessionId}
+									disabled={selectionPending}
+									sending={isSending}
+									sendError={activeSendError}
+									restoreDraft={restoreDraft}
+									restoreImages={restoreImages}
+									restoreFiles={restoreFiles}
+									restoreCustomTags={restoreCustomTags}
+									restoreNonce={restoreNonce}
+									pendingElicitation={pendingElicitation}
+									onElicitationResponse={handleElicitationResponse}
+									elicitationResponsePending={elicitationResponsePending}
+									pendingDeferredTool={effectivePendingDeferredTool}
+									onDeferredToolResponse={effectiveDeferredToolResponse}
+									hasPlanReview={hasPlanReview}
+									modelSelections={composerModelSelections}
+									effortLevels={composerEffortLevels}
+									permissionModes={composerPermissionModes}
+									fastModes={composerFastModes}
+									activeFastPreludes={activeFastPreludes}
+									onSelectModel={handleSelectModel}
+									onSelectEffort={handleSelectEffort}
+									onChangePermissionMode={handleChangePermissionMode}
+									onChangeFastMode={handleChangeFastMode}
+									onSwitchSession={onSelectSession}
+									onSubmit={handleComposerSubmitWrapper}
+									onStop={handleStopStream}
+									pendingPromptForSession={pendingPromptForSession}
+									onPendingPromptConsumed={onPendingPromptConsumed}
+									pendingInsertRequests={relevantPendingInsertRequests}
+									onPendingInsertRequestsConsumed={
+										onPendingInsertRequestsConsumed
+									}
+									queueItems={queueItems}
+									onSteerQueued={handleSteerQueued}
+									onRemoveQueued={handleRemoveQueued}
+								/>
+							</div>
 						</div>
-					</div>
-				) : (
-					<div aria-hidden className="mt-auto h-[156px] shrink-0" />
-				)}
+					) : null}
+				</div>
 			</FileLinkProvider>
 		);
 	},

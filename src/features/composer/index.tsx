@@ -169,6 +169,8 @@ const noopDeferredToolResponse = (
 	_options?: DeferredToolResponseOptions,
 ) => {};
 const noopElicitationResponse: ElicitationResponseHandler = () => {};
+const COMPOSER_INPUT_MIN_HEIGHT = 32;
+const COMPOSER_INPUT_MAX_HEIGHT = 120;
 // ---------------------------------------------------------------------------
 // Lexical editor config (stable reference — defined outside component)
 // ---------------------------------------------------------------------------
@@ -691,7 +693,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 										aria-label="Workspace input"
 										aria-multiline
 										className={cn(
-											"composer-editor min-h-[64px] max-h-[240px] resize-none overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-[14px] leading-5 tracking-[-0.01em] text-foreground outline-none",
+											"composer-editor min-h-[32px] max-h-[120px] resize-none overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-[14px] leading-5 tracking-[-0.01em] text-foreground outline-none",
 											showFocusHint && "pr-14",
 										)}
 									/>
@@ -747,7 +749,10 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 						<CompositionGuardPlugin />
 						<PasteImagePlugin />
 						<DropFilePlugin />
-						<AutoResizePlugin minHeight={64} maxHeight={240} />
+						<AutoResizePlugin
+							minHeight={COMPOSER_INPUT_MIN_HEIGHT}
+							maxHeight={COMPOSER_INPUT_MAX_HEIGHT}
+						/>
 						<EditorRefPlugin editorRef={editorRef} />
 						<DraftPersistencePlugin
 							contextKey={contextKey}

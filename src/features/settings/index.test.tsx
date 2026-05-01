@@ -92,6 +92,27 @@ describe("SettingsDialog", () => {
 		expect(screen.getByText("Desktop Notifications")).toBeInTheDocument();
 	});
 
+	it("calls onClose from the close button", async () => {
+		const user = userEvent.setup();
+		const onClose = vi.fn();
+		render(
+			withProviders(
+				<SettingsDialog
+					open
+					workspaceId={null}
+					workspaceRepoId={null}
+					onClose={onClose}
+				/>,
+				createTestQueryClient(),
+				{ tooltip: false },
+			),
+		);
+
+		await user.click(screen.getByRole("button", { name: "Close" }));
+
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
 	it("does not leave an empty panel for an unavailable repository section", async () => {
 		renderWithProviders(
 			<SettingsDialog

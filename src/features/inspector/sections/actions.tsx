@@ -74,7 +74,6 @@ interface GitStatusItem {
 
 type ActionsNotification = {
 	label: string;
-	shortLabel: string;
 	rowKey: string;
 	tone: "commit" | "merge" | "pr" | "pull" | "push";
 };
@@ -286,17 +285,6 @@ export function ActionsMenu(props: WorkspaceActionsProps) {
 							) : (
 								<ListChecksIcon className="size-3.5" strokeWidth={1.8} />
 							)}
-							<span>Actions</span>
-							{notification ? (
-								<span
-									className={cn(
-										"max-w-[8.5rem] truncate rounded-sm px-1 text-[11px] font-medium transition-[max-width,background-color,color]",
-										getNotificationChipClassName(notification.tone),
-									)}
-								>
-									{notification.shortLabel}
-								</span>
-							) : null}
 							<ChevronDownIcon className="size-3" strokeWidth={2} />
 						</Button>
 					</DropdownMenuTrigger>
@@ -552,21 +540,6 @@ function getNotificationRowClassName(tone: ActionsNotification["tone"]) {
 			return "bg-violet-500/10 text-violet-500 hover:bg-violet-500/15";
 		case "merge":
 			return "bg-[var(--workspace-pr-open-accent)]/10 text-[var(--workspace-pr-open-accent)] hover:bg-[var(--workspace-pr-open-accent)]/15";
-	}
-}
-
-function getNotificationChipClassName(tone: ActionsNotification["tone"]) {
-	switch (tone) {
-		case "pull":
-			return "bg-amber-500/12 text-amber-500";
-		case "commit":
-			return "bg-sky-500/12 text-sky-500";
-		case "push":
-			return "bg-cyan-500/12 text-cyan-500";
-		case "pr":
-			return "bg-violet-500/12 text-violet-500";
-		case "merge":
-			return "bg-[var(--workspace-pr-open-accent)]/12 text-[var(--workspace-pr-open-accent)]";
 	}
 }
 
@@ -948,7 +921,6 @@ function getActionsNotification({
 	) {
 		return {
 			label: "Pull needed",
-			shortLabel: "Pull",
 			rowKey: "git:pull",
 			tone: "pull",
 		};
@@ -957,7 +929,6 @@ function getActionsNotification({
 	if (gitStatus.uncommittedCount > 0) {
 		return {
 			label: "Commit and push available",
-			shortLabel: "Commit & push",
 			rowKey: "git:commit-and-push",
 			tone: "commit",
 		};
@@ -969,7 +940,6 @@ function getActionsNotification({
 	) {
 		return {
 			label: "Push available",
-			shortLabel: "Push",
 			rowKey: "git:push",
 			tone: "push",
 		};
@@ -983,7 +953,6 @@ function getActionsNotification({
 	) {
 		return {
 			label: "Merge available",
-			shortLabel: "Merge",
 			rowKey: "primary:merge",
 			tone: "merge",
 		};
@@ -993,7 +962,6 @@ function getActionsNotification({
 	if (!busy && commitButtonMode === "open-pr") {
 		return {
 			label: `Open ${changeRequestName} available`,
-			shortLabel: `Open ${changeRequestName}`,
 			rowKey: "primary:open-pr",
 			tone: "pr",
 		};
@@ -1007,7 +975,6 @@ function getActionsNotification({
 	) {
 		return {
 			label: `Create ${changeRequestName} available`,
-			shortLabel: `Create ${changeRequestName}`,
 			rowKey: "primary:create-pr",
 			tone: "pr",
 		};
