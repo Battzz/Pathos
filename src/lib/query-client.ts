@@ -17,6 +17,7 @@ import {
 	getLiveContextUsage,
 	getSessionContextUsage,
 	getWorkspaceForge,
+	listGenericChats,
 	listRepositories,
 	listRepositoryFolders,
 	listSlashCommands,
@@ -50,6 +51,7 @@ const PERSIST_GC_TIME = 24 * 60 * 60_000; // 24h — persisted entries live this
 export const pathosQueryKeys = {
 	workspaceGroups: ["workspaceGroups"] as const,
 	repositoryFolders: ["repositoryFolders"] as const,
+	genericChats: ["genericChats"] as const,
 	archivedWorkspaces: ["archivedWorkspaces"] as const,
 	repositories: ["repositories"] as const,
 	agentModelSections: ["agentModelSections"] as const,
@@ -78,6 +80,8 @@ export const pathosQueryKeys = {
 		["workspaceChanges", workspaceRootPath] as const,
 	workspaceFiles: (workspaceRootPath: string) =>
 		["workspaceFiles", workspaceRootPath] as const,
+	workspaceFilesSearch: (workspaceRootPath: string, query: string) =>
+		["workspaceFiles", workspaceRootPath, query] as const,
 	workspaceChangeRequest: (workspaceId: string) =>
 		["workspaceChangeRequest", workspaceId] as const,
 	workspaceForge: (workspaceId: string) =>
@@ -197,6 +201,16 @@ export function repositoryFoldersQueryOptions() {
 	return queryOptions({
 		queryKey: pathosQueryKeys.repositoryFolders,
 		queryFn: listRepositoryFolders,
+		initialData: [],
+		initialDataUpdatedAt: 0,
+		staleTime: 0,
+	});
+}
+
+export function genericChatsQueryOptions() {
+	return queryOptions({
+		queryKey: pathosQueryKeys.genericChats,
+		queryFn: listGenericChats,
 		initialData: [],
 		initialDataUpdatedAt: 0,
 		staleTime: 0,
@@ -579,10 +593,13 @@ export function workspaceChangesQueryOptions(workspaceRootPath: string) {
  * walk is bounded but not free, and the file set rarely changes within
  * a single composer session.
  */
-export function workspaceFilesQueryOptions(workspaceRootPath: string) {
+export function workspaceFilesQueryOptions(
+	workspaceRootPath: string,
+	query = "",
+) {
 	return queryOptions({
-		queryKey: pathosQueryKeys.workspaceFiles(workspaceRootPath),
-		queryFn: () => listWorkspaceFiles(workspaceRootPath),
+		queryKey: pathosQueryKeys.workspaceFilesSearch(workspaceRootPath, query),
+		queryFn: () => listWorkspaceFiles(workspaceRootPath, query),
 		staleTime: 60_000,
 		gcTime: DEFAULT_GC_TIME,
 		retry: 0,

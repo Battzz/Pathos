@@ -183,4 +183,51 @@ describe("WorkspaceEditorSurface", () => {
 			expect(screen.getByText("No such file")).toBeInTheDocument();
 		});
 	});
+
+	it("previews image files without reading them as text", async () => {
+		const onChangeSpy = vi.fn();
+
+		render(
+			<TooltipProvider delayDuration={0}>
+				<EditorSurfaceHarness
+					initialSession={{
+						kind: "file",
+						path: "/tmp/pathos-workspace/assets/CleanShot.png",
+					}}
+					onChangeSpy={onChangeSpy}
+				/>
+			</TooltipProvider>,
+		);
+
+		const image = screen.getByRole("img", { name: "CleanShot.png" });
+
+		expect(image).toHaveAttribute(
+			"src",
+			"asset://localhost/tmp/pathos-workspace/assets/CleanShot.png",
+		);
+		expect(apiMocks.readEditorFile).not.toHaveBeenCalled();
+		expect(runtimeMocks.createFileEditor).not.toHaveBeenCalled();
+		expect(runtimeMocks.createDiffEditor).not.toHaveBeenCalled();
+	});
+
+	it("shows deleted image diffs as unavailable", () => {
+		const onChangeSpy = vi.fn();
+
+		render(
+			<TooltipProvider delayDuration={0}>
+				<EditorSurfaceHarness
+					initialSession={{
+						kind: "diff",
+						path: "/tmp/pathos-workspace/assets/removed.webp",
+						fileStatus: "D",
+					}}
+					onChangeSpy={onChangeSpy}
+				/>
+			</TooltipProvider>,
+		);
+
+		expect(screen.getByText("Image unavailable")).toBeInTheDocument();
+		expect(apiMocks.readEditorFile).not.toHaveBeenCalled();
+		expect(runtimeMocks.createDiffEditor).not.toHaveBeenCalled();
+	});
 });

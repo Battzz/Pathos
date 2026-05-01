@@ -1508,10 +1508,12 @@ export async function listEditorFiles(
  */
 export async function listWorkspaceFiles(
 	workspaceRootPath: string,
+	query?: string | null,
 ): Promise<InspectorFileItem[]> {
 	try {
 		return await invoke<InspectorFileItem[]>("list_workspace_files", {
 			workspaceRootPath,
+			query: query ?? null,
 		});
 	} catch (error) {
 		throw new Error(
@@ -1944,6 +1946,22 @@ export async function createChatSessionInRepo(
 		repoId,
 		permissionMode: options?.permissionMode ?? null,
 	});
+}
+
+export async function createGenericChatSession(options?: {
+	permissionMode?: string | null;
+}): Promise<CreateChatResponse> {
+	return invoke<CreateChatResponse>("create_generic_chat_session", {
+		permissionMode: options?.permissionMode ?? null,
+	});
+}
+
+export async function listGenericChats(): Promise<RepositoryFolderChat[]> {
+	try {
+		return await invoke<RepositoryFolderChat[]>("list_generic_chats");
+	} catch (error) {
+		throw new Error(describeInvokeError(error, "Unable to load chats."));
+	}
 }
 
 export async function markSessionRead(

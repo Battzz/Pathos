@@ -42,10 +42,12 @@ export const WorkspacesSidebarContainer = memo(
 	}: WorkspacesSidebarContainerProps) {
 		const {
 			folders,
+			genericChats,
 			addingRepository,
 			importingRepository,
 			recentlyAddedRepoId,
 			creatingChatRepoId,
+			creatingGenericChat,
 			isCloneDialogOpen,
 			setIsCloneDialogOpen,
 			cloneDefaultDirectory,
@@ -55,6 +57,7 @@ export const WorkspacesSidebarContainer = memo(
 			handleOpenCloneDialog,
 			handleCloneFromUrl,
 			handleCreateChat,
+			handleCreateGenericChat,
 			handleDeleteChat,
 			handleDeleteProjectChats,
 			handleToggleChatPin,
@@ -87,6 +90,7 @@ export const WorkspacesSidebarContainer = memo(
 		return (
 			<WorkspacesSidebar
 				folders={folders}
+				genericChats={genericChats}
 				selectedWorkspaceId={selectedWorkspaceId}
 				selectedSessionId={selectedSessionId}
 				interactionRequiredSessionIds={interactionRequiredSessionIds}
@@ -97,6 +101,7 @@ export const WorkspacesSidebarContainer = memo(
 				importingRepository={importingRepository}
 				recentlyAddedRepoId={recentlyAddedRepoId}
 				creatingChatRepoId={creatingChatRepoId}
+				creatingGenericChat={creatingGenericChat}
 				isCloneDialogOpen={isCloneDialogOpen}
 				cloneDefaultDirectory={cloneDefaultDirectory}
 				onCloneDialogOpenChange={setIsCloneDialogOpen}
@@ -108,6 +113,7 @@ export const WorkspacesSidebarContainer = memo(
 				onSelectChat={onSelectChat}
 				onPrefetchChat={prefetchChat}
 				onCreateChat={handleCreateChat}
+				onCreateGenericChat={handleCreateGenericChat}
 				onDeleteChat={(sessionId) => {
 					void handleDeleteChat(sessionId);
 				}}

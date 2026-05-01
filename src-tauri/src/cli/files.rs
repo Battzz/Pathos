@@ -68,7 +68,7 @@ fn changes(workspace_ref: &str, cli: &Cli) -> Result<()> {
 
 fn list(workspace_ref: &str, cli: &Cli) -> Result<()> {
     let (_, root) = resolve_workspace(workspace_ref)?;
-    let items = editor_files::list_workspace_files(&root.display().to_string())?;
+    let items = editor_files::list_workspace_files(&root.display().to_string(), None)?;
     output::print(cli, &items, |items| format_list(items))
 }
 

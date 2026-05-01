@@ -19,6 +19,7 @@ import { stabilizeStreamingMessages } from "@/features/conversation/streaming-ta
 import type {
 	AgentModelOption,
 	RepositoryFolder,
+	RepositoryFolderChat,
 	ThreadMessageLike,
 	WorkspaceSessionSummary,
 } from "@/lib/api";
@@ -302,6 +303,13 @@ export function useConversationStreaming({
 							})),
 						})),
 				);
+				queryClient.setQueryData<RepositoryFolderChat[] | undefined>(
+					pathosQueryKeys.genericChats,
+					(current) =>
+						current?.map((chat) =>
+							chat.sessionId === sessionId ? { ...chat, title } : chat,
+						),
+				);
 			}
 		},
 		[queryClient],
@@ -474,6 +482,24 @@ export function useConversationStreaming({
 							? { ...folder, chats: sortChatsForSidebar(chats) }
 							: folder;
 					}),
+			);
+			queryClient.setQueryData<RepositoryFolderChat[] | undefined>(
+				pathosQueryKeys.genericChats,
+				(current) =>
+					current
+						? sortChatsForSidebar(
+								current.map((chat) =>
+									chat.sessionId === sessionId
+										? {
+												...chat,
+												agentType,
+												updatedAt: now,
+												lastUserMessageAt: now,
+											}
+										: chat,
+								),
+							)
+						: current,
 			);
 		},
 		[queryClient],
@@ -786,6 +812,9 @@ export function useConversationStreaming({
 				}),
 				queryClient.invalidateQueries({
 					queryKey: pathosQueryKeys.repositoryFolders,
+				}),
+				queryClient.invalidateQueries({
+					queryKey: pathosQueryKeys.genericChats,
 				}),
 			];
 
@@ -1461,6 +1490,9 @@ export function useConversationStreaming({
 			const previousRepositoryFolders = queryClient.getQueryData<
 				RepositoryFolder[] | undefined
 			>(pathosQueryKeys.repositoryFolders);
+			const previousGenericChats = queryClient.getQueryData<
+				RepositoryFolderChat[] | undefined
+			>(pathosQueryKeys.genericChats);
 			touchProjectChatActivity({
 				sessionId: targetSessionId,
 				workspaceId: targetWorkspaceId,
@@ -1528,6 +1560,9 @@ export function useConversationStreaming({
 							void Promise.all([
 								queryClient.invalidateQueries({
 									queryKey: pathosQueryKeys.workspaceGroups,
+								}),
+								queryClient.invalidateQueries({
+									queryKey: pathosQueryKeys.genericChats,
 								}),
 								targetWorkspaceId
 									? queryClient.invalidateQueries({
@@ -1771,6 +1806,10 @@ export function useConversationStreaming({
 										previousRepositoryFolders,
 									);
 								}
+								queryClient.setQueryData(
+									pathosQueryKeys.genericChats,
+									previousGenericChats,
+								);
 								if (!isOverride) {
 									setComposerRestoreState({
 										contextKey,
@@ -1821,6 +1860,10 @@ export function useConversationStreaming({
 						previousRepositoryFolders,
 					);
 				}
+				queryClient.setQueryData(
+					pathosQueryKeys.genericChats,
+					previousGenericChats,
+				);
 				clearFastPrelude(contextKey);
 				clearSendingState(contextKey);
 			}

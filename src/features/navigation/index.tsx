@@ -1,9 +1,11 @@
 import {
 	ChevronDown,
+	ChevronUp,
 	FolderPlus,
 	Globe,
 	LoaderCircle,
 	MessageSquarePlus,
+	Plus,
 } from "lucide-react";
 import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
 import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";
@@ -31,6 +33,7 @@ import { CloneFromUrlDialog } from "./clone-from-url-dialog";
 import { FolderRow } from "./folder-row";
 
 const MAX_COLLAPSED_CHATS = 8;
+const MAX_GENERIC_CHATS_COLLAPSED = 5;
 const CHAT_SHORTCUT_LIMIT = 10;
 
 type PendingSidebarRemoval =
@@ -76,6 +79,7 @@ function getRemovalConfirmationCopy(removal: PendingSidebarRemoval | null): {
 
 export type WorkspacesSidebarProps = {
 	folders: RepositoryFolder[];
+	genericChats?: RepositoryFolderChat[];
 	selectedWorkspaceId: string | null;
 	selectedSessionId: string | null;
 	interactionRequiredSessionIds?: Set<string>;
@@ -86,6 +90,7 @@ export type WorkspacesSidebarProps = {
 	importingRepository: boolean;
 	recentlyAddedRepoId: string | null;
 	creatingChatRepoId: string | null;
+	creatingGenericChat?: boolean;
 	isCloneDialogOpen: boolean;
 	cloneDefaultDirectory: string | null;
 	onCloneDialogOpenChange: (open: boolean) => void;
@@ -98,6 +103,7 @@ export type WorkspacesSidebarProps = {
 	onSelectChat: (workspaceId: string, sessionId: string) => void;
 	onPrefetchChat: (workspaceId: string, sessionId: string) => void;
 	onCreateChat: (repoId: string) => void;
+	onCreateGenericChat?: () => void;
 	onDeleteChat: (sessionId: string) => void;
 	onDeleteProjectChats: (repoId: string) => void;
 	onToggleChatPin?: (chat: RepositoryFolderChat) => void;
@@ -110,6 +116,7 @@ export type WorkspacesSidebarProps = {
 
 export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	folders,
+	genericChats = [],
 	selectedWorkspaceId,
 	selectedSessionId,
 	interactionRequiredSessionIds,
@@ -120,6 +127,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	importingRepository,
 	recentlyAddedRepoId,
 	creatingChatRepoId,
+	creatingGenericChat = false,
 	isCloneDialogOpen,
 	cloneDefaultDirectory,
 	onCloneDialogOpenChange,
@@ -129,6 +137,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	onSelectChat,
 	onPrefetchChat,
 	onCreateChat,
+	onCreateGenericChat,
 	onDeleteChat,
 	onDeleteProjectChats,
 	onToggleChatPin,
@@ -188,8 +197,9 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 						: folder.chats.slice(0, MAX_COLLAPSED_CHATS);
 					return visibleChats;
 				})
+				.concat(genericChats)
 				.slice(0, CHAT_SHORTCUT_LIMIT),
-		[expandedChatRepoIds, folders, isFolderExpanded],
+		[expandedChatRepoIds, folders, genericChats, isFolderExpanded],
 	);
 	const shortcutIndexBySessionId = useMemo(
 		() =>
@@ -401,6 +411,25 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 					</ul>
 				)}
 			</div>
+			{onCreateGenericChat ? (
+				<GenericChatsSection
+					chats={genericChats}
+					selectedWorkspaceId={selectedWorkspaceId}
+					selectedSessionId={selectedSessionId}
+					interactionRequiredSessionIds={interactionRequiredSessionIds}
+					shortcutIndexBySessionId={shortcutIndexBySessionId}
+					showChatShortcuts={showChatShortcuts}
+					deleteChatShortcut={deleteChatShortcut}
+					creating={creatingGenericChat}
+					onCreateChat={onCreateGenericChat}
+					onSelectChat={(workspaceId, sessionId) => {
+						onPrefetchChat(workspaceId, sessionId);
+						onSelectChat(workspaceId, sessionId);
+					}}
+					onToggleChatPin={onToggleChatPin}
+					onDeleteChat={removeChat}
+				/>
+			) : null}
 			<div className="flex shrink-0 items-center justify-between px-3 pb-3 pt-1">
 				<div className="flex items-center gap-[2px]">
 					{footerControls}
@@ -522,6 +551,180 @@ function PendingProjectRow() {
 				<span className="truncate">Adding project...</span>
 			</div>
 		</li>
+	);
+}
+
+function GenericChatsSection({
+	chats,
+	selectedWorkspaceId,
+	selectedSessionId,
+	interactionRequiredSessionIds,
+	shortcutIndexBySessionId,
+	showChatShortcuts,
+	deleteChatShortcut,
+	creating,
+	onCreateChat,
+	onSelectChat,
+	onToggleChatPin,
+	onDeleteChat,
+}: {
+	chats: RepositoryFolderChat[];
+	selectedWorkspaceId: string | null;
+	selectedSessionId: string | null;
+	interactionRequiredSessionIds?: Set<string>;
+	shortcutIndexBySessionId: Map<string, number>;
+	showChatShortcuts: boolean;
+	deleteChatShortcut?: string | null;
+	creating: boolean;
+	onCreateChat: () => void;
+	onSelectChat: (workspaceId: string, sessionId: string) => void;
+	onToggleChatPin?: (chat: RepositoryFolderChat) => void;
+	onDeleteChat: (chat: RepositoryFolderChat) => void;
+}) {
+	const [expanded, setExpanded] = useState(true);
+	const [overflowExpanded, setOverflowExpanded] = useState(false);
+	const hasOverflow = chats.length > MAX_GENERIC_CHATS_COLLAPSED;
+	const visibleChats =
+		expanded && !overflowExpanded
+			? chats.slice(0, MAX_GENERIC_CHATS_COLLAPSED)
+			: chats;
+	const showOverflowToggle = expanded && hasOverflow && overflowExpanded;
+	const busy = creating;
+	return (
+		<div className="shrink-0 px-2 pb-1 pt-1">
+			<div
+				data-expanded={expanded ? "true" : "false"}
+				className={cn(
+					"group/chats relative flex h-7 select-none items-center gap-2 rounded-md px-1.5 transition-colors",
+					"hover:bg-accent/40",
+				)}
+			>
+				<button
+					type="button"
+					aria-expanded={expanded}
+					aria-label="Toggle chats"
+					className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70"
+					onClick={() => setExpanded((value) => !value)}
+				>
+					<span className="min-w-0 flex-1 truncate">Chats</span>
+					{chats.length > 0 ? (
+						<span
+							className={cn(
+								"ml-auto inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full px-1 text-[10px] font-medium leading-none tabular-nums transition-all",
+								"bg-foreground/[0.06] text-muted-foreground/70",
+								"group-hover/chats:opacity-0",
+							)}
+						>
+							{chats.length}
+						</span>
+					) : null}
+				</button>
+
+				<div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+					{showOverflowToggle ? (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<button
+									type="button"
+									aria-label="Hide chats"
+									className={cn(
+										"flex size-6 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity",
+										"group-hover/chats:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+									)}
+									onClick={(event) => {
+										event.stopPropagation();
+										setOverflowExpanded(false);
+									}}
+								>
+									<ChevronUp className="size-3.5" strokeWidth={2.2} />
+								</button>
+							</TooltipTrigger>
+							<TooltipContent side="top" sideOffset={4}>
+								Hide chats
+							</TooltipContent>
+						</Tooltip>
+					) : null}
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<button
+								type="button"
+								aria-label="New generic chat"
+								disabled={busy}
+								className={cn(
+									"flex size-6 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity",
+									"group-hover/chats:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+									"disabled:cursor-not-allowed disabled:opacity-60",
+									busy && "opacity-100",
+								)}
+								onClick={(event) => {
+									event.stopPropagation();
+									if (!expanded) {
+										setExpanded(true);
+									}
+									onCreateChat();
+								}}
+							>
+								{busy ? (
+									<LoaderCircle
+										className="size-3.5 animate-spin"
+										strokeWidth={2.1}
+									/>
+								) : (
+									<Plus className="size-3.5" strokeWidth={2.4} />
+								)}
+							</button>
+						</TooltipTrigger>
+						<TooltipContent side="top" sideOffset={4}>
+							New chat
+						</TooltipContent>
+					</Tooltip>
+				</div>
+			</div>
+			{expanded && chats.length > 0 ? (
+				<div
+					className="relative ml-[6px] flex flex-col gap-0.5 pb-1 pl-3"
+					style={{
+						backgroundImage:
+							"linear-gradient(to bottom, color-mix(in oklch, var(--border) 70%, transparent) 0%, color-mix(in oklch, var(--border) 70%, transparent) 100%)",
+						backgroundSize: "1px calc(100% - 8px)",
+						backgroundPosition: "0 4px",
+						backgroundRepeat: "no-repeat",
+					}}
+				>
+					{visibleChats.map((chat) => (
+						<ChatRow
+							key={chat.sessionId}
+							chat={chat}
+							selected={
+								selectedWorkspaceId === chat.workspaceId &&
+								selectedSessionId === chat.sessionId
+							}
+							isInteractionRequired={
+								interactionRequiredSessionIds?.has(chat.sessionId) ?? false
+							}
+							shortcutLabel={(() => {
+								const shortcutIndex = shortcutIndexBySessionId.get(
+									chat.sessionId,
+								);
+								if (shortcutIndex === undefined) return null;
+								return `Cmd+${shortcutIndex === 9 ? 0 : shortcutIndex + 1}`;
+							})()}
+							showShortcutHint={showChatShortcuts}
+							deleteChatShortcut={deleteChatShortcut}
+							onSelect={onSelectChat}
+							onTogglePin={onToggleChatPin}
+							onDelete={() => onDeleteChat(chat)}
+						/>
+					))}
+					{hasOverflow && !overflowExpanded ? (
+						<ShowMoreChatsButton
+							hiddenCount={chats.length - MAX_GENERIC_CHATS_COLLAPSED}
+							onClick={() => setOverflowExpanded(true)}
+						/>
+					) : null}
+				</div>
+			) : null}
+		</div>
 	);
 }
 

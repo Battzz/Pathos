@@ -7,8 +7,9 @@ use anyhow::{bail, Context, Result};
 
 use super::{
     support::{
-        atomic_write_file, collect_editor_files, collect_workspace_files_for_mention,
-        editor_file_sort_key, metadata_mtime_ms, resolve_allowed_path,
+        atomic_write_file, collect_editor_files, collect_indexed_workspace_files_for_mention,
+        collect_workspace_files_for_mention, editor_file_sort_key, metadata_mtime_ms,
+        resolve_allowed_path, MentionFileQuery, MentionWalkBudget,
     },
     types::{
         EditorFileListItem, EditorFilePrefetchItem, EditorFileReadResponse, EditorFileStatResponse,
@@ -173,12 +174,31 @@ pub fn list_editor_files(workspace_root_path: &str) -> Result<Vec<EditorFileList
     Ok(build_list_items(&workspace_root, discovered_files))
 }
 
-pub fn list_workspace_files(workspace_root_path: &str) -> Result<Vec<EditorFileListItem>> {
+pub fn list_workspace_files(
+    workspace_root_path: &str,
+    query: Option<&str>,
+) -> Result<Vec<EditorFileListItem>> {
     let Some(workspace_root) = resolve_workspace_root_optional(workspace_root_path)? else {
         return Ok(Vec::new());
     };
-    let mut discovered_files = Vec::<PathBuf>::new();
-    collect_workspace_files_for_mention(&workspace_root, &mut discovered_files)?;
+    let mention_query = MentionFileQuery::new(query);
+    let mut discovered_files = if let Some(query) = mention_query.as_ref() {
+        collect_indexed_workspace_files_for_mention(&workspace_root, query)?.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    if discovered_files.is_empty() {
+        let mut budget = mention_query
+            .as_ref()
+            .map(|_| MentionWalkBudget::for_query_fallback());
+        collect_workspace_files_for_mention(
+            &workspace_root,
+            &workspace_root,
+            &mut discovered_files,
+            mention_query.as_ref(),
+            budget.as_mut(),
+        )?;
+    }
     discovered_files.sort_by(|left, right| {
         editor_file_sort_key(&workspace_root, left)
             .cmp(&editor_file_sort_key(&workspace_root, right))

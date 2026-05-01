@@ -29,8 +29,10 @@ pub async fn list_editor_files(
 #[tauri::command]
 pub async fn list_workspace_files(
     workspace_root_path: String,
+    query: Option<String>,
 ) -> CmdResult<Vec<editor_files::EditorFileListItem>> {
-    run_blocking(move || editor_files::list_workspace_files(&workspace_root_path)).await
+    run_blocking(move || editor_files::list_workspace_files(&workspace_root_path, query.as_deref()))
+        .await
 }
 
 #[tauri::command]

@@ -1,6 +1,6 @@
 /** Regex matching an absolute image path (may appear anywhere in a string). */
 const IMAGE_PATH_RE =
-	/(?:^|\s)(\/\S+\.(?:png|jpe?g|gif|webp|svg|bmp|ico))(?:\s|$)/gim;
+	/(?:^|\s)(\/\S+\.(?:png|jpe?g|gif|webp|svg|bmp|ico|avif|tiff?|heic|heif))(?:\s|$)/gim;
 
 /** Extract image file paths from text. Detects paths anywhere, not just at line start. */
 export function extractImagePaths(text: string): string[] {
@@ -20,6 +20,8 @@ export function extractImagePaths(text: string): string[] {
 export function isImagePath(text: string): boolean {
 	return (
 		text.startsWith("/") &&
-		/\.(?:png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(text.trim())
+		/\.(?:png|jpe?g|gif|webp|svg|bmp|ico|avif|tiff?|heic|heif)$/i.test(
+			text.trim(),
+		)
 	);
 }

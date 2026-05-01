@@ -1,6 +1,7 @@
 pub(crate) mod archive;
 pub(crate) mod branching;
 pub mod files;
+pub mod generic_chats;
 pub mod helpers;
 pub mod kind;
 pub(crate) mod lifecycle;

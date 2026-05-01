@@ -34,6 +34,9 @@ function handleUiMutation(
 				queryKey: pathosQueryKeys.repositoryFolders,
 			});
 			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.genericChats,
+			});
+			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.archivedWorkspaces,
 			});
 			void queryClient.invalidateQueries({
@@ -49,6 +52,9 @@ function handleUiMutation(
 				queryKey: pathosQueryKeys.repositoryFolders,
 			});
 			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.genericChats,
+			});
+			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.workspaceDetail(event.workspaceId),
 			});
 			void queryClient.invalidateQueries({
@@ -61,6 +67,9 @@ function handleUiMutation(
 			});
 			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.repositoryFolders,
+			});
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.genericChats,
 			});
 			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.workspaceDetail(event.workspaceId),
@@ -93,6 +102,9 @@ function handleUiMutation(
 				queryKey: pathosQueryKeys.repositoryFolders,
 			});
 			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.genericChats,
+			});
+			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.workspaceDetail(event.workspaceId),
 			});
 			void queryClient.invalidateQueries({
@@ -123,6 +135,9 @@ function handleUiMutation(
 				queryKey: pathosQueryKeys.repositoryFolders,
 			});
 			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.genericChats,
+			});
+			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.workspaceDetail(event.workspaceId),
 			});
 			void queryClient.invalidateQueries({
@@ -138,6 +153,9 @@ function handleUiMutation(
 			});
 			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.repositoryFolders,
+			});
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.genericChats,
 			});
 			return;
 		case "repositoryChanged":
@@ -160,6 +178,9 @@ function handleUiMutation(
 			});
 			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.repositoryFolders,
+			});
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.genericChats,
 			});
 			return;
 		case "settingsChanged":
@@ -195,6 +216,9 @@ function handleUiMutation(
 			});
 			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.repositoryFolders,
+			});
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.genericChats,
 			});
 			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.workspaceDetail(event.workspaceId),

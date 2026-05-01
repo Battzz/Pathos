@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -42,6 +43,8 @@ function renderSidebar(
 	folder: RepositoryFolder,
 	options: {
 		settings?: AppSettings;
+		genericChats?: RepositoryFolderChat[];
+		onCreateGenericChat?: () => void;
 		onDeleteChat?: (sessionId: string) => void;
 		onDeleteProjectChats?: (repoId: string) => void;
 		onRemoveProject?: (repoId: string) => void;
@@ -52,42 +55,51 @@ function renderSidebar(
 	const onDeleteChat = options.onDeleteChat ?? vi.fn();
 	const onDeleteProjectChats = options.onDeleteProjectChats ?? vi.fn();
 	const onRemoveProject = options.onRemoveProject ?? vi.fn();
+	const onCreateGenericChat = options.onCreateGenericChat ?? vi.fn();
 	const onPrefetchChat = options.onPrefetchChat ?? vi.fn();
 	const onSelectChat = options.onSelectChat ?? vi.fn();
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+	});
 	return render(
-		<SettingsContext.Provider
-			value={{
-				settings: options.settings ?? DEFAULT_SETTINGS,
-				isLoaded: true,
-				updateSettings: vi.fn(),
-			}}
-		>
-			<TooltipProvider delayDuration={0}>
-				<WorkspacesSidebar
-					folders={[folder]}
-					selectedWorkspaceId={null}
-					selectedSessionId={null}
-					addingRepository={false}
-					importingRepository={false}
-					recentlyAddedRepoId={null}
-					creatingChatRepoId={null}
-					isCloneDialogOpen={false}
-					cloneDefaultDirectory={null}
-					onCloneDialogOpenChange={vi.fn()}
-					onAddRepository={vi.fn()}
-					onOpenCloneDialog={vi.fn()}
-					onSubmitClone={vi.fn()}
-					onSelectChat={onSelectChat}
-					onPrefetchChat={onPrefetchChat}
-					onCreateChat={vi.fn()}
-					onDeleteChat={onDeleteChat}
-					onDeleteProjectChats={onDeleteProjectChats}
-					onRemoveProject={onRemoveProject}
-					isFolderExpanded={() => true}
-					onToggleFolder={vi.fn()}
-				/>
-			</TooltipProvider>
-		</SettingsContext.Provider>,
+		<QueryClientProvider client={queryClient}>
+			<SettingsContext.Provider
+				value={{
+					settings: options.settings ?? DEFAULT_SETTINGS,
+					isLoaded: true,
+					updateSettings: vi.fn(),
+				}}
+			>
+				<TooltipProvider delayDuration={0}>
+					<WorkspacesSidebar
+						folders={[folder]}
+						genericChats={options.genericChats ?? []}
+						selectedWorkspaceId={null}
+						selectedSessionId={null}
+						addingRepository={false}
+						importingRepository={false}
+						recentlyAddedRepoId={null}
+						creatingChatRepoId={null}
+						creatingGenericChat={false}
+						isCloneDialogOpen={false}
+						cloneDefaultDirectory={null}
+						onCloneDialogOpenChange={vi.fn()}
+						onAddRepository={vi.fn()}
+						onOpenCloneDialog={vi.fn()}
+						onSubmitClone={vi.fn()}
+						onSelectChat={onSelectChat}
+						onPrefetchChat={onPrefetchChat}
+						onCreateChat={vi.fn()}
+						onCreateGenericChat={onCreateGenericChat}
+						onDeleteChat={onDeleteChat}
+						onDeleteProjectChats={onDeleteProjectChats}
+						onRemoveProject={onRemoveProject}
+						isFolderExpanded={() => true}
+						onToggleFolder={vi.fn()}
+					/>
+				</TooltipProvider>
+			</SettingsContext.Provider>
+		</QueryClientProvider>,
 	);
 }
 
@@ -216,5 +228,32 @@ describe("WorkspacesSidebar", () => {
 		fireEvent.keyUp(window, { key: "Meta", code: "MetaLeft" });
 
 		expect(screen.queryByLabelText("Cmd+1")).not.toBeInTheDocument();
+	});
+
+	it("renders generic chats above the footer and can start one", () => {
+		const onCreateGenericChat = vi.fn();
+		const onSelectChat = vi.fn();
+		const genericChat = {
+			...makeChat(99),
+			sessionId: "generic-session",
+			workspaceId: "generic-workspace",
+			title: "General question",
+		};
+		renderSidebar(makeFolder(0), {
+			genericChats: [genericChat],
+			onCreateGenericChat,
+			onSelectChat,
+		});
+
+		fireEvent.click(screen.getByText("General question"));
+
+		expect(onSelectChat).toHaveBeenCalledWith(
+			"generic-workspace",
+			"generic-session",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "New generic chat" }));
+
+		expect(onCreateGenericChat).toHaveBeenCalled();
 	});
 });

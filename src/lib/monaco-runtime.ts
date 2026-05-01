@@ -254,6 +254,7 @@ async function ensureRuntime(): Promise<MonacoRuntime> {
 			const monaco = await import("monaco-editor");
 
 			installMonacoEnvironment();
+			installPathosLanguages(monaco);
 			installEditorTheme(monaco);
 			installThemeObserver(monaco);
 
@@ -322,6 +323,58 @@ function installMonacoEnvironment() {
 			}
 		},
 	};
+}
+
+function installPathosLanguages(monaco: MonacoModule) {
+	if (
+		!monaco.languages
+			.getLanguages()
+			.some((language) => language.id === "makefile")
+	) {
+		monaco.languages.register({
+			id: "makefile",
+			aliases: ["Makefile", "makefile"],
+			extensions: [".mk", ".mak"],
+			filenames: ["makefile", "gnumakefile", "bsdmakefile"],
+		});
+	}
+
+	monaco.languages.setMonarchTokensProvider("makefile", {
+		defaultToken: "",
+		tokenPostfix: ".makefile",
+		escapes: /\\(?:[\\abfnrtv"'?]|x[\da-fA-F]+|u[\da-fA-F]{4})/,
+		tokenizer: {
+			root: [
+				[/^\s*#.*$/, "comment"],
+				[
+					/^\s*(?:include|-include|sinclude|export|unexport|override|private|vpath)\b/,
+					"keyword",
+				],
+				[
+					/^\s*(?:ifeq|ifneq|ifdef|ifndef|else|endif|define|endef)\b/,
+					"keyword",
+				],
+				[/^\t.*/, "string"],
+				[/^([^\s:#=]+)(\s*:)/, ["type.identifier", "delimiter"]],
+				[
+					/^([A-Za-z_][\w.-]*)(\s*(?::=|\+=|\?=|!=|=))/,
+					["identifier", "operator"],
+				],
+				[/\$\([^)]+\)|\$\{[^}]+\}/, "variable"],
+				[/\$[@%<?^+*]/, "variable.predefined"],
+				[/[$][(][\w.-]+/, "variable"],
+				[/["']/, "string", "@string"],
+				[/[;:]/, "delimiter"],
+				[/[=+?!-]/, "operator"],
+			],
+			string: [
+				[/[^\\"']+/, "string"],
+				[/@escapes/, "string.escape"],
+				[/\\./, "string.escape.invalid"],
+				[/["']/, "string", "@pop"],
+			],
+		},
+	});
 }
 
 function installEditorTheme(monaco: MonacoModule) {
@@ -428,7 +481,7 @@ function installEditorTheme(monaco: MonacoModule) {
 	monaco.editor.setTheme(themeId(desiredTheme));
 }
 
-function resolveLanguageId(
+export function resolveLanguageId(
 	monaco: MonacoModule,
 	path: string,
 ): string | undefined {
@@ -447,8 +500,14 @@ function resolveLanguageId(
 		".js": "javascript",
 		".json": "json",
 		".jsx": "javascript",
+		".h": "objective-c",
+		".mak": "makefile",
 		".md": "markdown",
+		".m": "objective-c",
+		".mm": "objective-c",
 		".mjs": "javascript",
+		".mk": "makefile",
+		".plist": "xml",
 		".py": "python",
 		".rs": "rust",
 		".scss": "scss",
@@ -458,12 +517,25 @@ function resolveLanguageId(
 		".ts": "typescript",
 		".tsx": "typescript",
 		".txt": "plaintext",
+		".x": "objective-c",
+		".xi": "objective-c",
+		".xm": "objective-c",
+		".xmi": "objective-c",
 		".yaml": "yaml",
 		".yml": "yaml",
 	};
 
 	if (fileName === "dockerfile") {
 		return "dockerfile";
+	}
+
+	if (
+		fileName === "makefile" ||
+		fileName === "gnumakefile" ||
+		fileName === "bsdmakefile" ||
+		fileName.startsWith("makefile.")
+	) {
+		return "makefile";
 	}
 
 	if (fileName.endsWith(".test.tsx") || fileName.endsWith(".spec.tsx")) {

@@ -128,7 +128,12 @@ pub fn resolve_workspace_root_path_unchecked(
     record: &crate::models::workspaces::WorkspaceRecord,
 ) -> Option<std::path::PathBuf> {
     match record.kind {
-        WorkspaceKind::Project => record.root_path.as_deref().map(std::path::PathBuf::from),
+        WorkspaceKind::Project => {
+            if record.repo_id == super::generic_chats::GENERIC_CHAT_REPO_ID {
+                return super::generic_chats::generic_chat_root_path().ok();
+            }
+            record.root_path.as_deref().map(std::path::PathBuf::from)
+        }
         WorkspaceKind::Workspace => {
             crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name).ok()
         }

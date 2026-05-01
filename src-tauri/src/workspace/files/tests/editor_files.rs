@@ -168,7 +168,7 @@ fn list_workspace_files_uses_blacklist_filter_for_mention_picker() {
     fs::create_dir_all(&git_dir).unwrap();
     fs::write(git_dir.join("HEAD"), b"ref: refs/heads/main\n").unwrap();
 
-    let files = list_workspace_files(harness.workspace_dir.to_str().unwrap()).unwrap();
+    let files = list_workspace_files(harness.workspace_dir.to_str().unwrap(), None).unwrap();
     let result_paths: HashSet<String> = files.iter().map(|file| file.path.clone()).collect();
 
     for name in allowed_extras {
@@ -239,15 +239,21 @@ fn list_workspace_files_returns_all_files_without_24_cap_and_skips_excluded_dirs
     let dist_dir = harness.workspace_dir.join("dist");
     fs::create_dir_all(&dist_dir).unwrap();
     fs::write(dist_dir.join("bundle.js"), "/* built */\n").unwrap();
+    let top_level_library_dir = harness.workspace_dir.join("Library");
+    fs::create_dir_all(&top_level_library_dir).unwrap();
+    fs::write(top_level_library_dir.join("private.ts"), "export {}\n").unwrap();
+    let nested_library_dir = src_dir.join("Library");
+    fs::create_dir_all(&nested_library_dir).unwrap();
+    fs::write(nested_library_dir.join("project-library.ts"), "export {}\n").unwrap();
 
     fs::write(harness.workspace_dir.join("logo.png"), b"\x89PNG").unwrap();
 
-    let files = list_workspace_files(harness.workspace_dir.to_str().unwrap()).unwrap();
+    let files = list_workspace_files(harness.workspace_dir.to_str().unwrap(), None).unwrap();
 
     assert_eq!(
         files.len(),
-        30,
-        "expected all 30 source files, got {} (paths: {:?})",
+        31,
+        "expected all 31 source files, got {} (paths: {:?})",
         files.len(),
         files.iter().map(|file| &file.path).collect::<Vec<_>>()
     );
@@ -268,8 +274,20 @@ fn list_workspace_files_returns_all_files_without_24_cap_and_skips_excluded_dirs
             "dist leaked: {}",
             file.path
         );
+        assert!(
+            !file.path.starts_with("Library/"),
+            "top-level Library leaked: {}",
+            file.path
+        );
         assert!(!file.path.ends_with(".png"), "binary leaked: {}", file.path);
     }
+
+    assert!(
+        files
+            .iter()
+            .any(|file| file.path == "src/Library/project-library.ts"),
+        "nested project Library directory should stay searchable",
+    );
 
     let nested_match = files
         .iter()
@@ -277,4 +295,29 @@ fn list_workspace_files_returns_all_files_without_24_cap_and_skips_excluded_dirs
         .expect("expected nested widget in result");
     assert!(Path::new(&nested_match.absolute_path).is_file());
     assert_eq!(nested_match.name, "widget_00.tsx");
+}
+
+#[test]
+fn list_workspace_files_filters_by_query_before_result_cap() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let harness = EditorFilesHarness::new();
+
+    let alpha_dir = harness.workspace_dir.join("alpha");
+    fs::create_dir_all(&alpha_dir).unwrap();
+    for index in 0..80 {
+        fs::write(
+            alpha_dir.join(format!("alpha_{index:02}.ts")),
+            "export const alpha = true;\n",
+        )
+        .unwrap();
+    }
+    let zeta_dir = harness.workspace_dir.join("zeta");
+    fs::create_dir_all(&zeta_dir).unwrap();
+    fs::write(zeta_dir.join("target_note.md"), "# target\n").unwrap();
+
+    let files =
+        list_workspace_files(harness.workspace_dir.to_str().unwrap(), Some("target")).unwrap();
+
+    let paths: Vec<&str> = files.iter().map(|file| file.path.as_str()).collect();
+    assert_eq!(paths, vec!["zeta/target_note.md"]);
 }

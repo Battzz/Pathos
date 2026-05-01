@@ -72,8 +72,8 @@ tempfile = "3"
 
 # ---------------------------------------------------------------------------
 # Dev profile: optimised for fastest compilation, not runtime performance.
-# sccache is the cross-worktree cache; incremental is disabled because the
-# two are mutually exclusive.
+# CI can opt into sccache through RUSTC_WRAPPER; incremental stays disabled
+# because incremental fingerprints fight cross-worktree compiler caching.
 # ---------------------------------------------------------------------------
 [profile.dev]
 debug = "line-tables-only"   # keep backtraces, skip 80% of debug info

@@ -161,25 +161,6 @@ pub(super) fn stream_via_sidecar(
         );
     }
 
-    let sidecar_req = crate::sidecar::SidecarRequest {
-        id: request_id.clone(),
-        method: "sendMessage".to_string(),
-        params,
-    };
-
-    let rx = sidecar.subscribe(&request_id);
-
-    if let Err(error) = sidecar.send(&sidecar_req) {
-        sidecar.unsubscribe(&request_id);
-        return Err(anyhow::anyhow!("Sidecar send failed: {error}").into());
-    }
-
-    active_streams.register(ActiveStreamHandle {
-        request_id: request_id.clone(),
-        sidecar_session_id: sidecar_session_id.clone(),
-        provider: model.provider.to_string(),
-    });
-
     let model_id = model.id.clone();
     let provider = model.provider.clone();
     let model_copy = model.clone();
@@ -206,6 +187,62 @@ pub(super) fn stream_via_sidecar(
     let resume_only = request.resume_only;
     let sidecar_session_id_copy = sidecar_session_id.clone();
     let rid = request_id.clone();
+    let effective_user_message_id = user_message_id_copy
+        .clone()
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+    if !resume_only {
+        if let Some(pathos_session_id) = hsid_copy.as_deref() {
+            match crate::checkpoints::capture_user_message_checkpoint(
+                working_directory,
+                pathos_session_id,
+                &effective_user_message_id,
+            ) {
+                Ok(true) => {
+                    tracing::debug!(
+                        rid = %rid,
+                        pathos_session_id,
+                        user_message_id = %effective_user_message_id,
+                        "Captured pre-turn workspace checkpoint"
+                    );
+                }
+                Ok(false) => {
+                    tracing::debug!(
+                        rid = %rid,
+                        pathos_session_id,
+                        "Skipped pre-turn checkpoint because workspace is not a git repository"
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        rid = %rid,
+                        pathos_session_id,
+                        user_message_id = %effective_user_message_id,
+                        "Failed to capture pre-turn workspace checkpoint: {error:#}"
+                    );
+                }
+            }
+        }
+    }
+
+    let sidecar_req = crate::sidecar::SidecarRequest {
+        id: request_id.clone(),
+        method: "sendMessage".to_string(),
+        params,
+    };
+
+    let rx = sidecar.subscribe(&request_id);
+
+    if let Err(error) = sidecar.send(&sidecar_req) {
+        sidecar.unsubscribe(&request_id);
+        return Err(anyhow::anyhow!("Sidecar send failed: {error}").into());
+    }
+
+    active_streams.register(ActiveStreamHandle {
+        request_id: request_id.clone(),
+        sidecar_session_id: sidecar_session_id.clone(),
+        provider: model.provider.to_string(),
+    });
 
     tauri::async_runtime::spawn_blocking(move || {
         let stream_started_at = Instant::now();
@@ -251,9 +288,7 @@ pub(super) fn stream_via_sidecar(
                 pathos_session_id: hsid.clone(),
                 model_id: model_copy.id.to_string(),
                 model_provider: model_copy.provider.to_string(),
-                user_message_id: user_message_id_copy
-                    .clone()
-                    .unwrap_or_else(|| Uuid::new_v4().to_string()),
+                user_message_id: effective_user_message_id.clone(),
             };
 
             match crate::models::db::write_conn() {

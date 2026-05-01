@@ -1,4 +1,5 @@
 pub mod agents;
+pub(crate) mod checkpoints;
 pub mod cli;
 pub(crate) mod commands;
 pub mod data_dir;
@@ -286,6 +287,8 @@ pub fn run() {
             commands::session_commands::list_workspace_sessions,
             commands::session_commands::create_session,
             commands::session_commands::create_chat_session_in_repo,
+            commands::session_commands::create_generic_chat_session,
+            commands::session_commands::list_generic_chats,
             commands::session_commands::rename_session,
             commands::session_commands::pin_session,
             commands::session_commands::unpin_session,

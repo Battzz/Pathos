@@ -1,12 +1,9 @@
 import {
-	Check,
 	FileText,
 	ImageIcon,
 	PencilLine,
 	RotateCcw,
-	SendHorizontal,
 	StickyNote,
-	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -232,68 +229,29 @@ export function ChatUserMessage({
 							disabled={reverting}
 						/>
 
-						<div className="flex items-center justify-between gap-3 border-t border-border/30 px-3 py-2">
-							<div className="hidden items-center gap-2 text-[11px] text-muted-foreground/55 sm:flex">
-								<span className="inline-flex items-center gap-1">
-									<kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded-[3px] border border-border/55 bg-background/60 px-1 font-mono text-[9.5px] leading-none text-muted-foreground">
-										⌘
-									</kbd>
-									<kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded-[3px] border border-border/55 bg-background/60 px-1 font-mono text-[9.5px] leading-none text-muted-foreground">
-										↵
-									</kbd>
-									<span>save</span>
-								</span>
-								<span className="text-muted-foreground/25">·</span>
-								<span className="inline-flex items-center gap-1">
-									<kbd className="inline-flex h-4 items-center justify-center rounded-[3px] border border-border/55 bg-background/60 px-1 font-mono text-[9.5px] leading-none text-muted-foreground">
-										esc
-									</kbd>
-									<span>cancel</span>
-								</span>
-								{draft.length > 0 ? (
-									<>
-										<span className="text-muted-foreground/25">·</span>
-										<span className="tabular-nums">
-											{draft.length.toLocaleString()} chars
-										</span>
-									</>
-								) : null}
-							</div>
-							<div className="flex items-center gap-1 sm:ml-auto">
-								<Button
-									type="button"
-									variant="ghost"
-									size="sm"
-									aria-label="Cancel edit"
-									onClick={handleCancelEdit}
-									disabled={reverting}
-								>
-									<X className="size-3.5" strokeWidth={2} />
-									<span>Cancel</span>
-								</Button>
-								<Button
-									type="button"
-									variant="default"
-									size="sm"
-									aria-label="Send edited message"
-									onClick={() => {
-										void handleSubmitEdit();
-									}}
-									disabled={reverting || draft.trim().length === 0}
-								>
-									{reverting ? (
-										<>
-											<Check className="size-3.5" strokeWidth={2.4} />
-											<span>Sending</span>
-										</>
-									) : (
-										<>
-											<SendHorizontal className="size-3.5" strokeWidth={2} />
-											<span>Rewind &amp; send</span>
-										</>
-									)}
-								</Button>
-							</div>
+						<div className="flex items-center justify-end gap-1 border-t border-border/30 px-3 py-2">
+							<Button
+								type="button"
+								variant="ghost"
+								size="sm"
+								aria-label="Cancel edit"
+								onClick={handleCancelEdit}
+								disabled={reverting}
+							>
+								Cancel
+							</Button>
+							<Button
+								type="button"
+								variant="default"
+								size="sm"
+								aria-label="Send edited message"
+								onClick={() => {
+									void handleSubmitEdit();
+								}}
+								disabled={reverting || draft.trim().length === 0}
+							>
+								{reverting ? "Sending" : "Rewind & send"}
+							</Button>
 						</div>
 					</div>
 				) : (

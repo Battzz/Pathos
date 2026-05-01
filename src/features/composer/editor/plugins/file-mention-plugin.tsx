@@ -21,8 +21,14 @@ import {
 } from "@lexical/react/LexicalTypeaheadMenuPlugin";
 import { useQuery } from "@tanstack/react-query";
 import { $createTextNode, type TextNode } from "lexical";
-import { FileText } from "lucide-react";
-import { type RefObject, useCallback, useMemo, useState } from "react";
+import { FileText, LoaderCircle } from "lucide-react";
+import {
+	type RefObject,
+	useCallback,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import { createPortal } from "react-dom";
 import {
 	Command,
@@ -51,6 +57,18 @@ class FileMentionOption extends MenuOption {
 		this.file = file;
 	}
 }
+
+class FileMentionStatusOption extends MenuOption {
+	readonly kind: "hint" | "loading" | "empty" | "error";
+	readonly label: string;
+	constructor(kind: "hint" | "loading" | "empty" | "error", label: string) {
+		super(`__${kind}__`);
+		this.kind = kind;
+		this.label = label;
+	}
+}
+
+type MentionOption = FileMentionOption | FileMentionStatusOption;
 
 /**
  * Rank files against a query. Higher score = better match.
@@ -103,20 +121,63 @@ export function FileMentionPlugin({
 }) {
 	const [editor] = useLexicalComposerContext();
 	const [query, setQuery] = useState<string | null>(null);
+	const normalizedQuery = (query ?? "").trim();
+	const [debouncedQuery, setDebouncedQuery] = useState("");
+
+	useEffect(() => {
+		if (query === null) {
+			setDebouncedQuery("");
+			return;
+		}
+		const timeout = window.setTimeout(() => {
+			setDebouncedQuery(normalizedQuery);
+		}, 140);
+		return () => window.clearTimeout(timeout);
+	}, [normalizedQuery, query]);
+
+	const shouldSearchFiles =
+		Boolean(workspaceRootPath) && query !== null && debouncedQuery.length > 0;
 
 	// Cached per workspace root. The query is disabled until we have a root,
 	// so the popup simply never opens before the workspace finishes loading.
 	const filesQuery = useQuery({
-		...workspaceFilesQueryOptions(workspaceRootPath ?? ""),
-		enabled: Boolean(workspaceRootPath),
+		...workspaceFilesQueryOptions(workspaceRootPath ?? "", debouncedQuery),
+		enabled: shouldSearchFiles,
 	});
 
 	const files = filesQuery.data ?? [];
 
 	const options = useMemo(() => {
-		const filtered = filterFiles(files, query ?? "");
+		if (query !== null && normalizedQuery.length === 0) {
+			return [new FileMentionStatusOption("hint", "Type to search files")];
+		}
+		if (
+			query !== null &&
+			normalizedQuery.length > 0 &&
+			normalizedQuery !== debouncedQuery
+		) {
+			return [new FileMentionStatusOption("loading", "Indexing files...")];
+		}
+		if (shouldSearchFiles && filesQuery.isPending && files.length === 0) {
+			return [new FileMentionStatusOption("loading", "Indexing files...")];
+		}
+		if (filesQuery.isError) {
+			return [new FileMentionStatusOption("error", "Unable to load files")];
+		}
+		const filtered = filterFiles(files, debouncedQuery);
+		if (filtered.length === 0) {
+			return [new FileMentionStatusOption("empty", "No files")];
+		}
 		return filtered.map((file) => new FileMentionOption(file));
-	}, [files, query]);
+	}, [
+		files,
+		filesQuery.isError,
+		filesQuery.isPending,
+		normalizedQuery,
+		debouncedQuery,
+		query,
+		shouldSearchFiles,
+	]);
 
 	const triggerFn = useBasicTypeaheadTriggerMatch("@", {
 		minLength: 0,
@@ -127,10 +188,13 @@ export function FileMentionPlugin({
 
 	const onSelectOption = useCallback(
 		(
-			selected: FileMentionOption,
+			selected: MentionOption,
 			nodeToReplace: TextNode | null,
 			closeMenu: () => void,
 		) => {
+			if (!(selected instanceof FileMentionOption)) {
+				return;
+			}
 			editor.update(() => {
 				if (nodeToReplace) {
 					// Swap the `@<query>` text slice for an inline file badge,
@@ -149,7 +213,7 @@ export function FileMentionPlugin({
 	);
 
 	return (
-		<LexicalTypeaheadMenuPlugin<FileMentionOption>
+		<LexicalTypeaheadMenuPlugin<MentionOption>
 			triggerFn={triggerFn}
 			onQueryChange={setQuery}
 			onSelectOption={onSelectOption}
@@ -165,9 +229,12 @@ export function FileMentionPlugin({
 				const portalTarget =
 					popupAnchorRef?.current ?? anchorElementRef.current;
 				if (!portalTarget) return null;
-				if (options.length === 0) return null;
 
-				const highlightValue = options[selectedIndex ?? 0]?.file.path ?? "";
+				const selectedOption = options[selectedIndex ?? 0];
+				const highlightValue =
+					selectedOption instanceof FileMentionOption
+						? selectedOption.file.path
+						: (selectedOption?.key ?? "");
 
 				return createPortal(
 					// Same anchor strategy as the slash command popup: `bottom-full`
@@ -188,6 +255,30 @@ export function FileMentionPlugin({
 								<CommandEmpty>No files</CommandEmpty>
 								<CommandGroup heading="Files">
 									{options.map((opt, index) => {
+										if (opt instanceof FileMentionStatusOption) {
+											return (
+												<CommandItem
+													key={opt.key}
+													value={opt.key}
+													ref={(el) => opt.setRefElement(el)}
+													disabled
+													className="min-w-0 rounded-lg px-2.5 py-2 text-[13px] text-muted-foreground"
+												>
+													{opt.kind === "loading" ? (
+														<LoaderCircle
+															className="size-3.5 shrink-0 animate-spin"
+															strokeWidth={2}
+														/>
+													) : (
+														<FileText
+															className="size-3.5 shrink-0 text-muted-foreground"
+															strokeWidth={1.8}
+														/>
+													)}
+													<span className="min-w-0 truncate">{opt.label}</span>
+												</CommandItem>
+											);
+										}
 										const file = opt.file;
 										const isSelected = index === selectedIndex;
 										// Show the directory portion of the path dimmed,

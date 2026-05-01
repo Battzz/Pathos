@@ -1,9 +1,12 @@
 use std::{
     ffi::OsString,
     fs,
-    io::Write,
+    io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
+    process::{Command, Stdio},
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use anyhow::{bail, Context, Result};
@@ -103,24 +106,92 @@ pub(super) fn allowed_workspace_roots() -> Result<Vec<PathBuf>> {
 }
 
 const MAX_WORKSPACE_FILES_FOR_MENTION: usize = 5000;
+const MAX_INDEXED_FILES_FOR_MENTION: usize = 500;
+const MAX_QUERY_FALLBACK_DIRS_FOR_MENTION: usize = 2500;
+const INDEXED_SEARCH_TIMEOUT: Duration = Duration::from_millis(900);
+
+#[derive(Debug, Clone)]
+pub(super) struct MentionFileQuery {
+    lower: String,
+}
+
+impl MentionFileQuery {
+    pub(super) fn new(query: Option<&str>) -> Option<Self> {
+        let query = query?.trim();
+        if query.is_empty() {
+            return None;
+        }
+        Some(Self {
+            lower: query.to_ascii_lowercase(),
+        })
+    }
+}
+
+pub(super) struct MentionWalkBudget {
+    visited_dirs: usize,
+    max_dirs: usize,
+}
+
+impl MentionWalkBudget {
+    pub(super) fn for_query_fallback() -> Self {
+        Self {
+            visited_dirs: 0,
+            max_dirs: MAX_QUERY_FALLBACK_DIRS_FOR_MENTION,
+        }
+    }
+
+    fn enter_dir(&mut self) -> bool {
+        if self.visited_dirs >= self.max_dirs {
+            return false;
+        }
+        self.visited_dirs += 1;
+        true
+    }
+}
+
+pub(super) fn collect_indexed_workspace_files_for_mention(
+    workspace_root: &Path,
+    query: &MentionFileQuery,
+) -> Result<Option<Vec<PathBuf>>> {
+    if let Some(files) = collect_git_workspace_files_for_mention(workspace_root, query)? {
+        return Ok(Some(files));
+    }
+
+    collect_spotlight_workspace_files_for_mention(workspace_root, query)
+}
 
 pub(super) fn collect_workspace_files_for_mention(
+    workspace_root: &Path,
     current_dir: &Path,
     discovered_files: &mut Vec<PathBuf>,
+    query: Option<&MentionFileQuery>,
+    mut budget: Option<&mut MentionWalkBudget>,
 ) -> Result<()> {
     if discovered_files.len() >= MAX_WORKSPACE_FILES_FOR_MENTION {
         return Ok(());
     }
+    if let Some(budget) = budget.as_deref_mut() {
+        if !budget.enter_dir() {
+            return Ok(());
+        }
+    }
 
     let read_dir = match fs::read_dir(current_dir) {
         Ok(iter) => iter,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
             // Subdir vanished between walk start and descent (git checkout,
-            // rm -rf, etc.). Skip silently rather than aborting the whole
-            // walk — one missing dir shouldn't break the @-mention picker.
-            tracing::warn!(
+            // rm -rf, etc.) or is protected by the OS. Generic chats can
+            // be rooted at $HOME, where protected folders are common, so one
+            // unreadable directory must not break the whole @-mention picker.
+            tracing::debug!(
                 path = %current_dir.display(),
-                "skipping missing workspace subdir during mention walk",
+                error = %error,
+                "skipping unreadable workspace subdir during mention walk",
             );
             return Ok(());
         }
@@ -133,14 +204,19 @@ pub(super) fn collect_workspace_files_for_mention(
             })
         }
     };
-    let mut entries = read_dir
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .with_context(|| {
-            format!(
-                "Failed to iterate workspace directory {}",
-                current_dir.display()
-            )
-        })?;
+    let mut entries = Vec::new();
+    for entry in read_dir {
+        match entry {
+            Ok(entry) => entries.push(entry),
+            Err(error) => {
+                tracing::debug!(
+                    path = %current_dir.display(),
+                    error = %error,
+                    "skipping unreadable workspace entry during mention walk",
+                );
+            }
+        }
+    }
 
     entries.sort_by_key(|entry| entry.file_name());
 
@@ -150,20 +226,37 @@ pub(super) fn collect_workspace_files_for_mention(
         }
 
         let entry_path = entry.path();
-        let file_type = entry.file_type().with_context(|| {
-            format!("Failed to inspect workspace entry {}", entry_path.display())
-        })?;
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(error) => {
+                tracing::debug!(
+                    path = %entry_path.display(),
+                    error = %error,
+                    "skipping uninspectable workspace entry during mention walk",
+                );
+                continue;
+            }
+        };
 
         if file_type.is_dir() {
-            if should_skip_workspace_dir_for_mention(&entry_path) {
+            if should_skip_workspace_dir_for_mention(workspace_root, &entry_path) {
                 continue;
             }
 
-            collect_workspace_files_for_mention(&entry_path, discovered_files)?;
+            collect_workspace_files_for_mention(
+                workspace_root,
+                &entry_path,
+                discovered_files,
+                query,
+                budget.as_deref_mut(),
+            )?;
             continue;
         }
 
-        if file_type.is_file() && should_include_workspace_file_for_mention(&entry_path) {
+        if file_type.is_file()
+            && should_include_workspace_file_for_mention(&entry_path)
+            && file_matches_mention_query(workspace_root, &entry_path, query)
+        {
             discovered_files.push(entry_path);
         }
     }
@@ -171,12 +264,222 @@ pub(super) fn collect_workspace_files_for_mention(
     Ok(())
 }
 
-fn should_skip_workspace_dir_for_mention(path: &Path) -> bool {
+fn collect_git_workspace_files_for_mention(
+    workspace_root: &Path,
+    query: &MentionFileQuery,
+) -> Result<Option<Vec<PathBuf>>> {
+    let workspace_root_arg = workspace_root.display().to_string();
+    let Ok(repo_root_output) = crate::git_ops::run_git(
+        [
+            "-C",
+            workspace_root_arg.as_str(),
+            "rev-parse",
+            "--show-toplevel",
+        ],
+        None,
+    ) else {
+        return Ok(None);
+    };
+    let repo_root = PathBuf::from(repo_root_output.trim());
+    if repo_root.as_os_str().is_empty() {
+        return Ok(None);
+    }
+
+    let Ok(output) = crate::git_ops::run_git(
+        [
+            "-C",
+            workspace_root_arg.as_str(),
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--full-name",
+        ],
+        None,
+    ) else {
+        return Ok(None);
+    };
+
+    let mut files = Vec::new();
+    for line in output.lines() {
+        if files.len() >= MAX_INDEXED_FILES_FOR_MENTION {
+            break;
+        }
+        let relative = line.trim();
+        if relative.is_empty() {
+            continue;
+        }
+        let path = repo_root.join(relative);
+        if !path.starts_with(workspace_root) {
+            continue;
+        }
+        if is_mention_file_candidate(workspace_root, &path, Some(query)) {
+            files.push(path);
+        }
+    }
+
+    if files.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(files))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn collect_spotlight_workspace_files_for_mention(
+    workspace_root: &Path,
+    query: &MentionFileQuery,
+) -> Result<Option<Vec<PathBuf>>> {
+    if query.lower.chars().count() < 2 {
+        return Ok(None);
+    }
+
+    let expression = format!(
+        "kMDItemFSName == \"*{}*\"cd",
+        escape_spotlight_query(&query.lower)
+    );
+    let mut child = match Command::new("mdfind")
+        .arg("-onlyin")
+        .arg(workspace_root)
+        .arg(expression)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            tracing::warn!(
+                path = %workspace_root.display(),
+                error = %error,
+                "failed to spawn Spotlight mention search",
+            );
+            return Ok(None);
+        }
+    };
+
+    let Some(stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        return Ok(None);
+    };
+
+    let (sender, receiver) = mpsc::channel();
+    let workspace_root_for_reader = workspace_root.to_path_buf();
+    let query_for_reader = query.clone();
+    thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        let mut files = Vec::new();
+        for line in reader.lines() {
+            let Ok(line) = line else {
+                continue;
+            };
+            let path = PathBuf::from(line);
+            if is_mention_file_candidate(&workspace_root_for_reader, &path, Some(&query_for_reader))
+            {
+                files.push(path);
+            }
+            if files.len() >= MAX_INDEXED_FILES_FOR_MENTION {
+                break;
+            }
+        }
+        let _ = sender.send(files);
+    });
+
+    let started_at = Instant::now();
+    loop {
+        if let Ok(files) = receiver.try_recv() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(if files.is_empty() { None } else { Some(files) });
+        }
+
+        if child.try_wait()?.is_some() {
+            let files = receiver
+                .recv_timeout(Duration::from_millis(50))
+                .unwrap_or_default();
+            return Ok(if files.is_empty() { None } else { Some(files) });
+        }
+
+        if started_at.elapsed() >= INDEXED_SEARCH_TIMEOUT {
+            let _ = child.kill();
+            let _ = child.wait();
+            let files = receiver
+                .recv_timeout(Duration::from_millis(50))
+                .unwrap_or_default();
+            return Ok(if files.is_empty() { None } else { Some(files) });
+        }
+
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn collect_spotlight_workspace_files_for_mention(
+    _workspace_root: &Path,
+    _query: &MentionFileQuery,
+) -> Result<Option<Vec<PathBuf>>> {
+    Ok(None)
+}
+
+fn escape_spotlight_query(query: &str) -> String {
+    query.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn is_mention_file_candidate(
+    workspace_root: &Path,
+    path: &Path,
+    query: Option<&MentionFileQuery>,
+) -> bool {
+    path.is_file()
+        && !has_skipped_mention_ancestor(workspace_root, path)
+        && should_include_workspace_file_for_mention(path)
+        && file_matches_mention_query(workspace_root, path, query)
+}
+
+fn has_skipped_mention_ancestor(workspace_root: &Path, path: &Path) -> bool {
+    let mut current = path.parent();
+    while let Some(dir) = current {
+        if dir == workspace_root {
+            return false;
+        }
+        if should_skip_workspace_dir_for_mention(workspace_root, dir) {
+            return true;
+        }
+        current = dir.parent();
+    }
+    false
+}
+
+fn file_matches_mention_query(
+    workspace_root: &Path,
+    path: &Path,
+    query: Option<&MentionFileQuery>,
+) -> bool {
+    let Some(query) = query else {
+        return true;
+    };
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if file_name.contains(&query.lower) {
+        return true;
+    }
+    path.strip_prefix(workspace_root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase()
+        .contains(&query.lower)
+}
+
+fn should_skip_workspace_dir_for_mention(workspace_root: &Path, path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
         return true;
     };
 
-    matches!(
+    if matches!(
         name,
         ".git"
             | "node_modules"
@@ -188,8 +491,20 @@ fn should_skip_workspace_dir_for_mention(path: &Path) -> bool {
             | ".turbo"
             | ".cache"
             | ".venv"
+            | ".Trash"
+            | ".gradle"
+            | ".npm"
+            | ".rustup"
             | "__pycache__"
-    )
+    ) {
+        return true;
+    }
+
+    path.parent() == Some(workspace_root)
+        && matches!(
+            name,
+            "Applications" | "Library" | "Movies" | "Music" | "Pictures"
+        )
 }
 
 fn should_include_workspace_file_for_mention(path: &Path) -> bool {

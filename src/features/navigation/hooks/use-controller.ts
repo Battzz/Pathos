@@ -6,17 +6,20 @@ import {
 	addRepositoryFromLocalPath,
 	cloneRepositoryFromUrl,
 	createChatSessionInRepo,
+	createGenericChatSession,
 	deleteProjectChats,
 	deleteRepository,
 	deleteSession,
 	loadAddRepositoryDefaults,
 	pinSession,
 	type RepositoryFolder,
+	type RepositoryFolderChat,
 	unpinSession,
 	type WorkspaceDetail,
 	type WorkspaceSessionSummary,
 } from "@/lib/api";
 import {
+	genericChatsQueryOptions,
 	pathosQueryKeys,
 	repositoryFoldersQueryOptions,
 	sessionThreadMessagesQueryOptions,
@@ -181,6 +184,8 @@ export function useFolderSidebarController({
 	const queryClient = useQueryClient();
 	const foldersQuery = useQuery(repositoryFoldersQueryOptions());
 	const folders: RepositoryFolder[] = foldersQuery.data ?? [];
+	const genericChatsQuery = useQuery(genericChatsQueryOptions());
+	const genericChats: RepositoryFolderChat[] = genericChatsQuery.data ?? [];
 
 	const [addRepositoryPhase, setAddRepositoryPhase] =
 		useState<AddRepositoryPhase>("idle");
@@ -190,6 +195,7 @@ export function useFolderSidebarController({
 	const [creatingChatRepoId, setCreatingChatRepoId] = useState<string | null>(
 		null,
 	);
+	const [creatingGenericChat, setCreatingGenericChat] = useState(false);
 	const [isCloneDialogOpen, setIsCloneDialogOpen] = useState(false);
 	const [cloneDefaultDirectory, setCloneDefaultDirectory] = useState<
 		string | null
@@ -362,6 +368,64 @@ export function useFolderSidebarController({
 		},
 	});
 
+	const createGenericChatMutation = useMutation({
+		mutationFn: async () => {
+			setCreatingGenericChat(true);
+			try {
+				return await createGenericChatSession();
+			} finally {
+				setCreatingGenericChat(false);
+			}
+		},
+		onSuccess: (response) => {
+			seedCreatedChatQueries({
+				folder: undefined,
+				queryClient,
+				sessionId: response.sessionId,
+				workspaceId: response.workspaceId,
+			});
+			const now = new Date().toISOString();
+			queryClient.setQueryData<RepositoryFolderChat[] | undefined>(
+				pathosQueryKeys.genericChats,
+				(current) => {
+					if (
+						(current ?? []).some(
+							(chat) => chat.sessionId === response.sessionId,
+						)
+					) {
+						return current;
+					}
+					return [
+						{
+							sessionId: response.sessionId,
+							workspaceId: response.workspaceId,
+							title: "Untitled",
+							agentType: null,
+							status: "idle",
+							unreadCount: 0,
+							pinnedAt: null,
+							createdAt: now,
+							updatedAt: now,
+							lastUserMessageAt: null,
+						},
+						...(current ?? []),
+					];
+				},
+			);
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.genericChats,
+			});
+			onSelectChat(response.workspaceId, response.sessionId);
+		},
+		onError: (error) => {
+			pushWorkspaceToast(
+				describeUnknownError(error, "Unable to start chat."),
+				"New chat failed",
+				"destructive",
+			);
+		},
+	});
+
 	const handleCreateChat = useCallback(
 		(repoId: string) => {
 			createChatMutation.mutate(repoId);
@@ -369,11 +433,28 @@ export function useFolderSidebarController({
 		[createChatMutation],
 	);
 
+	const handleCreateGenericChat = useCallback(() => {
+		createGenericChatMutation.mutate();
+	}, [createGenericChatMutation]);
+
 	const handleDeleteChat = useCallback(
 		async (sessionId: string) => {
 			try {
 				await deleteSession(sessionId);
 				refetchFolders();
+				void queryClient.invalidateQueries({
+					queryKey: pathosQueryKeys.genericChats,
+				});
+				if (
+					selectedWorkspaceId &&
+					genericChats.some(
+						(chat) =>
+							chat.sessionId === sessionId &&
+							chat.workspaceId === selectedWorkspaceId,
+					)
+				) {
+					onSelectWorkspace(null);
+				}
 			} catch (error) {
 				pushWorkspaceToast(
 					describeUnknownError(error, "Unable to delete chat."),
@@ -382,7 +463,14 @@ export function useFolderSidebarController({
 				);
 			}
 		},
-		[pushWorkspaceToast, refetchFolders],
+		[
+			genericChats,
+			onSelectWorkspace,
+			pushWorkspaceToast,
+			queryClient,
+			refetchFolders,
+			selectedWorkspaceId,
+		],
 	);
 
 	const handleDeleteProjectChats = useCallback(
@@ -426,6 +514,9 @@ export function useFolderSidebarController({
 	const refetchPinnedLists = useCallback(
 		(workspaceId: string | null) => {
 			refetchFolders();
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.genericChats,
+			});
 			if (workspaceId) {
 				void queryClient.invalidateQueries({
 					queryKey: pathosQueryKeys.workspaceDetail(workspaceId),
@@ -518,11 +609,13 @@ export function useFolderSidebarController({
 
 	return {
 		folders,
+		genericChats,
 		isLoadingFolders: foldersQuery.isLoading,
 		addingRepository: addRepositoryPhase !== "idle",
 		importingRepository: addRepositoryPhase === "importing",
 		recentlyAddedRepoId,
 		creatingChatRepoId,
+		creatingGenericChat,
 		isCloneDialogOpen,
 		setIsCloneDialogOpen,
 		cloneDefaultDirectory,
@@ -532,6 +625,7 @@ export function useFolderSidebarController({
 		handleOpenCloneDialog,
 		handleCloneFromUrl,
 		handleCreateChat,
+		handleCreateGenericChat,
 		handleDeleteChat,
 		handleDeleteProjectChats,
 		handleToggleChatPin,

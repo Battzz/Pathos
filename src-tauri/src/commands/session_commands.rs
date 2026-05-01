@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     agents::{self, ActionKind},
-    db, pipeline, sessions, workspace_project,
+    db, pipeline, sessions, workspace, workspace_project,
 };
 
 use super::common::{run_blocking, CmdResult};
@@ -57,6 +57,41 @@ pub async fn create_chat_session_in_repo(
 }
 
 #[tauri::command]
+pub async fn create_generic_chat_session(
+    app: tauri::AppHandle,
+    permission_mode: Option<String>,
+) -> CmdResult<CreateChatResponse> {
+    let response = run_blocking(move || {
+        let workspace_id = workspace::generic_chats::get_or_create_generic_chat_workspace()?;
+        if let Some(session_id) = sessions::reuse_empty_visible_chat_session(&workspace_id)? {
+            return Ok::<_, anyhow::Error>(CreateChatResponse {
+                workspace_id,
+                session_id,
+            });
+        }
+        let session =
+            sessions::create_session(&workspace_id, None, None, permission_mode.as_deref())?;
+        Ok::<_, anyhow::Error>(CreateChatResponse {
+            workspace_id,
+            session_id: session.session_id,
+        })
+    })
+    .await?;
+    crate::ui_sync::publish(
+        &app,
+        crate::ui_sync::UiMutationEvent::SessionListChanged {
+            workspace_id: response.workspace_id.clone(),
+        },
+    );
+    Ok(response)
+}
+
+#[tauri::command]
+pub async fn list_generic_chats() -> CmdResult<Vec<workspace::workspaces::RepositoryFolderChat>> {
+    run_blocking(workspace::generic_chats::list_generic_chats).await
+}
+
+#[tauri::command]
 pub async fn list_workspace_sessions(
     workspace_id: String,
 ) -> CmdResult<Vec<sessions::WorkspaceSessionSummary>> {
@@ -81,12 +116,39 @@ pub async fn truncate_session_messages_after(
     message_id: String,
     include_selected: bool,
 ) -> CmdResult<usize> {
+    let checkpoint_session_id = session_id.clone();
+    let checkpoint_message_id = message_id.clone();
+    let checkpoint_restored = run_blocking(move || {
+        crate::checkpoints::restore_user_message_checkpoint(
+            &checkpoint_session_id,
+            &checkpoint_message_id,
+            include_selected,
+        )
+    })
+    .await?;
+    if matches!(checkpoint_restored, Some(false)) {
+        return Err(
+            anyhow::anyhow!("Filesystem checkpoint is unavailable for this message.").into(),
+        );
+    }
+
     let metadata_session_id = session_id.clone();
     let metadata_message_id = message_id.clone();
     let metadata = run_blocking(move || {
         sessions::session_message_rollback_metadata(
             &metadata_session_id,
             &metadata_message_id,
+            include_selected,
+        )
+    })
+    .await?;
+
+    let cleanup_session_id = session_id.clone();
+    let cleanup_message_id = message_id.clone();
+    let stale_checkpoint_message_ids = run_blocking(move || {
+        crate::checkpoints::user_message_ids_for_truncation(
+            &cleanup_session_id,
+            &cleanup_message_id,
             include_selected,
         )
     })
@@ -100,10 +162,23 @@ pub async fn truncate_session_messages_after(
     )
     .await?;
 
-    run_blocking(move || {
+    let truncated_session_id = session_id.clone();
+    let deleted = run_blocking(move || {
         sessions::truncate_session_messages_after(&session_id, &message_id, include_selected)
     })
-    .await
+    .await?;
+
+    if !stale_checkpoint_message_ids.is_empty() {
+        run_blocking(move || {
+            crate::checkpoints::delete_user_message_checkpoints(
+                &truncated_session_id,
+                stale_checkpoint_message_ids,
+            )
+        })
+        .await?;
+    }
+
+    Ok(deleted)
 }
 
 async fn rollback_live_provider_session(

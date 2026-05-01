@@ -10,7 +10,9 @@ import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";
 import { Button } from "@/components/ui/button";
 import { ShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type { EditorSessionState } from "@/lib/editor-session";
+import { isImagePath } from "@/lib/image-path";
 import { describeUnknownError } from "@/lib/workspace-helpers";
+import { ImagePreview } from "./image-preview";
 
 type WorkspaceEditorSurfaceProps = {
 	editorSession: EditorSessionState;
@@ -64,10 +66,17 @@ export function WorkspaceEditorSurface({
 		editorSession.kind === "diff" &&
 		editorSession.originalText !== undefined &&
 		editorSession.modifiedText !== undefined;
+	const canRenderImage = isImagePath(editorSession.path);
+	const imageUnavailable =
+		editorSession.kind === "diff" && editorSession.fileStatus === "D";
 	const closeLabel =
 		editorSession.kind === "diff" ? "Close diff view" : "Close editor view";
 
 	useEffect(() => {
+		if (canRenderImage) {
+			return;
+		}
+
 		if (
 			(editorSession.kind === "file" && canRenderFile) ||
 			(editorSession.kind === "diff" && canRenderDiff)
@@ -137,7 +146,13 @@ export function WorkspaceEditorSurface({
 		return () => {
 			cancelled = true;
 		};
-	}, [canRenderDiff, canRenderFile, editorSession, workspaceRootPath]);
+	}, [
+		canRenderDiff,
+		canRenderFile,
+		canRenderImage,
+		editorSession,
+		workspaceRootPath,
+	]);
 
 	// Dispose editors on unmount (separate from the switching effect so the
 	// fast-path can skip cleanup without leaking on unmount).
@@ -168,6 +183,17 @@ export function WorkspaceEditorSurface({
 	useLayoutEffect(() => {
 		const host = editorHostRef.current;
 		if (!host) {
+			return;
+		}
+
+		if (canRenderImage) {
+			disposeControllers({
+				fileControllerRef,
+				diffControllerRef,
+				changeSubscriptionRef,
+			});
+			host.replaceChildren();
+			setSurfaceStatus({ kind: "ready" });
 			return;
 		}
 
@@ -326,7 +352,13 @@ export function WorkspaceEditorSurface({
 			// changes), and the separate unmount effect handles final cleanup.
 			disposed = true;
 		};
-	}, [canRenderDiff, canRenderFile, editorSession.kind, editorSession.path]);
+	}, [
+		canRenderDiff,
+		canRenderFile,
+		canRenderImage,
+		editorSession.kind,
+		editorSession.path,
+	]);
 
 	useEffect(() => {
 		if (
@@ -412,8 +444,14 @@ export function WorkspaceEditorSurface({
 				<div
 					ref={editorHostRef}
 					aria-label="Editor canvas"
-					className="h-full min-h-0 flex-1"
+					className={canRenderImage ? "hidden" : "h-full min-h-0 flex-1"}
 				/>
+				{canRenderImage && (
+					<ImagePreview
+						path={editorSession.path}
+						unavailable={imageUnavailable}
+					/>
+				)}
 
 				{surfaceStatus.kind === "error" && (
 					<div className="absolute inset-0 flex items-center justify-center bg-background">
