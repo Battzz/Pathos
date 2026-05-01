@@ -260,7 +260,7 @@ export function SlashCommandPlugin({
 					// conversation thread don't occlude it.
 					<div
 						data-typeahead-popup="slash"
-						className="pointer-events-auto absolute bottom-full left-0 isolate z-[9999] mb-2 w-[min(640px,calc(100vw-2rem))]"
+						className="pointer-events-auto absolute bottom-full left-0 isolate z-[9999] mb-2 w-full"
 					>
 						<Command
 							value={highlightValue}

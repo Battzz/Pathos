@@ -72,6 +72,7 @@ export function ActiveThreadViewport({
 	onInitializeScript,
 	onRevertMessage,
 	onSubmitEditedMessage,
+	onRedoAssistantMessage,
 }: {
 	hasSession: boolean;
 	onCloneProject?: () => void;
@@ -84,6 +85,10 @@ export function ActiveThreadViewport({
 	onRevertMessage?: (messageId: string) => void | Promise<void>;
 	onSubmitEditedMessage?: (
 		messageId: string,
+		prompt: string,
+	) => void | Promise<void>;
+	onRedoAssistantMessage?: (
+		userMessageId: string,
 		prompt: string,
 	) => void | Promise<void>;
 }) {
@@ -142,6 +147,7 @@ export function ActiveThreadViewport({
 					workspaceLabel={workspaceLabel}
 					onRevertMessage={onRevertMessage}
 					onSubmitEditedMessage={onSubmitEditedMessage}
+					onRedoAssistantMessage={onRedoAssistantMessage}
 				/>
 			</div>
 		</div>
@@ -163,6 +169,7 @@ function ChatThread({
 	workspaceLabel,
 	onRevertMessage,
 	onSubmitEditedMessage,
+	onRedoAssistantMessage,
 }: {
 	layoutCacheKey: string;
 	messages: ThreadMessageLike[];
@@ -179,6 +186,10 @@ function ChatThread({
 	onRevertMessage?: (messageId: string) => void | Promise<void>;
 	onSubmitEditedMessage?: (
 		messageId: string,
+		prompt: string,
+	) => void | Promise<void>;
+	onRedoAssistantMessage?: (
+		userMessageId: string,
 		prompt: string,
 	) => void | Promise<void>;
 }) {
@@ -245,10 +256,14 @@ function ChatThread({
 	const itemContent = useCallback(
 		(index: number, message: RenderedMessage) => {
 			let previousAssistantMessage: RenderedMessage | null = null;
+			let previousUserMessage: RenderedMessage | null = null;
 			for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
 				const candidate = threadMessages[cursor];
 				if (candidate?.role === "assistant") {
 					previousAssistantMessage = candidate;
+				}
+				if (candidate?.role === "user") {
+					previousUserMessage = candidate;
 					break;
 				}
 			}
@@ -260,11 +275,20 @@ function ChatThread({
 					sessionId={sessionId}
 					onRevertMessage={onRevertMessage}
 					onSubmitEditedMessage={onSubmitEditedMessage}
+					onRedoAssistantMessage={sending ? undefined : onRedoAssistantMessage}
 					itemIndex={index}
+					previousUserMessage={previousUserMessage}
 				/>
 			);
 		},
-		[onRevertMessage, onSubmitEditedMessage, sessionId, threadMessages],
+		[
+			onRedoAssistantMessage,
+			onRevertMessage,
+			onSubmitEditedMessage,
+			sending,
+			sessionId,
+			threadMessages,
+		],
 	);
 
 	return (

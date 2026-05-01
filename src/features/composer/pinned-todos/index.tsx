@@ -31,7 +31,7 @@ export function PinnedTodoList({ part }: PinnedTodoListProps) {
 	return (
 		<div
 			data-testid="pinned-todo-list"
-			className="pointer-events-auto relative z-0 mx-auto w-[90%] overflow-hidden rounded-t-2xl border border-b-0 border-border/40 bg-sidebar"
+			className="pointer-events-auto relative z-0 w-full overflow-hidden rounded-t-2xl border border-b-0 border-border/40 bg-sidebar"
 		>
 			<button
 				type="button"

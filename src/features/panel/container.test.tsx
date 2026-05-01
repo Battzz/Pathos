@@ -13,6 +13,7 @@ const apiMocks = vi.hoisted(() => ({
 	loadWorkspaceSessions: vi.fn(),
 	loadSessionMessages: vi.fn(),
 	loadSessionThreadMessages: vi.fn(),
+	prepareSessionRedoFromUserMessage: vi.fn(),
 	truncateSessionMessagesAfter: vi.fn(),
 }));
 
@@ -30,6 +31,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
 		loadWorkspaceSessions: apiMocks.loadWorkspaceSessions,
 		loadSessionMessages: apiMocks.loadSessionThreadMessages,
 		loadSessionThreadMessages: apiMocks.loadSessionThreadMessages,
+		prepareSessionRedoFromUserMessage:
+			apiMocks.prepareSessionRedoFromUserMessage,
 		truncateSessionMessagesAfter: apiMocks.truncateSessionMessagesAfter,
 	};
 });
@@ -240,6 +243,7 @@ describe("WorkspacePanelContainer loading semantics", () => {
 		apiMocks.loadWorkspaceDetail.mockReset();
 		apiMocks.loadWorkspaceSessions.mockReset();
 		apiMocks.loadSessionThreadMessages.mockReset();
+		apiMocks.prepareSessionRedoFromUserMessage.mockReset();
 		apiMocks.truncateSessionMessagesAfter.mockReset();
 
 		apiMocks.createSession.mockResolvedValue({ sessionId: "session-created" });
@@ -266,6 +270,7 @@ describe("WorkspacePanelContainer loading semantics", () => {
 				Promise.resolve(createMessages(sessionId ?? "session-1")),
 		);
 		apiMocks.truncateSessionMessagesAfter.mockResolvedValue(1);
+		apiMocks.prepareSessionRedoFromUserMessage.mockResolvedValue(1);
 	});
 
 	afterEach(() => {
@@ -397,6 +402,64 @@ describe("WorkspacePanelContainer loading semantics", () => {
 		expect(
 			apiMocks.truncateSessionMessagesAfter.mock.calls[0]?.slice(1),
 		).toEqual(["user-message-1", true]);
+	});
+
+	it("prepares redo and queues a replay without duplicating the user message", async () => {
+		const queryClient = createPathosQueryClient();
+		const onQueuePendingPromptForSession = vi.fn();
+		queryClient.setQueryData(
+			pathosQueryKeys.workspaceDetail("workspace-1"),
+			createWorkspaceDetail("workspace-1"),
+		);
+		queryClient.setQueryData(
+			pathosQueryKeys.workspaceSessions("workspace-1"),
+			createWorkspaceSessions("workspace-1"),
+		);
+		queryClient.setQueryData(
+			[...pathosQueryKeys.sessionMessages("session-1"), "thread"],
+			createMessages("session-1"),
+		);
+
+		renderWithProviders(
+			<WorkspacePanelContainer
+				selectedWorkspaceId="workspace-1"
+				displayedWorkspaceId="workspace-1"
+				selectedSessionId="session-1"
+				displayedSessionId="session-1"
+				sending={false}
+				onSelectSession={vi.fn()}
+				onResolveDisplayedSession={vi.fn()}
+				onQueuePendingPromptForSession={onQueuePendingPromptForSession}
+			/>,
+			{ queryClient },
+		);
+
+		await waitFor(() => {
+			expect(getLatestPanelProps().onRedoAssistantMessage).toEqual(
+				expect.any(Function),
+			);
+		});
+
+		await waitFor(() => {
+			expect(onQueuePendingPromptForSession).toEqual(expect.any(Function));
+		});
+
+		await (
+			getLatestPanelProps().onRedoAssistantMessage as (
+				userMessageId: string,
+				prompt: string,
+			) => Promise<void>
+		)("user-message-1", "Run this again.");
+
+		expect(apiMocks.prepareSessionRedoFromUserMessage).toHaveBeenCalledWith(
+			"session-1",
+			"user-message-1",
+		);
+		expect(onQueuePendingPromptForSession).toHaveBeenCalledWith({
+			sessionId: "session-1",
+			prompt: "Run this again.",
+			replayUserMessageId: "user-message-1",
+		});
 	});
 
 	it("derives the new-session tab provider from the default model setting", () => {

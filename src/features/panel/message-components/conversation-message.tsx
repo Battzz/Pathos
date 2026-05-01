@@ -8,17 +8,24 @@ import { ChatUserMessage } from "./user-message";
 function ConversationMessage({
 	message,
 	previousAssistantMessage,
+	previousUserMessage,
 	sessionId,
 	onRevertMessage,
 	onSubmitEditedMessage,
+	onRedoAssistantMessage,
 	itemIndex,
 }: {
 	message: RenderedMessage;
 	previousAssistantMessage?: RenderedMessage | null;
+	previousUserMessage?: RenderedMessage | null;
 	sessionId: string;
 	onRevertMessage?: (messageId: string) => void | Promise<void>;
 	onSubmitEditedMessage?: (
 		messageId: string,
+		prompt: string,
+	) => void | Promise<void>;
+	onRedoAssistantMessage?: (
+		userMessageId: string,
 		prompt: string,
 	) => void | Promise<void>;
 	itemIndex: number;
@@ -41,7 +48,14 @@ function ConversationMessage({
 	}
 
 	if (message.role === "assistant") {
-		return <ChatAssistantMessage message={message} streaming={streaming} />;
+		return (
+			<ChatAssistantMessage
+				message={message}
+				previousUserMessage={previousUserMessage}
+				streaming={streaming}
+				onRedoAssistantMessage={onRedoAssistantMessage}
+			/>
+		);
 	}
 
 	return (
@@ -58,9 +72,11 @@ export const MemoConversationMessage = memo(
 		return (
 			prev.message === next.message &&
 			prev.previousAssistantMessage === next.previousAssistantMessage &&
+			prev.previousUserMessage === next.previousUserMessage &&
 			prev.sessionId === next.sessionId &&
 			prev.onRevertMessage === next.onRevertMessage &&
 			prev.onSubmitEditedMessage === next.onSubmitEditedMessage &&
+			prev.onRedoAssistantMessage === next.onRedoAssistantMessage &&
 			prev.itemIndex === next.itemIndex
 		);
 	},

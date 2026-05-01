@@ -295,7 +295,7 @@ export function AddDirTypeaheadPlugin({
 				return createPortal(
 					<div
 						data-typeahead-popup="add-dir"
-						className="pointer-events-auto absolute bottom-full left-0 isolate z-[9999] mb-2 w-[min(640px,calc(100vw-2rem))]"
+						className="pointer-events-auto absolute bottom-full left-0 isolate z-[9999] mb-2 w-full"
 					>
 						<Command
 							value={highlightValue}

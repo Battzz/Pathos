@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PendingDeferredTool } from "@/features/conversation/pending-deferred-tool";
 import type { PendingElicitation } from "@/features/conversation/pending-elicitation";
 import type {
 	AgentModelOption,
@@ -66,22 +65,6 @@ const MODEL: AgentModelOption = {
 	label: "GPT-5.4",
 	cliModel: "gpt-5.4",
 };
-
-function createDeferredTool(): PendingDeferredTool {
-	return {
-		provider: "claude",
-		modelId: "opus-1m",
-		resolvedModel: "opus-1m",
-		providerSessionId: "provider-session-1",
-		workingDirectory: "/tmp/pathos",
-		permissionMode: "default",
-		toolUseId: "tool-1",
-		toolName: "AskUserQuestion",
-		toolInput: {
-			question: "Pick one",
-		},
-	};
-}
 
 function createPendingElicitation(): PendingElicitation {
 	return {
@@ -305,10 +288,11 @@ describe("useConversationStreaming", () => {
 		expect(getLastInteractionSnapshot(interactionSnapshots)).toEqual(new Map());
 	});
 
-	it("uses the Pathos session id when stopping a resumed deferred stream", async () => {
+	it("restores sending state after answering a paused deferred tool", async () => {
+		const streamCallbacks: Array<(event: unknown) => void> = [];
 		apiMocks.startAgentMessageStream.mockImplementation(
-			async (_payload: unknown, _onEvent: (event: unknown) => void) => {
-				return undefined;
+			async (_payload: unknown, onEvent: (event: unknown) => void) => {
+				streamCallbacks.push(onEvent);
 			},
 		);
 
@@ -328,22 +312,59 @@ describe("useConversationStreaming", () => {
 		);
 
 		await act(async () => {
+			await result.current.handleComposerSubmit({
+				prompt: "Need approval",
+				imagePaths: [],
+				filePaths: [],
+				customTags: [],
+				model: MODEL,
+				workingDirectory: "/tmp/pathos",
+				effortLevel: "medium",
+				permissionMode: "default",
+				fastMode: false,
+			});
+		});
+
+		expect(result.current.isSending).toBe(true);
+		expect(streamCallbacks).toHaveLength(1);
+
+		act(() => {
+			streamCallbacks[0]({
+				kind: "deferredToolUse",
+				provider: "claude",
+				providerSessionId: "provider-session-1",
+				workingDirectory: "/tmp/pathos",
+				permissionMode: "default",
+				toolUseId: "tool-1",
+				toolName: "AskUserQuestion",
+				toolInput: {
+					question: "Pick one",
+				},
+			});
+		});
+
+		expect(result.current.isSending).toBe(false);
+		expect(result.current.pendingDeferredTool?.toolUseId).toBe("tool-1");
+
+		await act(async () => {
 			await result.current.handleDeferredToolResponse(
-				createDeferredTool(),
+				result.current.pendingDeferredTool!,
 				"allow",
 			);
 		});
 
-		expect(apiMocks.startAgentMessageStream).toHaveBeenCalledWith(
-			expect.objectContaining({
-				provider: "claude",
-				modelId: "opus-1m",
-				resumeOnly: true,
-				sessionId: "provider-session-1",
-				pathosSessionId: "session-1",
-			}),
-			expect.any(Function),
+		expect(apiMocks.respondToDeferredTool).toHaveBeenCalledWith(
+			"tool-1",
+			"allow",
+			{
+				reason: undefined,
+				updatedInput: undefined,
+			},
 		);
+		expect(apiMocks.startAgentMessageStream).toHaveBeenCalledTimes(1);
+		expect(result.current.pendingDeferredTool).toBeNull();
+		expect(result.current.isSending).toBe(true);
+		expect(result.current.sendingSessionIds).toEqual(new Set(["session-1"]));
 
 		act(() => {
 			result.current.handleStopStream();

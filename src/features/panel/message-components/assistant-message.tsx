@@ -1,11 +1,19 @@
-import { AlertCircle, AlertTriangle, Clock3, Info } from "lucide-react";
-import { memo, Suspense } from "react";
+import {
+	AlertCircle,
+	AlertTriangle,
+	Clock3,
+	Info,
+	RotateCcw,
+} from "lucide-react";
+import { memo, Suspense, useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
 	Reasoning,
 	ReasoningContent,
 	ReasoningTrigger,
 } from "@/components/ai/reasoning";
 import { LazyStreamdown } from "@/components/streamdown-loader";
+import { Button } from "@/components/ui/button";
 import {
 	type ExtendedMessagePart,
 	partKey,
@@ -14,6 +22,10 @@ import {
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { ImageBlock, PlanReviewCard, TodoList } from "./content-parts";
+import {
+	CopyMessageButton,
+	serializeMessageForClipboard,
+} from "./copy-message";
 import type { RenderedMessage, StreamdownMode } from "./shared";
 import {
 	isCollapsedGroupPart,
@@ -141,19 +153,59 @@ function MessageStatusBadge({ reason }: { reason?: string }) {
 
 export function ChatAssistantMessage({
 	message,
+	previousUserMessage,
 	streaming,
+	onRedoAssistantMessage,
 }: {
 	message: RenderedMessage;
+	previousUserMessage?: RenderedMessage | null;
 	streaming: boolean;
+	onRedoAssistantMessage?: (
+		userMessageId: string,
+		prompt: string,
+	) => void | Promise<void>;
 }) {
 	const parts = message.content as ExtendedMessagePart[];
 	const { settings } = useSettings();
+	const [redoing, setRedoing] = useState(false);
+	const redoPrompt = useMemo(
+		() =>
+			previousUserMessage
+				? serializeMessageForClipboard(previousUserMessage)
+				: "",
+		[previousUserMessage],
+	);
+	const canRedo = Boolean(
+		!streaming &&
+			previousUserMessage?.id &&
+			redoPrompt.trim() &&
+			onRedoAssistantMessage,
+	);
+	const handleRedo = useCallback(async () => {
+		if (!previousUserMessage?.id || !onRedoAssistantMessage) {
+			return;
+		}
+		const prompt = redoPrompt.trim();
+		if (!prompt) {
+			return;
+		}
+		setRedoing(true);
+		try {
+			await onRedoAssistantMessage(previousUserMessage.id, prompt);
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : "Failed to redo model run.",
+			);
+		} finally {
+			setRedoing(false);
+		}
+	}, [onRedoAssistantMessage, previousUserMessage?.id, redoPrompt]);
 
 	return (
 		<div
 			data-message-id={message.id}
 			data-message-role="assistant"
-			className="flex min-w-0 max-w-full flex-col gap-1"
+			className="group/assistant relative flex min-w-0 max-w-full flex-col gap-1 pb-5"
 		>
 			{parts.map((part) => {
 				const key = partKey(part);
@@ -213,6 +265,29 @@ export function ChatAssistantMessage({
 			})}
 			{!streaming && message.status?.type === "incomplete" ? (
 				<MessageStatusBadge reason={message.status.reason} />
+			) : null}
+			{!streaming ? (
+				<div className="pointer-events-none absolute bottom-0 left-0 flex items-center opacity-0 group-hover/assistant:pointer-events-auto group-hover/assistant:opacity-100 group-focus-within/assistant:pointer-events-auto group-focus-within/assistant:opacity-100">
+					<CopyMessageButton
+						message={message}
+						className="size-5 shrink-0 text-muted-foreground/28 hover:text-muted-foreground"
+					/>
+					{canRedo ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-xs"
+							aria-label="Redo run"
+							onClick={() => {
+								void handleRedo();
+							}}
+							disabled={redoing}
+							className="size-5 shrink-0 text-muted-foreground/28 transition-none hover:text-muted-foreground"
+						>
+							<RotateCcw className="size-3" strokeWidth={1.8} />
+						</Button>
+					) : null}
+				</div>
 			) : null}
 		</div>
 	);

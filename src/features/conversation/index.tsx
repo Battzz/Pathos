@@ -63,6 +63,7 @@ type WorkspaceConversationContainerProps = {
 		prompt: string;
 		modelId?: string | null;
 		permissionMode?: string | null;
+		replayUserMessageId?: string | null;
 		/** When true, submit must queue if a turn is already streaming,
 		 *  regardless of the user's `followUpBehavior` setting. */
 		forceQueue?: boolean;
@@ -77,6 +78,7 @@ type WorkspaceConversationContainerProps = {
 		prompt: string;
 		modelId?: string | null;
 		permissionMode?: string | null;
+		replayUserMessageId?: string | null;
 	}) => void;
 	onRequestCloseSession?: (request: SessionCloseRequest) => void;
 	workspaceRootPath?: string | null;

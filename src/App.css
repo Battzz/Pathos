@@ -725,13 +725,13 @@ body {
 @layer utilities {
 	* {
 		scrollbar-width: thin;
-		scrollbar-color: color-mix(in oklch, var(--foreground) 18%, transparent)
+		scrollbar-color: color-mix(in oklch, var(--foreground) 12%, transparent)
 			transparent;
 	}
 
 	*::-webkit-scrollbar {
-		width: 8px;
-		height: 8px;
+		width: 10px;
+		height: 10px;
 		background: transparent;
 		background-color: transparent;
 	}
@@ -745,14 +745,39 @@ body {
 	}
 
 	*::-webkit-scrollbar-thumb {
-		border: 2px solid transparent;
+		border: 3px solid transparent;
 		border-radius: 999px;
-		background: color-mix(in oklch, var(--foreground) 18%, transparent);
+		background: transparent;
+		background-clip: padding-box;
+		transition: background-color 160ms ease;
+	}
+
+	/*
+	 * Overlay-style: thumb stays invisible until the user hovers the scrollable
+	 * region or actively scrolls. Keeps chat / sidebar / inspector chrome quiet
+	 * while still giving a clear, rounded indicator on interaction.
+	 */
+	*:hover::-webkit-scrollbar-thumb,
+	*:focus-within::-webkit-scrollbar-thumb {
+		background: color-mix(in oklch, var(--foreground) 14%, transparent);
 		background-clip: padding-box;
 	}
 
 	*::-webkit-scrollbar-thumb:hover {
-		background: color-mix(in oklch, var(--foreground) 30%, transparent);
+		background: color-mix(
+			in oklch,
+			var(--foreground) 28%,
+			transparent
+		) !important;
+		background-clip: padding-box;
+	}
+
+	*::-webkit-scrollbar-thumb:active {
+		background: color-mix(
+			in oklch,
+			var(--foreground) 38%,
+			transparent
+		) !important;
 		background-clip: padding-box;
 	}
 
@@ -760,6 +785,7 @@ body {
 	*::-webkit-scrollbar-button {
 		background: transparent !important;
 		background-color: transparent !important;
+		display: none;
 	}
 }
 

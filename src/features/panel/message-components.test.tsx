@@ -257,6 +257,53 @@ describe("MemoConversationMessage plan review", () => {
 		expect(writeTextMock).toHaveBeenCalledWith("Ship the action slot.");
 	});
 
+	it("replays the preceding user message from an assistant action", async () => {
+		const onRedoAssistantMessage = vi.fn().mockResolvedValue(undefined);
+		const userMessage: ThreadMessageLike = {
+			id: "user-redo-source",
+			role: "user",
+			createdAt: "2026-04-12T12:01:00.000Z",
+			content: [
+				{
+					type: "text",
+					id: "user-redo-source:text-0",
+					text: "Run this again.",
+				},
+			],
+		};
+		const assistantMessage: ThreadMessageLike = {
+			id: "assistant-redo-target",
+			role: "assistant",
+			createdAt: "2026-04-12T12:02:00.000Z",
+			content: [
+				{
+					type: "text",
+					id: "assistant-redo-target:text-0",
+					text: "Original answer.",
+				},
+			],
+		};
+
+		render(
+			<MemoConversationMessage
+				message={assistantMessage}
+				previousUserMessage={userMessage}
+				sessionId="session-1"
+				itemIndex={1}
+				onRedoAssistantMessage={onRedoAssistantMessage}
+			/>,
+		);
+
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "Redo run" }));
+		});
+
+		expect(onRedoAssistantMessage).toHaveBeenCalledWith(
+			"user-redo-source",
+			"Run this again.",
+		);
+	});
+
 	it("rewinds a user message directly without opening a confirmation dialog", async () => {
 		const onRevertMessage = vi.fn().mockResolvedValue(undefined);
 		const userMessage: ThreadMessageLike = {

@@ -177,6 +177,7 @@ type WorkspaceComposerContainerProps = {
 		effortLevel: string;
 		permissionMode: string;
 		fastMode: boolean;
+		replayUserMessageId?: string | null;
 		/** Force queue (bypass `followUpBehavior`) if a turn is streaming. */
 		forceQueue?: boolean;
 		/** When set, override the user's `followUpBehavior` setting for this
@@ -191,6 +192,7 @@ type WorkspaceComposerContainerProps = {
 		prompt: string;
 		modelId?: string | null;
 		permissionMode?: string | null;
+		replayUserMessageId?: string | null;
 		/** Force queue (bypass `followUpBehavior`) if a turn is streaming. */
 		forceQueue?: boolean;
 	} | null;
@@ -726,6 +728,7 @@ export const WorkspaceComposerContainer = memo(
 				pendingPromptForSession.prompt,
 				pendingPromptForSession.modelId ?? "",
 				pendingPromptForSession.permissionMode ?? "",
+				pendingPromptForSession.replayUserMessageId ?? "",
 				pendingPromptForSession.forceQueue ? "q" : "",
 			].join("|");
 			if (dispatchedPromptKeyRef.current === dispatchKey) {
@@ -743,6 +746,7 @@ export const WorkspaceComposerContainer = memo(
 				effortLevel,
 				permissionMode: effectivePermissionMode,
 				fastMode: supportsFastMode ? fastMode : false,
+				replayUserMessageId: pendingPromptForSession.replayUserMessageId,
 				forceQueue: pendingPromptForSession.forceQueue,
 			});
 			onPendingPromptConsumed?.();
@@ -802,7 +806,7 @@ export const WorkspaceComposerContainer = memo(
 				{isActionSession ? (
 					<ActionRow
 						className={cn(
-							"relative z-0 mx-auto -mb-px w-[90%] rounded-t-2xl border-b-0",
+							"relative z-0 -mb-px w-full rounded-t-2xl border-b-0",
 							autoCloseEnabled ? "border-transparent" : "border-secondary/80",
 						)}
 						overlay={

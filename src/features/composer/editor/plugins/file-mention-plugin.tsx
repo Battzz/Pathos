@@ -244,7 +244,7 @@ export function FileMentionPlugin({
 					// transforms in the conversation pane.
 					<div
 						data-typeahead-popup="mention"
-						className="pointer-events-auto absolute bottom-full left-0 isolate z-[9999] mb-2 w-[min(640px,calc(100vw-2rem))]"
+						className="pointer-events-auto absolute bottom-full left-0 isolate z-[9999] mb-2 w-full"
 					>
 						<Command
 							value={highlightValue}

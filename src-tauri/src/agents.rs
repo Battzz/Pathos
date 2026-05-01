@@ -173,6 +173,11 @@ pub struct AgentSendRequest {
     pub prompt_prefix: Option<String>,
     #[serde(default)]
     pub resume_only: bool,
+    /// Re-run an already-persisted user prompt. The frontend keeps the
+    /// existing user row visible, so streaming should send the prompt without
+    /// inserting another `user_prompt` row.
+    #[serde(default)]
+    pub replay_user_message_id: Option<String>,
     /// Set when this resume stream delivers the user's answer to a paused
     /// deferred tool (e.g. AskUserQuestion). Forwarded to the sidecar so it
     /// can push a synthetic `tool_result` SDKUserMessage referencing this
@@ -885,6 +890,7 @@ mod tests {
             prompt: String::new(),
             prompt_prefix: None,
             resume_only: true,
+            replay_user_message_id: None,
             session_id: Some("provider-session-1".to_string()),
             pathos_session_id: Some("s1".to_string()),
             working_directory: Some(provided_dir.display().to_string()),
@@ -924,6 +930,7 @@ mod tests {
             prompt: String::new(),
             prompt_prefix: None,
             resume_only: true,
+            replay_user_message_id: None,
             session_id: Some("provider-session-1".to_string()),
             pathos_session_id: Some("s1".to_string()),
             working_directory: None,

@@ -54,6 +54,10 @@ type WorkspacePanelProps = {
 		messageId: string,
 		prompt: string,
 	) => void | Promise<void>;
+	onRedoAssistantMessage?: (
+		userMessageId: string,
+		prompt: string,
+	) => void | Promise<void>;
 };
 
 function providerDisplayName(
@@ -97,6 +101,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 	onInitializeScript,
 	onRevertMessage,
 	onSubmitEditedMessage,
+	onRedoAssistantMessage,
 }: WorkspacePanelProps) {
 	const selectedSession =
 		sessions.find((session) => session.id === selectedSessionId) ?? null;
@@ -166,6 +171,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 							onInitializeScript={onInitializeScript}
 							onRevertMessage={onRevertMessage}
 							onSubmitEditedMessage={onSubmitEditedMessage}
+							onRedoAssistantMessage={onRedoAssistantMessage}
 						/>
 					) : loadingWorkspace || loadingSession ? (
 						<ConversationColdPlaceholder />

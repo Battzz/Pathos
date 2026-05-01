@@ -264,6 +264,7 @@ pub fn run() {
             commands::terminal_commands::resize_terminal,
             commands::session_commands::list_session_thread_messages,
             commands::session_commands::truncate_session_messages_after,
+            commands::session_commands::prepare_session_redo_from_user_message,
             commands::workspace_commands::list_workspace_groups,
             commands::workspace_commands::list_repository_folders,
             commands::session_commands::list_workspace_sessions,

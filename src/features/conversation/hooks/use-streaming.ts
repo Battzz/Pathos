@@ -143,6 +143,7 @@ type SubmitPayload = {
 	effortLevel: string;
 	permissionMode: string;
 	fastMode: boolean;
+	replayUserMessageId?: string | null;
 	/** When true, route to the follow-up queue instead of steering if a
 	 *  turn is already streaming — regardless of the user's
 	 *  `followUpBehavior` setting. Set by host-triggered submits (e.g.
@@ -821,6 +822,24 @@ export function useConversationStreaming({
 		});
 	}, []);
 
+	const resumeSendingState = useCallback(
+		(contextKey: string, workspaceId: string | null) => {
+			if (workspaceId) {
+				sendingWorkspaceMapRef.current.set(contextKey, workspaceId);
+			}
+			setSendingContextKeys((current) => {
+				if (current.has(contextKey)) {
+					return current;
+				}
+
+				const next = new Set(current);
+				next.add(contextKey);
+				return next;
+			});
+		},
+		[],
+	);
+
 	const clearSendingState = useCallback(
 		(contextKey: string) => {
 			setActiveSessionByContext((current) => {
@@ -1270,6 +1289,14 @@ export function useConversationStreaming({
 					reason: options?.reason,
 					updatedInput: options?.updatedInput,
 				});
+				setActiveSessionByContext((current) => ({
+					...current,
+					[contextKey]: {
+						stopSessionId: displayedSessionId,
+						provider: deferred.provider,
+					},
+				}));
+				resumeSendingState(contextKey, displayedWorkspaceId);
 			} catch (error) {
 				console.error("[conversation] deferred tool response:", error);
 				const { code, message: errorMsg } = extractError(
@@ -1302,6 +1329,7 @@ export function useConversationStreaming({
 			pushToast,
 			queryClient,
 			rememberInteractionWorkspace,
+			resumeSendingState,
 		],
 	);
 
@@ -1317,6 +1345,7 @@ export function useConversationStreaming({
 				effortLevel,
 				permissionMode,
 				fastMode,
+				replayUserMessageId,
 				forceQueue,
 				followUpBehaviorOverride,
 			}: SubmitPayload,
@@ -1512,16 +1541,24 @@ export function useConversationStreaming({
 					? resolveGeneralPreferencePrefix(repoPreferences)
 					: null;
 			const now = new Date().toISOString();
-			const userMessageId = crypto.randomUUID();
-			const optimisticUserMessage = createLiveThreadMessage({
-				id: userMessageId,
-				role: "user",
-				text: trimmedPrompt,
-				createdAt: now,
-				files: filePaths,
-				images: imagePaths,
-				customTags,
-			});
+			const replayingExistingUser = Boolean(replayUserMessageId);
+			const userMessageId = replayUserMessageId ?? crypto.randomUUID();
+			const existingReplayUserMessage = replayUserMessageId
+				? (currentThread ?? []).find(
+						(message) => message.id === replayUserMessageId,
+					)
+				: undefined;
+			const optimisticUserMessage =
+				existingReplayUserMessage ??
+				createLiveThreadMessage({
+					id: userMessageId,
+					role: "user",
+					text: trimmedPrompt,
+					createdAt: now,
+					files: filePaths,
+					images: imagePaths,
+					customTags,
+				});
 			let titleSeed: string | null = null;
 			let insertedOptimisticProjectChat = false;
 			const previousRepositoryFolders = queryClient.getQueryData<
@@ -1536,7 +1573,7 @@ export function useConversationStreaming({
 				agentType: model.provider,
 				now,
 			});
-			if (isFirstUserMessage && !isCompactCommand) {
+			if (!replayingExistingUser && isFirstUserMessage && !isCompactCommand) {
 				titleSeed = buildTitleSeed(trimmedPrompt);
 				seedSessionTitle(targetSessionId, targetWorkspaceId, titleSeed);
 				insertedOptimisticProjectChat = seedStartedProjectChat({
@@ -1552,11 +1589,9 @@ export function useConversationStreaming({
 					console.warn("[conversation] failed to seed session title:", error);
 				});
 			}
-			const rollbackSnapshot: SessionThreadSnapshot = appendUserMessage(
-				queryClient,
-				cacheSessionId,
-				optimisticUserMessage,
-			);
+			const rollbackSnapshot: SessionThreadSnapshot = replayingExistingUser
+				? currentThread
+				: appendUserMessage(queryClient, cacheSessionId, optimisticUserMessage);
 			if (!isOverride) {
 				setComposerRestoreState(null);
 			}
@@ -1678,6 +1713,7 @@ export function useConversationStreaming({
 						effortLevel,
 						permissionMode,
 						fastMode,
+						replayUserMessageId: replayUserMessageId ?? null,
 						userMessageId,
 						files: filePaths,
 						images: imagePaths,

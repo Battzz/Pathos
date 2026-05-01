@@ -184,14 +184,17 @@ pub(super) fn stream_via_sidecar(
             kind: tag.kind,
         })
         .collect();
+    let replay_user_message_id = request.replay_user_message_id.clone();
     let resume_only = request.resume_only;
+    let skip_user_persist = resume_only || replay_user_message_id.is_some();
     let sidecar_session_id_copy = sidecar_session_id.clone();
     let rid = request_id.clone();
     let effective_user_message_id = user_message_id_copy
         .clone()
+        .or_else(|| replay_user_message_id.clone())
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    if !resume_only {
+    if !skip_user_persist {
         if let Some(pathos_session_id) = hsid_copy.as_deref() {
             match crate::checkpoints::capture_user_message_checkpoint(
                 working_directory,
@@ -253,6 +256,7 @@ pub(super) fn stream_via_sidecar(
             provider = %provider,
             model = %model_copy.cli_model,
             resume_only,
+            replay_user_message = replay_user_message_id.is_some(),
             "stream: event loop starting"
         );
 
@@ -300,7 +304,7 @@ pub(super) fn stream_via_sidecar(
                         tracing::error!(rid = %rid, "Failed to update fast_mode: {e}");
                     }
 
-                    if resume_only {
+                    if skip_user_persist {
                         exchange_ctx = Some(ctx);
                     } else {
                         match persist_user_message(

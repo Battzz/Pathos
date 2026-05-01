@@ -135,6 +135,7 @@ export type PendingPromptForSession = {
 	prompt: string;
 	modelId?: string | null;
 	permissionMode?: string | null;
+	replayUserMessageId?: string | null;
 	/** When true, submit must queue if a turn is already streaming —
 	 *  regardless of the user's `followUpBehavior` setting. Used for
 	 *  host-triggered prompts (e.g. git-pull conflict resolution) that

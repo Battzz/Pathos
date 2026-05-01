@@ -146,6 +146,9 @@ export type AgentSendRequest = {
 	 *  the chat bubble. */
 	promptPrefix?: string | null;
 	resumeOnly?: boolean | null;
+	/** Re-run an already-persisted user message without appending a duplicate
+	 * user row to the session history. */
+	replayUserMessageId?: string | null;
 	/** Set when this resume stream delivers the user's answer to a paused
 	 *  deferred tool (e.g. AskUserQuestion). The sidecar pushes a synthetic
 	 *  `tool_result` SDKUserMessage referencing this tool_use_id so the model
@@ -1217,6 +1220,7 @@ export type UiMutationEvent =
 	| { type: "workspaceListChanged" }
 	| { type: "workspaceChanged"; workspaceId: string }
 	| { type: "sessionListChanged"; workspaceId: string }
+	| { type: "sessionMessagesChanged"; sessionId: string }
 	| { type: "contextUsageChanged"; sessionId: string }
 	| { type: "workspaceFilesChanged"; workspaceId: string }
 	| { type: "workspaceGitStateChanged"; workspaceId: string }
@@ -1323,6 +1327,22 @@ export async function truncateSessionMessagesAfter(
 	} catch (error) {
 		throw new Error(
 			describeInvokeError(error, "Unable to rewind session messages."),
+		);
+	}
+}
+
+export async function prepareSessionRedoFromUserMessage(
+	sessionId: string,
+	userMessageId: string,
+): Promise<number> {
+	try {
+		return await invoke<number>("prepare_session_redo_from_user_message", {
+			sessionId,
+			userMessageId,
+		});
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to prepare message redo."),
 		);
 	}
 }

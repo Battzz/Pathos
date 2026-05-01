@@ -78,6 +78,23 @@ function handleUiMutation(
 				queryKey: pathosQueryKeys.workspaceSessions(event.workspaceId),
 			});
 			return;
+		case "sessionMessagesChanged":
+			void queryClient.invalidateQueries({
+				queryKey: [
+					...pathosQueryKeys.sessionMessages(event.sessionId),
+					"thread",
+				],
+			});
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.workspaceGroups,
+			});
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.repositoryFolders,
+			});
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.genericChats,
+			});
+			return;
 		case "contextUsageChanged":
 			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.sessionContextUsage(event.sessionId),

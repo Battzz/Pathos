@@ -169,14 +169,95 @@ pub async fn truncate_session_messages_after(
     .await?;
 
     if !stale_checkpoint_message_ids.is_empty() {
+        let cleanup_truncated_session_id = truncated_session_id.clone();
         run_blocking(move || {
             crate::checkpoints::delete_user_message_checkpoints(
-                &truncated_session_id,
+                &cleanup_truncated_session_id,
                 stale_checkpoint_message_ids,
             )
         })
         .await?;
     }
+
+    Ok(deleted)
+}
+
+#[tauri::command]
+pub async fn prepare_session_redo_from_user_message(
+    app: tauri::AppHandle,
+    sidecar: tauri::State<'_, crate::sidecar::ManagedSidecar>,
+    session_id: String,
+    user_message_id: String,
+) -> CmdResult<usize> {
+    let checkpoint_session_id = session_id.clone();
+    let checkpoint_message_id = user_message_id.clone();
+    let checkpoint_restored = run_blocking(move || {
+        crate::checkpoints::restore_user_message_checkpoint(
+            &checkpoint_session_id,
+            &checkpoint_message_id,
+            true,
+        )
+    })
+    .await?;
+    if matches!(checkpoint_restored, Some(false)) {
+        return Err(
+            anyhow::anyhow!("Filesystem checkpoint is unavailable for this message.").into(),
+        );
+    }
+
+    let metadata_session_id = session_id.clone();
+    let metadata_message_id = user_message_id.clone();
+    let metadata = run_blocking(move || {
+        sessions::session_message_rollback_metadata(
+            &metadata_session_id,
+            &metadata_message_id,
+            true,
+        )
+    })
+    .await?;
+
+    let cleanup_session_id = session_id.clone();
+    let cleanup_message_id = user_message_id.clone();
+    let stale_checkpoint_message_ids = run_blocking(move || {
+        crate::checkpoints::user_message_ids_for_truncation(
+            &cleanup_session_id,
+            &cleanup_message_id,
+            false,
+        )
+    })
+    .await?;
+
+    rollback_live_provider_session(
+        &sidecar,
+        &session_id,
+        metadata.agent_type.as_deref(),
+        metadata.user_turns_to_rollback,
+    )
+    .await?;
+
+    let truncated_session_id = session_id.clone();
+    let deleted = run_blocking(move || {
+        sessions::truncate_session_messages_after(&session_id, &user_message_id, false)
+    })
+    .await?;
+
+    if !stale_checkpoint_message_ids.is_empty() {
+        let cleanup_truncated_session_id = truncated_session_id.clone();
+        run_blocking(move || {
+            crate::checkpoints::delete_user_message_checkpoints(
+                &cleanup_truncated_session_id,
+                stale_checkpoint_message_ids,
+            )
+        })
+        .await?;
+    }
+
+    crate::ui_sync::publish(
+        &app,
+        crate::ui_sync::UiMutationEvent::SessionMessagesChanged {
+            session_id: truncated_session_id,
+        },
+    );
 
     Ok(deleted)
 }

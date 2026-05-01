@@ -13,6 +13,7 @@ import type {
 import {
 	createSession,
 	loadRepoScripts,
+	prepareSessionRedoFromUserMessage,
 	truncateSessionMessagesAfter,
 } from "@/lib/api";
 import {
@@ -50,6 +51,7 @@ type WorkspacePanelContainerProps = {
 		prompt: string;
 		modelId?: string | null;
 		permissionMode?: string | null;
+		replayUserMessageId?: string | null;
 	}) => void;
 	onRequestCloseSession?: (request: SessionCloseRequest) => void;
 	onCloneProject?: () => void;
@@ -563,6 +565,28 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			selectedSessionIdForPanel,
 		],
 	);
+	const handleRedoAssistantMessage = useCallback(
+		async (userMessageId: string, prompt: string) => {
+			if (!selectedSessionIdForPanel || !onQueuePendingPromptForSession) {
+				return;
+			}
+			await prepareSessionRedoFromUserMessage(
+				selectedSessionIdForPanel,
+				userMessageId,
+			);
+			await refreshRolledBackSession(selectedSessionIdForPanel);
+			onQueuePendingPromptForSession({
+				sessionId: selectedSessionIdForPanel,
+				prompt,
+				replayUserMessageId: userMessageId,
+			});
+		},
+		[
+			onQueuePendingPromptForSession,
+			refreshRolledBackSession,
+			selectedSessionIdForPanel,
+		],
+	);
 
 	return (
 		<WorkspacePanel
@@ -593,6 +617,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			onInitializeScript={handleInitializeScript}
 			onRevertMessage={handleRevertMessage}
 			onSubmitEditedMessage={handleSubmitEditedMessage}
+			onRedoAssistantMessage={handleRedoAssistantMessage}
 			changeRequest={workspaceChangeRequest}
 		/>
 	);
