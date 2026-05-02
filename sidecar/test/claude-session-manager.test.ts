@@ -783,6 +783,104 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		expect(content).toContain("summarize what's in these projects");
 	});
 
+	test("bypassPermissions auto-allows ordinary tools without emitting a permission prompt", async () => {
+		let canUseToolPromise: Promise<unknown> | null = null;
+		mockQueryImpl = (queryArgs) => {
+			canUseToolPromise = queryArgs.options?.canUseTool?.(
+				"Read",
+				{ file_path: "/Applications/Cursor.app/Contents/Info.plist" },
+				{
+					toolUseID: "tool-read-app",
+					title: "Read file",
+					description: "Read app metadata",
+					signal: new AbortController().signal,
+				},
+			) as Promise<unknown> | null;
+			return asyncIterableFrom([
+				{ type: "result", subtype: "success", is_error: false },
+			]);
+		};
+
+		await manager.sendMessage(
+			"REQ-BYPASS-TOOL",
+			{
+				sessionId: "s-bypass-tool",
+				prompt: "check the installed app",
+				model: undefined,
+				cwd: undefined,
+				resume: undefined,
+				permissionMode: "bypassPermissions",
+				effortLevel: undefined,
+				fastMode: undefined,
+			},
+			emitter,
+		);
+
+		expect(canUseToolPromise).not.toBeNull();
+		await expect(canUseToolPromise as Promise<unknown>).resolves.toEqual({
+			behavior: "allow",
+			updatedInput: {
+				file_path: "/Applications/Cursor.app/Contents/Info.plist",
+			},
+		});
+		expect(captured.some((e) => e.type === "permissionRequest")).toBe(false);
+	});
+
+	test("default permission mode still emits permission prompts for ordinary tools", async () => {
+		let canUseToolPromise: Promise<unknown> | null = null;
+		let openGate: () => void = () => undefined;
+		const gate = new Promise<void>((resolve) => {
+			openGate = resolve;
+		});
+		mockQueryImpl = (queryArgs) => {
+			canUseToolPromise = queryArgs.options?.canUseTool?.(
+				"Bash",
+				{ command: "open -a Cursor ." },
+				{
+					toolUseID: "tool-open-app",
+					title: "Run shell command",
+					description: "Open Cursor",
+					signal: new AbortController().signal,
+				},
+			) as Promise<unknown> | null;
+			return gatedTerminalIterator(gate, "sdk-session-default-perm");
+		};
+
+		const sendPromise = manager.sendMessage(
+			"REQ-DEFAULT-TOOL",
+			{
+				sessionId: "s-default-tool",
+				prompt: "open the app",
+				model: undefined,
+				cwd: undefined,
+				resume: undefined,
+				permissionMode: "default",
+				effortLevel: undefined,
+				fastMode: undefined,
+			},
+			emitter,
+		);
+
+		await waitForCondition(
+			() => captured.some((e) => e.type === "permissionRequest"),
+			"permissionRequest event",
+		);
+		expect(captured.find((e) => e.type === "permissionRequest")).toMatchObject({
+			id: "REQ-DEFAULT-TOOL",
+			permissionId: "tool-open-app",
+			toolName: "Bash",
+			toolInput: { command: "open -a Cursor ." },
+		});
+
+		manager.resolvePermission("tool-open-app", "allow");
+		await expect(canUseToolPromise as Promise<unknown>).resolves.toMatchObject({
+			behavior: "allow",
+			updatedInput: { command: "open -a Cursor ." },
+		});
+		openGate();
+		await sendPromise;
+	});
+
 	test("listSlashCommands forwards additionalDirectories and env", async () => {
 		const workspaceDir = makeTempDir("pathos-claude-slash-");
 		const linkedDir = makeTempDir("pathos-claude-slash-linked-");

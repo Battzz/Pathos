@@ -9,7 +9,7 @@ import {
 	$isTextNode,
 	type LexicalEditor,
 } from "lexical";
-import { ArrowUp, ClipboardList, Plus, Square, Zap } from "lucide-react";
+import { ArrowUp, Map as MapIcon, Plus, Square, Zap } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ModelIcon } from "@/components/model-icon";
 import { Button } from "@/components/ui/button";
@@ -787,90 +787,6 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 								</ShimmerText>
 							) : (
 								<>
-									{supportsEffort && (
-										<DropdownMenu
-											open={effortPickerOpen}
-											onOpenChange={handleEffortPickerOpenChange}
-										>
-											<Tooltip
-												open={
-													effortPickerOpen || toolbarTooltipSuppressed
-														? false
-														: undefined
-												}
-											>
-												<TooltipTrigger asChild>
-													<DropdownMenuTrigger
-														disabled={toolbarDisabled}
-														onPointerDown={handleToolbarTriggerPointerDown}
-														aria-label={`Reasoning effort: ${
-															effectiveEffort === "xhigh"
-																? "Extra High"
-																: effectiveEffort
-														}`}
-														className={cn(
-															`flex items-center ${composerToolbarTriggerClassName}`,
-															effectiveEffort === "max" ||
-																effectiveEffort === "xhigh"
-																? "effort-max-text"
-																: "text-muted-foreground",
-															toolbarDisabled
-																? "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground"
-																: null,
-														)}
-													>
-														<EffortBarsIcon
-															index={availableEffortLevels.indexOf(
-																effectiveEffort,
-															)}
-															total={availableEffortLevels.length}
-														/>
-													</DropdownMenuTrigger>
-												</TooltipTrigger>
-												<TooltipContent side="top" sideOffset={4}>
-													<span>
-														Reasoning effort:{" "}
-														<span className="capitalize">
-															{effectiveEffort === "xhigh"
-																? "Extra High"
-																: effectiveEffort}
-														</span>
-													</span>
-												</TooltipContent>
-											</Tooltip>
-											<DropdownMenuContent
-												side="top"
-												align="start"
-												sideOffset={4}
-												className="min-w-[11rem]"
-											>
-												<DropdownMenuGroup>
-													<DropdownMenuLabel>Effort</DropdownMenuLabel>
-													{availableEffortLevels.map((level, index) => (
-														<DropdownMenuItem
-															key={level}
-															disabled={toolbarDisabled}
-															onClick={() => handleSelectEffortOption(level)}
-															className={cn(
-																"flex items-center gap-2.5 focus:bg-accent/25",
-																level === effectiveEffort &&
-																	"bg-foreground/[0.04]",
-															)}
-														>
-															<EffortBarsIcon
-																index={index}
-																total={availableEffortLevels.length}
-															/>
-															<span className="capitalize">
-																{level === "xhigh" ? "Extra High" : level}
-															</span>
-														</DropdownMenuItem>
-													))}
-												</DropdownMenuGroup>
-											</DropdownMenuContent>
-										</DropdownMenu>
-									)}
-
 									<DropdownMenu
 										open={modelPickerOpen}
 										onOpenChange={handleModelPickerOpenChange}
@@ -1002,8 +918,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 													disabled={toolbarDisabled}
 													onPointerDown={handleToolbarTriggerPointerDown}
 													className={cn(
-														"relative",
-														composerToolbarTriggerClassName,
+														`relative gap-1 px-1.5 text-[11px] ${composerToolbarTriggerClassName}`,
 														fastMode
 															? "text-amber-500 hover:bg-amber-500/10 hover:text-amber-500"
 															: "text-muted-foreground",
@@ -1025,12 +940,97 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 															<FastModeLottieIcon className="absolute inset-[-5px] z-10 drop-shadow-[0_0_4px_rgba(245,158,11,0.5)]" />
 														) : null}
 													</span>
+													{fastMode ? <span>Fast</span> : null}
 												</ComposerButton>
 											</TooltipTrigger>
 											<TooltipContent side="top" sideOffset={4}>
 												<span>Fast mode{fastMode ? " (on)" : ""}</span>
 											</TooltipContent>
 										</Tooltip>
+									)}
+
+									{supportsEffort && (
+										<DropdownMenu
+											open={effortPickerOpen}
+											onOpenChange={handleEffortPickerOpenChange}
+										>
+											<Tooltip
+												open={
+													effortPickerOpen || toolbarTooltipSuppressed
+														? false
+														: undefined
+												}
+											>
+												<TooltipTrigger asChild>
+													<DropdownMenuTrigger
+														disabled={toolbarDisabled}
+														onPointerDown={handleToolbarTriggerPointerDown}
+														aria-label={`Reasoning effort: ${
+															effectiveEffort === "xhigh"
+																? "Extra High"
+																: effectiveEffort
+														}`}
+														className={cn(
+															`flex items-center ${composerToolbarTriggerClassName}`,
+															effectiveEffort === "max" ||
+																effectiveEffort === "xhigh"
+																? "effort-max-text"
+																: "text-muted-foreground",
+															toolbarDisabled
+																? "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground"
+																: null,
+														)}
+													>
+														<EffortBarsIcon
+															index={availableEffortLevels.indexOf(
+																effectiveEffort,
+															)}
+															total={availableEffortLevels.length}
+														/>
+													</DropdownMenuTrigger>
+												</TooltipTrigger>
+												<TooltipContent side="top" sideOffset={4}>
+													<span>
+														Reasoning effort:{" "}
+														<span className="capitalize">
+															{effectiveEffort === "xhigh"
+																? "Extra High"
+																: effectiveEffort}
+														</span>
+													</span>
+												</TooltipContent>
+											</Tooltip>
+											<DropdownMenuContent
+												side="top"
+												align="start"
+												sideOffset={4}
+												className="min-w-[11rem]"
+											>
+												<DropdownMenuGroup>
+													<DropdownMenuLabel>Effort</DropdownMenuLabel>
+													{availableEffortLevels.map((level, index) => (
+														<DropdownMenuItem
+															key={level}
+															disabled={toolbarDisabled}
+															onClick={() => handleSelectEffortOption(level)}
+															className={cn(
+																"flex items-center gap-2.5 focus:bg-accent/25",
+																level === effectiveEffort &&
+																	"bg-foreground/[0.04]",
+															)}
+														>
+															<EffortBarsIcon
+																index={index}
+																total={availableEffortLevels.length}
+															/>
+															<span className="capitalize">
+																{level === "xhigh" ? "Extra High" : level}
+															</span>
+														</DropdownMenuItem>
+													))}
+												</DropdownMenuGroup>
+											</DropdownMenuContent>
+										</DropdownMenu>
 									)}
 
 									<Tooltip open={toolbarTooltipSuppressed ? false : undefined}>
@@ -1053,10 +1053,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 													)
 												}
 											>
-												<ClipboardList
-													className="size-[16px]"
-													strokeWidth={1.8}
-												/>
+												<MapIcon className="size-[16px]" strokeWidth={1.8} />
 												{permissionMode === "plan" ? <span>Plan</span> : null}
 											</ComposerButton>
 										</TooltipTrigger>

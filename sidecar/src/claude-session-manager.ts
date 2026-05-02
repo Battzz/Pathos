@@ -422,6 +422,7 @@ export class ClaudeSessionManager implements SessionManager {
 			claudeEnv || additionalDirectoryEnv
 				? { ...claudeEnv, ...additionalDirectoryEnv }
 				: undefined;
+		const effectivePermissionMode = parsePermissionMode(permissionMode);
 
 		const q = query({
 			prompt: isResumeOnly ? "" : promptSource,
@@ -435,7 +436,7 @@ export class ClaudeSessionManager implements SessionManager {
 				model: model || undefined,
 				...(resume ? { resume } : {}),
 				...(resumeSessionAt ? { resumeSessionAt } : {}),
-				permissionMode: parsePermissionMode(permissionMode),
+				permissionMode: effectivePermissionMode,
 				allowDangerouslySkipPermissions: true,
 				effort: parseEffort(effortLevel),
 				thinking: { type: "adaptive", display: "summarized" },
@@ -522,6 +523,15 @@ export class ClaudeSessionManager implements SessionManager {
 								"Plan captured by the client. " +
 								"Do NOT continue generating text or call any tools. " +
 								"The turn is over. The user will respond in a new turn.",
+						};
+					}
+					if (
+						effectivePermissionMode === "bypassPermissions" ||
+						effectivePermissionMode === "dontAsk"
+					) {
+						return {
+							behavior: "allow" as const,
+							updatedInput: input,
 						};
 					}
 					const permissionId = options.toolUseID;
