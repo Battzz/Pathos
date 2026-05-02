@@ -9,7 +9,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ThreadMessageLike } from "@/lib/api";
 import { MemoConversationMessage } from "./message-components";
-import { shouldRenderAssistantTextAsPlain } from "./message-components/assistant-message";
+import {
+	shouldAnimateStreamingAssistantText,
+	shouldDeferStaticAssistantMarkdown,
+	shouldRenderAssistantTextAsPlain,
+	shouldRenderStreamingAssistantTextAsPlain,
+} from "./message-components/assistant-message";
 import { serializeMessageForClipboard } from "./message-components/copy-message";
 import { AssistantToolCall } from "./message-components/tool-call";
 import { ChatUserMessage } from "./message-components/user-message";
@@ -592,5 +597,21 @@ describe("assistant text rendering", () => {
 		expect(shouldRenderAssistantTextAsPlain("See https://example.com")).toBe(
 			false,
 		);
+	});
+
+	it("avoids expensive streaming markdown work for long responses", () => {
+		expect(shouldAnimateStreamingAssistantText("x".repeat(1500))).toBe(true);
+		expect(shouldAnimateStreamingAssistantText("x".repeat(1501))).toBe(false);
+		expect(shouldRenderStreamingAssistantTextAsPlain("x".repeat(8000))).toBe(
+			false,
+		);
+		expect(shouldRenderStreamingAssistantTextAsPlain("x".repeat(8001))).toBe(
+			true,
+		);
+	});
+
+	it("defers long static markdown so chat switches can paint first", () => {
+		expect(shouldDeferStaticAssistantMarkdown("x".repeat(1199))).toBe(false);
+		expect(shouldDeferStaticAssistantMarkdown("x".repeat(1200))).toBe(true);
 	});
 });

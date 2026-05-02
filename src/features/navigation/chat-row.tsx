@@ -27,6 +27,8 @@ import { formatCompactElapsedTime } from "@/lib/compact-relative-time";
 import { useSendingSessionIds } from "@/lib/sending-sessions-context";
 import { cn } from "@/lib/utils";
 
+const CHAT_PREFETCH_HOVER_DELAY_MS = 120;
+
 export type ChatRowProps = {
 	chat: RepositoryFolderChat;
 	selected: boolean;
@@ -35,6 +37,7 @@ export type ChatRowProps = {
 	showShortcutHint?: boolean;
 	deleteChatShortcut?: string | null;
 	onSelect: (workspaceId: string, sessionId: string) => void;
+	onPrefetch?: (workspaceId: string, sessionId: string) => void;
 	onTogglePin?: (chat: RepositoryFolderChat) => void;
 	onDelete?: (sessionId: string) => void;
 };
@@ -66,6 +69,7 @@ export const ChatRow = memo(function ChatRow({
 	showShortcutHint = false,
 	deleteChatShortcut = null,
 	onSelect,
+	onPrefetch,
 	onTogglePin,
 	onDelete,
 }: ChatRowProps) {
@@ -79,6 +83,16 @@ export const ChatRow = memo(function ChatRow({
 		null,
 	);
 	const prevSendingRef = useRef(isSending);
+	const prefetchedSessionIdRef = useRef<string | null>(null);
+	const prefetchTimerRef = useRef<number | null>(null);
+
+	useEffect(() => {
+		return () => {
+			if (prefetchTimerRef.current !== null) {
+				window.clearTimeout(prefetchTimerRef.current);
+			}
+		};
+	}, []);
 
 	useEffect(() => {
 		const wasSending = prevSendingRef.current;
@@ -111,6 +125,35 @@ export const ChatRow = memo(function ChatRow({
 			: chat.agentType === "codex"
 				? "ChatGPT"
 				: "Chat";
+	const cancelPrefetch = () => {
+		if (prefetchTimerRef.current === null) {
+			return;
+		}
+		window.clearTimeout(prefetchTimerRef.current);
+		prefetchTimerRef.current = null;
+	};
+	const prefetchChat = () => {
+		if (!onPrefetch || prefetchedSessionIdRef.current === chat.sessionId) {
+			return;
+		}
+		cancelPrefetch();
+		prefetchedSessionIdRef.current = chat.sessionId;
+		onPrefetch(chat.workspaceId, chat.sessionId);
+	};
+	const schedulePrefetch = () => {
+		if (
+			!onPrefetch ||
+			prefetchedSessionIdRef.current === chat.sessionId ||
+			prefetchTimerRef.current !== null
+		) {
+			return;
+		}
+		prefetchTimerRef.current = window.setTimeout(() => {
+			prefetchTimerRef.current = null;
+			prefetchChat();
+		}, CHAT_PREFETCH_HOVER_DELAY_MS);
+	};
+
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger asChild>
@@ -123,7 +166,14 @@ export const ChatRow = memo(function ChatRow({
 								? "workspace-row-selected text-foreground"
 								: "text-foreground/75 hover:bg-accent/40 hover:text-foreground/95",
 						)}
-						onClick={() => onSelect(chat.workspaceId, chat.sessionId)}
+						onClick={() => {
+							cancelPrefetch();
+							onSelect(chat.workspaceId, chat.sessionId);
+						}}
+						onBlur={cancelPrefetch}
+						onFocus={schedulePrefetch}
+						onPointerEnter={schedulePrefetch}
+						onPointerLeave={cancelPrefetch}
 					>
 						{isSending && !(isInteractionRequired && !selected) ? (
 							<AsciiLoader

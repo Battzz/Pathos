@@ -2,6 +2,7 @@ import path from "node:path";
 import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import reactScanComponentName from "react-scan/react-component-name/vite";
 import { defineConfig } from "vitest/config";
 
 const host = process.env.TAURI_DEV_HOST;
@@ -15,8 +16,12 @@ const WATCH_IGNORED = [
 ];
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig(async ({ command }) => ({
 	plugins: [
+		command === "serve" &&
+			reactScanComponentName({
+				include: ["src/**/*.{jsx,tsx}"],
+			}),
 		react(),
 		babel({
 			plugins: [["babel-plugin-react-compiler", {}]],

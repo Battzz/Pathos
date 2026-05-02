@@ -682,7 +682,7 @@ describe("WorkspacePanelContainer loading semantics", () => {
 		});
 	});
 
-	it("renders only the active session pane when switching between sessions", async () => {
+	it("retains the previous loaded session pane when switching between sessions", async () => {
 		const queryClient = createPathosQueryClient();
 		queryClient.setQueryData(
 			pathosQueryKeys.workspaceDetail("workspace-1"),
@@ -732,8 +732,19 @@ describe("WorkspacePanelContainer loading semantics", () => {
 
 		await waitFor(() => {
 			expect(getSessionPaneIds()).toContain("session-1");
-			expect(getSessionPaneIds()).not.toContain("session-2");
-			expect(getSessionPaneIds()).toHaveLength(1);
+			expect(getSessionPaneIds()).toContain("session-2");
+			expect(getSessionPaneIds()).toHaveLength(2);
+			expect(
+				(
+					getLatestPanelProps().sessionPanes as Array<{
+						sessionId: string;
+						presentationState: string;
+					}>
+				).map((pane) => [pane.sessionId, pane.presentationState]),
+			).toEqual([
+				["session-1", "presented"],
+				["session-2", "cached"],
+			]);
 		});
 	});
 
@@ -782,7 +793,7 @@ describe("WorkspacePanelContainer loading semantics", () => {
 		);
 
 		await waitFor(() => {
-			expect(getSessionPaneIds()).toEqual(["session-1"]);
+			expect(getSessionPaneIds()).toEqual(["session-1", "session-2"]);
 			expect(getLatestPanelProps().loadingSession).toBe(false);
 		});
 	});

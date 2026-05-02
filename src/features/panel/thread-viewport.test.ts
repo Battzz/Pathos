@@ -5,6 +5,7 @@ import {
 	getPaneWidthBucket,
 	resolveConversationRowHeight,
 	resolvePaneWidthSnapshot,
+	resolveTauriBottomWindowMetrics,
 } from "./thread-viewport";
 
 describe("resolveConversationRowHeight", () => {
@@ -66,5 +67,31 @@ describe("progressive viewport row windowing", () => {
 			"b",
 			"c",
 		]);
+	});
+});
+
+describe("resolveTauriBottomWindowMetrics", () => {
+	it("keeps idle chat switches to a smaller bottom render window", () => {
+		expect(
+			resolveTauriBottomWindowMetrics({
+				effectiveViewportHeight: 900,
+				pinTailRows: false,
+			}),
+		).toEqual({
+			zoneHeight: 1800,
+			tailHeight: 2700,
+		});
+	});
+
+	it("keeps the larger tail while streaming so bottom growth stays stable", () => {
+		expect(
+			resolveTauriBottomWindowMetrics({
+				effectiveViewportHeight: 900,
+				pinTailRows: true,
+			}),
+		).toEqual({
+			zoneHeight: 3600,
+			tailHeight: 5400,
+		});
 	});
 });

@@ -1,5 +1,5 @@
 import { AlertCircle, AlertTriangle, Clock3, Info } from "lucide-react";
-import { memo, Suspense, useDeferredValue } from "react";
+import { memo, Suspense, useDeferredValue, useEffect, useState } from "react";
 import {
 	Reasoning,
 	ReasoningContent,
@@ -36,8 +36,9 @@ const STREAMING_ANIMATED = {
 	sep: "word" as const,
 	stagger: 30,
 };
-const MAX_ANIMATED_STREAMING_CHARS = 6000;
-const PLAIN_STREAMING_TEXT_THRESHOLD = 20000;
+const MAX_ANIMATED_STREAMING_CHARS = 1500;
+const PLAIN_STREAMING_TEXT_THRESHOLD = 8000;
+const DEFER_STATIC_MARKDOWN_CHARS = 1200;
 
 export function shouldRenderAssistantTextAsPlain(text: string): boolean {
 	if (!text) {
@@ -46,6 +47,20 @@ export function shouldRenderAssistantTextAsPlain(text: string): boolean {
 	return !/(^|\n)\s*(#{1,6}\s|[-+*]\s|\d+\.\s|>\s)|[`*_#[\]<>|$]|!\[|\]\(|https?:\/\/|www\./.test(
 		text,
 	);
+}
+
+export function shouldRenderStreamingAssistantTextAsPlain(
+	text: string,
+): boolean {
+	return text.length > PLAIN_STREAMING_TEXT_THRESHOLD;
+}
+
+export function shouldAnimateStreamingAssistantText(text: string): boolean {
+	return text.length <= MAX_ANIMATED_STREAMING_CHARS;
+}
+
+export function shouldDeferStaticAssistantMarkdown(text: string): boolean {
+	return text.length >= DEFER_STATIC_MARKDOWN_CHARS;
 }
 
 const AssistantText = memo(function AssistantText({
@@ -60,11 +75,16 @@ const AssistantText = memo(function AssistantText({
 	const deferredText = useDeferredValue(text);
 	const renderedText = streaming ? deferredText : text;
 	const renderPlainStreamingText =
-		streaming && renderedText.length > PLAIN_STREAMING_TEXT_THRESHOLD;
+		streaming && shouldRenderStreamingAssistantTextAsPlain(renderedText);
 	const renderPlainText =
 		renderPlainStreamingText || shouldRenderAssistantTextAsPlain(renderedText);
+	const staticMarkdownHydrated = useStaticMarkdownHydration({
+		renderPlainText,
+		streaming,
+		text: renderedText,
+	});
 	const animated =
-		streaming && renderedText.length <= MAX_ANIMATED_STREAMING_CHARS
+		streaming && shouldAnimateStreamingAssistantText(renderedText)
 			? STREAMING_ANIMATED
 			: false;
 
@@ -73,7 +93,7 @@ const AssistantText = memo(function AssistantText({
 			className="conversation-markdown assistant-markdown-scale max-w-none select-text break-words text-foreground"
 			style={{ fontSize: `${settings.fontSize}px` }}
 		>
-			{renderPlainText ? (
+			{renderPlainText || !staticMarkdownHydrated ? (
 				<AssistantTextFallback text={renderedText} />
 			) : (
 				<Suspense fallback={<AssistantTextFallback text={renderedText} />}>
@@ -91,6 +111,65 @@ const AssistantText = memo(function AssistantText({
 		</div>
 	);
 });
+
+function useStaticMarkdownHydration({
+	renderPlainText,
+	streaming,
+	text,
+}: {
+	renderPlainText: boolean;
+	streaming: boolean;
+	text: string;
+}) {
+	const shouldDefer =
+		!streaming && !renderPlainText && shouldDeferStaticAssistantMarkdown(text);
+	const [hydrated, setHydrated] = useState(!shouldDefer);
+
+	useEffect(() => {
+		if (!shouldDefer) {
+			setHydrated(true);
+			return;
+		}
+
+		setHydrated(false);
+		let cancelled = false;
+		let frameId: number | null = null;
+		let idleId: number | null = null;
+		let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+
+		const hydrate = () => {
+			if (!cancelled) {
+				setHydrated(true);
+			}
+		};
+
+		frameId = window.requestAnimationFrame(() => {
+			frameId = window.requestAnimationFrame(() => {
+				frameId = null;
+				if ("requestIdleCallback" in window) {
+					idleId = window.requestIdleCallback(hydrate, { timeout: 600 });
+				} else {
+					timeoutId = globalThis.setTimeout(hydrate, 80);
+				}
+			});
+		});
+
+		return () => {
+			cancelled = true;
+			if (frameId !== null) {
+				window.cancelAnimationFrame(frameId);
+			}
+			if (idleId !== null && "cancelIdleCallback" in window) {
+				window.cancelIdleCallback(idleId);
+			}
+			if (timeoutId !== null) {
+				globalThis.clearTimeout(timeoutId);
+			}
+		};
+	}, [shouldDefer, text]);
+
+	return hydrated;
+}
 
 function AssistantTextFallback({ text }: { text: string }) {
 	return (

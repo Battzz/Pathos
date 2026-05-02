@@ -30,6 +30,7 @@ import {
 } from "@/lib/workspace-script-actions";
 import { WorkspacePanel } from "./index";
 import type { SessionCloseRequest } from "./use-confirm-session-close";
+import { useSessionPanes } from "./use-session-pane-cache";
 
 const EMPTY_MESSAGES: ThreadMessageLike[] = [];
 
@@ -325,38 +326,17 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 	}, [modelSelections, queryClient, sessions, settings.defaultModelId]);
 
 	const preferredPaneSessionId = selectedSessionId ?? threadSessionId;
-	const sessionPanes = useMemo(() => {
-		if (!preferredPaneSessionId) {
-			return [];
-		}
-		// Only render a pane for the resolved thread session.
-		if (preferredPaneSessionId !== threadSessionId) {
-			return [];
-		}
-		// Don't render a pane until React Query has produced a snapshot
-		// (even an empty one). On initial mount and after cache eviction
-		// `data` is `undefined` and the panel shows its loading state
-		// rather than a vacant "no messages" pane that would briefly
-		// appear before the refetch lands.
-		if (messagesQuery.data === undefined) {
-			return [];
-		}
-		return [
-			{
-				sessionId: preferredPaneSessionId,
-				messages,
-				sending,
-				hasLoaded: true,
-				presentationState: "presented" as const,
-			},
-		];
-	}, [
-		messages,
-		messagesQuery.data,
-		preferredPaneSessionId,
+	const sessionPanes = useSessionPanes({
+		activeMessages: messages,
+		activeMessagesLoaded:
+			preferredPaneSessionId === threadSessionId &&
+			messagesQuery.data !== undefined,
+		activeSessionId: preferredPaneSessionId,
+		queryClient,
 		sending,
-		threadSessionId,
-	]);
+		sendingSessionIds,
+		sessions,
+	});
 
 	const hasWorkspaceDetail = workspace !== null;
 	const hasWorkspaceSessions = sessionsQuery.data !== undefined;

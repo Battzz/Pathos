@@ -1,5 +1,9 @@
 import "./App.css";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	type QueryClient,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -11,7 +15,16 @@ import {
 	PanelLeftIcon,
 	PanelRightIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	lazy,
+	Suspense,
+	startTransition,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { QuitConfirmDialog } from "@/components/quit-confirm-dialog";
 import { SplashScreen } from "@/components/splash-screen";
@@ -31,7 +44,6 @@ import {
 } from "@/components/ui/tooltip";
 import { CommandBar } from "@/features/command-bar";
 import { useWorkspaceCommitLifecycle } from "@/features/commit/hooks/use-commit-lifecycle";
-import { WorkspaceConversationContainer } from "@/features/conversation";
 import { useDockUnreadBadge } from "@/features/dock-badge";
 import { WorkspaceEditorSurface } from "@/features/editor";
 import { WorkspaceInspectorSidebar } from "@/features/inspector";
@@ -141,6 +153,12 @@ import { StreamingFooterOverlapScenario } from "./test/e2e-scenarios/streaming-f
 
 const SETTINGS_RELOAD_EVENT = "pathos:reload-settings";
 const OPEN_SETTINGS_EVENT = "pathos:open-settings";
+
+const WorkspaceConversationContainer = lazy(() =>
+	import("@/features/conversation").then((module) => ({
+		default: module.WorkspaceConversationContainer,
+	})),
+);
 
 function clearRepositoryFolderChatUnread(
 	folders: RepositoryFolder[] | undefined,
@@ -501,6 +519,9 @@ function AppShell({
 		shellPanelsStyle,
 	} = useShellPanels();
 	const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
+	const [inspectorSidebarMountedKey, setInspectorSidebarMountedKey] = useState<
+		string | null
+	>(null);
 	const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
 		null,
 	);
@@ -513,6 +534,14 @@ function AppShell({
 	const [displayedSessionId, setDisplayedSessionId] = useState<string | null>(
 		null,
 	);
+	const inspectorSidebarShouldRender =
+		!inspectorCollapsed && Boolean(displayedSessionId);
+	const inspectorSidebarMountKey = inspectorSidebarShouldRender
+		? `${selectedWorkspaceId ?? ""}:${displayedSessionId ?? ""}`
+		: null;
+	const inspectorSidebarMounted =
+		inspectorSidebarMountKey !== null &&
+		inspectorSidebarMountedKey === inspectorSidebarMountKey;
 	const [workspaceViewMode, setWorkspaceViewMode] = useState<
 		"conversation" | "editor"
 	>("conversation");
@@ -548,6 +577,20 @@ function AppShell({
 		() => new Set(interactionRequiredSessions.keys()),
 		[interactionRequiredSessions],
 	);
+	useEffect(() => {
+		if (inspectorSidebarMountKey === null) {
+			setInspectorSidebarMountedKey(null);
+			return;
+		}
+
+		const frameId = window.requestAnimationFrame(() => {
+			setInspectorSidebarMountedKey(inspectorSidebarMountKey);
+		});
+
+		return () => {
+			window.cancelAnimationFrame(frameId);
+		};
+	}, [inspectorSidebarMountKey]);
 	// Persist "session read" once the user actually views a session AND it is
 	// not waiting on an interaction prompt. Workspace.unread is purely derived
 	// from sessions, so clearing the session naturally drops the workspace red
@@ -778,6 +821,9 @@ function AppShell({
 		setSidebarCollapsed(!zenActive);
 		setInspectorCollapsed(!zenActive);
 	}, [inspectorCollapsed, setSidebarCollapsed, sidebarCollapsed]);
+	const handleToggleInspectorSidebar = useCallback(() => {
+		setInspectorCollapsed((collapsed) => !collapsed);
+	}, []);
 	const handleOpenModelPicker = useCallback(() => {
 		window.dispatchEvent(new Event("pathos:open-model-picker"));
 	}, []);
@@ -1465,8 +1511,10 @@ function AppShell({
 				return;
 			}
 
-			setDisplayedWorkspaceId(workspaceId);
-			setDisplayedSessionId(immediateSessionId);
+			startTransition(() => {
+				setDisplayedWorkspaceId(workspaceId);
+				setDisplayedSessionId(immediateSessionId);
+			});
 
 			const cachedWorkspaceDisplay = resolveCachedWorkspaceDisplay(
 				workspaceId,
@@ -1479,19 +1527,15 @@ function AppShell({
 				if (workspaceSelectionRequestRef.current !== requestId) {
 					return;
 				}
-				setDisplayedWorkspaceId(cachedWorkspaceDisplay.workspaceId);
-				setDisplayedSessionId(cachedWorkspaceDisplay.sessionId);
-				void queryClient.prefetchQuery(
-					workspaceDetailQueryOptions(workspaceId),
+				startTransition(() => {
+					setDisplayedWorkspaceId(cachedWorkspaceDisplay.workspaceId);
+					setDisplayedSessionId(cachedWorkspaceDisplay.sessionId);
+				});
+				scheduleWorkspaceDisplayPrefetch(
+					queryClient,
+					workspaceId,
+					cachedWorkspaceDisplay.sessionId,
 				);
-				void queryClient.prefetchQuery(
-					workspaceSessionsQueryOptions(workspaceId),
-				);
-				if (cachedWorkspaceDisplay.sessionId) {
-					void queryClient.prefetchQuery(
-						sessionThreadMessagesQueryOptions(cachedWorkspaceDisplay.sessionId),
-					);
-				}
 				return;
 			}
 
@@ -1504,16 +1548,20 @@ function AppShell({
 					selectedSessionIdRef.current = sessionId;
 					rememberSessionSelection(workspaceId, sessionId);
 					setSelectedSessionId(sessionId);
-					setDisplayedWorkspaceId(workspaceId);
-					setDisplayedSessionId(sessionId);
+					startTransition(() => {
+						setDisplayedWorkspaceId(workspaceId);
+						setDisplayedSessionId(sessionId);
+					});
 				})
 				.catch(() => {
 					if (workspaceSelectionRequestRef.current !== requestId) {
 						return;
 					}
 
-					setDisplayedWorkspaceId(workspaceId);
-					setDisplayedSessionId(null);
+					startTransition(() => {
+						setDisplayedWorkspaceId(workspaceId);
+						setDisplayedSessionId(null);
+					});
 				});
 		},
 		[
@@ -1536,7 +1584,9 @@ function AppShell({
 				if (sessionId !== selectedSessionIdRef.current) {
 					selectedSessionIdRef.current = sessionId;
 					setSelectedSessionId(sessionId);
-					setDisplayedSessionId(sessionId);
+					startTransition(() => {
+						setDisplayedSessionId(sessionId);
+					});
 				}
 				return;
 			}
@@ -1564,38 +1614,17 @@ function AppShell({
 				return;
 			}
 
-			if (
-				queryClient.getQueryData([
-					...pathosQueryKeys.sessionMessages(sessionId),
-					"thread",
-				]) !== undefined
-			) {
-				if (sessionSelectionRequestRef.current !== requestId) {
-					return;
-				}
+			if (sessionSelectionRequestRef.current !== requestId) {
+				return;
+			}
+			startTransition(() => {
 				setDisplayedSessionId(sessionId);
+			});
+			scheduleInteractionBackgroundTask(() => {
 				void queryClient.prefetchQuery(
 					sessionThreadMessagesQueryOptions(sessionId),
 				);
-				return;
-			}
-
-			void queryClient
-				.ensureQueryData(sessionThreadMessagesQueryOptions(sessionId))
-				.then(() => {
-					if (sessionSelectionRequestRef.current !== requestId) {
-						return;
-					}
-
-					setDisplayedSessionId(sessionId);
-				})
-				.catch(() => {
-					if (sessionSelectionRequestRef.current !== requestId) {
-						return;
-					}
-
-					setDisplayedSessionId(sessionId);
-				});
+			});
 		},
 		[queryClient, rememberSessionSelection],
 	);
@@ -2017,7 +2046,7 @@ function AppShell({
 			},
 			{
 				id: "sidebar.right.toggle" as const,
-				callback: () => setInspectorCollapsed((collapsed) => !collapsed),
+				callback: handleToggleInspectorSidebar,
 			},
 			{
 				id: "zen.toggle" as const,
@@ -2114,11 +2143,11 @@ function AppShell({
 			handleReopenClosedSession,
 			handleToggleTheme,
 			handleToggleZenMode,
+			handleToggleInspectorSidebar,
 			preferredEditor,
 			pullRequestUrl,
 			selectedWorkspaceId,
 			setCommandBarOpen,
-			setInspectorCollapsed,
 			setSidebarCollapsed,
 			updateSettings,
 			workspaceRootPath,
@@ -2459,259 +2488,266 @@ function AppShell({
 													: "flex min-h-0 flex-1 flex-col"
 											}
 										>
-											<WorkspaceConversationContainer
-												isShellResizing={
-													isSidebarResizing || isInspectorResizing
+											<Suspense
+												fallback={
+													<div className="min-h-0 flex-1 bg-chat-surface" />
 												}
-												selectedWorkspaceId={selectedWorkspaceId}
-												displayedWorkspaceId={displayedWorkspaceId}
-												selectedSessionId={selectedSessionId}
-												displayedSessionId={displayedSessionId}
-												repoId={
-													selectedWorkspaceDetailQuery.data?.repoId ?? null
-												}
-												sessionSelectionHistory={
-													selectedWorkspaceId
-														? (sessionSelectionHistoryByWorkspaceRef.current[
-																selectedWorkspaceId
-															] ?? [])
-														: []
-												}
-												onSelectSession={handleSelectSession}
-												onResolveDisplayedSession={
-													handleResolveDisplayedSession
-												}
-												onSendingWorkspacesChange={setSendingWorkspaceIds}
-												onSendingSessionsChange={setSendingSessionIds}
-												onInteractionSessionsChange={
-													handleInteractionSessionsChange
-												}
-												interactionRequiredSessionIds={
-													interactionRequiredSessionIds
-												}
-												onSessionCompleted={handleSessionCompleted}
-												workspaceChangeRequest={workspaceChangeRequest}
-												onSessionAborted={handleSessionAborted}
-												pendingPromptForSession={pendingPromptForSession}
-												onPendingPromptConsumed={handlePendingPromptConsumed}
-												pendingInsertRequests={pendingComposerInserts}
-												onPendingInsertRequestsConsumed={
-													handlePendingComposerInsertsConsumed
-												}
-												onQueuePendingPromptForSession={
-													queuePendingPromptForSession
-												}
-												onRequestCloseSession={requestCloseSession}
-												workspaceRootPath={workspaceRootPath}
-												onOpenFileReference={handleOpenFileReference}
-												headerLeading={
-													sidebarCollapsed ? (
-														<>
-															{/* Spacer to avoid macOS traffic lights */}
-															<div className="w-[52px] shrink-0" />
-															<div className="flex items-center gap-[2px]">
-																<AppUpdateButton status={appUpdateStatus} />
+											>
+												<WorkspaceConversationContainer
+													isShellResizing={
+														isSidebarResizing || isInspectorResizing
+													}
+													selectedWorkspaceId={selectedWorkspaceId}
+													displayedWorkspaceId={displayedWorkspaceId}
+													selectedSessionId={selectedSessionId}
+													displayedSessionId={displayedSessionId}
+													repoId={
+														selectedWorkspaceDetailQuery.data?.repoId ?? null
+													}
+													sessionSelectionHistory={
+														selectedWorkspaceId
+															? (sessionSelectionHistoryByWorkspaceRef.current[
+																	selectedWorkspaceId
+																] ?? [])
+															: []
+													}
+													onSelectSession={handleSelectSession}
+													onResolveDisplayedSession={
+														handleResolveDisplayedSession
+													}
+													onSendingWorkspacesChange={setSendingWorkspaceIds}
+													onSendingSessionsChange={setSendingSessionIds}
+													onInteractionSessionsChange={
+														handleInteractionSessionsChange
+													}
+													interactionRequiredSessionIds={
+														interactionRequiredSessionIds
+													}
+													onSessionCompleted={handleSessionCompleted}
+													workspaceChangeRequest={workspaceChangeRequest}
+													onSessionAborted={handleSessionAborted}
+													pendingPromptForSession={pendingPromptForSession}
+													onPendingPromptConsumed={handlePendingPromptConsumed}
+													pendingInsertRequests={pendingComposerInserts}
+													onPendingInsertRequestsConsumed={
+														handlePendingComposerInsertsConsumed
+													}
+													onQueuePendingPromptForSession={
+														queuePendingPromptForSession
+													}
+													onRequestCloseSession={requestCloseSession}
+													workspaceRootPath={workspaceRootPath}
+													onOpenFileReference={handleOpenFileReference}
+													headerLeading={
+														sidebarCollapsed ? (
+															<>
+																{/* Spacer to avoid macOS traffic lights */}
+																<div className="w-[52px] shrink-0" />
+																<div className="flex items-center gap-[2px]">
+																	<AppUpdateButton status={appUpdateStatus} />
+																	<Tooltip>
+																		<TooltipTrigger asChild>
+																			<Button
+																				aria-label="Expand left sidebar"
+																				onClick={() =>
+																					setSidebarCollapsed(false)
+																				}
+																				variant="ghost"
+																				size="icon-xs"
+																				className="text-muted-foreground hover:text-foreground"
+																			>
+																				<PanelLeftIcon
+																					className="size-4"
+																					strokeWidth={1.6}
+																				/>
+																			</Button>
+																		</TooltipTrigger>
+																		<TooltipContent
+																			side="bottom"
+																			className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
+																		>
+																			<span>Expand left sidebar</span>
+																			{leftSidebarToggleShortcut ? (
+																				<InlineShortcutDisplay
+																					hotkey={leftSidebarToggleShortcut}
+																					className="text-tooltip-foreground/55"
+																				/>
+																			) : null}
+																		</TooltipContent>
+																	</Tooltip>
+																</div>
+															</>
+														) : undefined
+													}
+													headerActions={
+														selectedWorkspaceId && displayedSessionId ? (
+															<div className="flex items-center gap-1">
+																{installedEditors.length > 0 &&
+																preferredEditor ? (
+																	<div className="flex items-center">
+																		<Tooltip>
+																			<TooltipTrigger asChild>
+																				<Button
+																					variant="ghost"
+																					size="xs"
+																					aria-label={`Open in ${preferredEditor.name}`}
+																					onClick={handleOpenPreferredEditor}
+																					className="text-muted-foreground hover:text-foreground"
+																				>
+																					<EditorIcon
+																						editorId={preferredEditor.id}
+																						className="size-3.5"
+																					/>
+																					<span>{preferredEditor.name}</span>
+																				</Button>
+																			</TooltipTrigger>
+																			<TooltipContent
+																				side="bottom"
+																				sideOffset={4}
+																				className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
+																			>
+																				<span>{`Open in ${preferredEditor.name}`}</span>
+																				{openPreferredEditorShortcut ? (
+																					<InlineShortcutDisplay
+																						hotkey={openPreferredEditorShortcut}
+																						className="text-tooltip-foreground/55"
+																					/>
+																				) : null}
+																			</TooltipContent>
+																		</Tooltip>
+																		<DropdownMenu>
+																			<DropdownMenuTrigger asChild>
+																				<Button
+																					variant="ghost"
+																					size="icon-xs"
+																					className="w-4 text-muted-foreground hover:text-foreground"
+																				>
+																					<ChevronDown
+																						className="size-2.5"
+																						strokeWidth={2}
+																					/>
+																				</Button>
+																			</DropdownMenuTrigger>
+																			<DropdownMenuContent
+																				side="bottom"
+																				align="end"
+																				sideOffset={4}
+																				className="min-w-[11rem]"
+																			>
+																				<DropdownMenuItem
+																					onClick={() => {
+																						void openWorkspaceInFinder(
+																							selectedWorkspaceId,
+																						).catch((e) =>
+																							pushWorkspaceToast(
+																								String(e),
+																								"Failed to open Finder",
+																							),
+																						);
+																					}}
+																					className="flex items-center gap-2"
+																				>
+																					<FolderOpen
+																						className="shrink-0"
+																						strokeWidth={1.8}
+																					/>
+																					<span className="flex-1">Finder</span>
+																				</DropdownMenuItem>
+																				{installedEditors.map((editor) => (
+																					<DropdownMenuItem
+																						key={editor.id}
+																						onClick={() => {
+																							setPreferredEditorId(editor.id);
+																							localStorage.setItem(
+																								PREFERRED_EDITOR_STORAGE_KEY,
+																								editor.id,
+																							);
+																							void openWorkspaceInEditor(
+																								selectedWorkspaceId,
+																								editor.id,
+																							).catch((e) =>
+																								pushWorkspaceToast(
+																									String(e),
+																									`Failed to open ${editor.name}`,
+																								),
+																							);
+																						}}
+																						className="flex items-center gap-2"
+																					>
+																						<EditorIcon
+																							editorId={editor.id}
+																							className="shrink-0"
+																						/>
+																						<span className="flex-1">
+																							{editor.name}
+																						</span>
+																						{editor.id ===
+																							preferredEditor.id && (
+																							<Check className="ml-auto text-muted-foreground" />
+																						)}
+																					</DropdownMenuItem>
+																				))}
+																			</DropdownMenuContent>
+																		</DropdownMenu>
+																	</div>
+																) : null}
 																<Tooltip>
 																	<TooltipTrigger asChild>
 																		<Button
-																			aria-label="Expand left sidebar"
-																			onClick={() => setSidebarCollapsed(false)}
+																			aria-label={
+																				inspectorCollapsed
+																					? "Expand right sidebar"
+																					: "Collapse right sidebar"
+																			}
+																			onClick={handleToggleInspectorSidebar}
 																			variant="ghost"
-																			size="icon-xs"
-																			className="text-muted-foreground hover:text-foreground"
+																			size="sm"
+																			className="h-7 border-transparent bg-transparent px-1.5 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
 																		>
-																			<PanelLeftIcon
-																				className="size-4"
-																				strokeWidth={1.6}
-																			/>
+																			<span className="inline-flex h-5 items-center gap-1.5 rounded-full px-1.5">
+																				<DiffStatsBadge
+																					insertions={
+																						workspaceDiffStats.insertions
+																					}
+																					deletions={
+																						workspaceDiffStats.deletions
+																					}
+																				/>
+																				{hasWorkspaceDiffStats ? (
+																					<span
+																						aria-hidden="true"
+																						className="size-1 rounded-full bg-muted-foreground/45"
+																					/>
+																				) : null}
+																				<PanelRightIcon
+																					className="size-4 shrink-0"
+																					strokeWidth={1.6}
+																				/>
+																			</span>
 																		</Button>
 																	</TooltipTrigger>
 																	<TooltipContent
 																		side="bottom"
 																		className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
 																	>
-																		<span>Expand left sidebar</span>
-																		{leftSidebarToggleShortcut ? (
+																		<span>
+																			{inspectorCollapsed
+																				? "Expand right sidebar"
+																				: "Collapse right sidebar"}
+																		</span>
+																		{rightSidebarToggleShortcut ? (
 																			<InlineShortcutDisplay
-																				hotkey={leftSidebarToggleShortcut}
+																				hotkey={rightSidebarToggleShortcut}
 																				className="text-tooltip-foreground/55"
 																			/>
 																		) : null}
 																	</TooltipContent>
 																</Tooltip>
 															</div>
-														</>
-													) : undefined
-												}
-												headerActions={
-													selectedWorkspaceId && displayedSessionId ? (
-														<div className="flex items-center gap-1">
-															{installedEditors.length > 0 &&
-															preferredEditor ? (
-																<div className="flex items-center">
-																	<Tooltip>
-																		<TooltipTrigger asChild>
-																			<Button
-																				variant="ghost"
-																				size="xs"
-																				aria-label={`Open in ${preferredEditor.name}`}
-																				onClick={handleOpenPreferredEditor}
-																				className="text-muted-foreground hover:text-foreground"
-																			>
-																				<EditorIcon
-																					editorId={preferredEditor.id}
-																					className="size-3.5"
-																				/>
-																				<span>{preferredEditor.name}</span>
-																			</Button>
-																		</TooltipTrigger>
-																		<TooltipContent
-																			side="bottom"
-																			sideOffset={4}
-																			className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
-																		>
-																			<span>{`Open in ${preferredEditor.name}`}</span>
-																			{openPreferredEditorShortcut ? (
-																				<InlineShortcutDisplay
-																					hotkey={openPreferredEditorShortcut}
-																					className="text-tooltip-foreground/55"
-																				/>
-																			) : null}
-																		</TooltipContent>
-																	</Tooltip>
-																	<DropdownMenu>
-																		<DropdownMenuTrigger asChild>
-																			<Button
-																				variant="ghost"
-																				size="icon-xs"
-																				className="w-4 text-muted-foreground hover:text-foreground"
-																			>
-																				<ChevronDown
-																					className="size-2.5"
-																					strokeWidth={2}
-																				/>
-																			</Button>
-																		</DropdownMenuTrigger>
-																		<DropdownMenuContent
-																			side="bottom"
-																			align="end"
-																			sideOffset={4}
-																			className="min-w-[11rem]"
-																		>
-																			<DropdownMenuItem
-																				onClick={() => {
-																					void openWorkspaceInFinder(
-																						selectedWorkspaceId,
-																					).catch((e) =>
-																						pushWorkspaceToast(
-																							String(e),
-																							"Failed to open Finder",
-																						),
-																					);
-																				}}
-																				className="flex items-center gap-2"
-																			>
-																				<FolderOpen
-																					className="shrink-0"
-																					strokeWidth={1.8}
-																				/>
-																				<span className="flex-1">Finder</span>
-																			</DropdownMenuItem>
-																			{installedEditors.map((editor) => (
-																				<DropdownMenuItem
-																					key={editor.id}
-																					onClick={() => {
-																						setPreferredEditorId(editor.id);
-																						localStorage.setItem(
-																							PREFERRED_EDITOR_STORAGE_KEY,
-																							editor.id,
-																						);
-																						void openWorkspaceInEditor(
-																							selectedWorkspaceId,
-																							editor.id,
-																						).catch((e) =>
-																							pushWorkspaceToast(
-																								String(e),
-																								`Failed to open ${editor.name}`,
-																							),
-																						);
-																					}}
-																					className="flex items-center gap-2"
-																				>
-																					<EditorIcon
-																						editorId={editor.id}
-																						className="shrink-0"
-																					/>
-																					<span className="flex-1">
-																						{editor.name}
-																					</span>
-																					{editor.id === preferredEditor.id && (
-																						<Check className="ml-auto text-muted-foreground" />
-																					)}
-																				</DropdownMenuItem>
-																			))}
-																		</DropdownMenuContent>
-																	</DropdownMenu>
-																</div>
-															) : null}
-															<Tooltip>
-																<TooltipTrigger asChild>
-																	<Button
-																		aria-label={
-																			inspectorCollapsed
-																				? "Expand right sidebar"
-																				: "Collapse right sidebar"
-																		}
-																		onClick={() =>
-																			setInspectorCollapsed(
-																				(collapsed) => !collapsed,
-																			)
-																		}
-																		variant="ghost"
-																		size="sm"
-																		className="h-7 border-transparent bg-transparent px-1.5 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
-																	>
-																		<span className="inline-flex h-5 items-center gap-1.5 rounded-full px-1.5">
-																			<DiffStatsBadge
-																				insertions={
-																					workspaceDiffStats.insertions
-																				}
-																				deletions={workspaceDiffStats.deletions}
-																			/>
-																			{hasWorkspaceDiffStats ? (
-																				<span
-																					aria-hidden="true"
-																					className="size-1 rounded-full bg-muted-foreground/45"
-																				/>
-																			) : null}
-																			<PanelRightIcon
-																				className="size-4 shrink-0"
-																				strokeWidth={1.6}
-																			/>
-																		</span>
-																	</Button>
-																</TooltipTrigger>
-																<TooltipContent
-																	side="bottom"
-																	className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
-																>
-																	<span>
-																		{inspectorCollapsed
-																			? "Expand right sidebar"
-																			: "Collapse right sidebar"}
-																	</span>
-																	{rightSidebarToggleShortcut ? (
-																		<InlineShortcutDisplay
-																			hotkey={rightSidebarToggleShortcut}
-																			className="text-tooltip-foreground/55"
-																		/>
-																	) : null}
-																</TooltipContent>
-															</Tooltip>
-														</div>
-													) : undefined
-												}
-											/>
+														) : undefined
+													}
+												/>
+											</Suspense>
 										</div>
 									</div>
 								</section>
@@ -2749,47 +2785,51 @@ function AppShell({
 											className="relative h-full shrink-0 overflow-hidden bg-sidebar has-[[data-tabs-zoomed=true]]:overflow-visible"
 											style={{ width: "var(--pathos-inspector-width)" }}
 										>
-											<WorkspaceInspectorSidebar
-												workspaceId={selectedWorkspaceId}
-												workspaceRootPath={workspaceRootPath}
-												workspaceState={
-													selectedWorkspaceDetailQuery.data?.state ?? null
-												}
-												repoId={
-													selectedWorkspaceDetailQuery.data?.repoId ?? null
-												}
-												workspaceBranch={
-													selectedWorkspaceDetailQuery.data?.branch ?? null
-												}
-												workspaceDefaultBranch={
-													selectedWorkspaceDetailQuery.data?.defaultBranch ??
-													null
-												}
-												workspaceRemote={
-													selectedWorkspaceDetailQuery.data?.remote ?? null
-												}
-												workspaceTargetBranch={(() => {
-													const d = selectedWorkspaceDetailQuery.data;
-													const target =
-														d?.intendedTargetBranch ?? d?.defaultBranch;
-													if (!target) return null;
-													const remote = d?.remote ?? "origin";
-													return `${remote}/${target}`;
-												})()}
-												editorMode={workspaceViewMode === "editor"}
-												activeEditorPath={editorSession?.path ?? null}
-												onOpenEditorFile={handleOpenEditorFile}
-												onCommitAction={handleInspectorCommitAction}
-												currentSessionId={displayedSessionId}
-												onQueuePendingPromptForSession={
-													queuePendingPromptForSession
-												}
-												commitButtonMode={commitButtonMode}
-												commitButtonState={commitButtonState}
-												changeRequest={workspaceChangeRequest}
-												forgeIsRefreshing={workspaceForgeIsRefreshing}
-												onOpenSettings={handleOpenSettings}
-											/>
+											{inspectorSidebarMounted ? (
+												<WorkspaceInspectorSidebar
+													workspaceId={selectedWorkspaceId}
+													workspaceRootPath={workspaceRootPath}
+													workspaceState={
+														selectedWorkspaceDetailQuery.data?.state ?? null
+													}
+													repoId={
+														selectedWorkspaceDetailQuery.data?.repoId ?? null
+													}
+													workspaceBranch={
+														selectedWorkspaceDetailQuery.data?.branch ?? null
+													}
+													workspaceDefaultBranch={
+														selectedWorkspaceDetailQuery.data?.defaultBranch ??
+														null
+													}
+													workspaceRemote={
+														selectedWorkspaceDetailQuery.data?.remote ?? null
+													}
+													workspaceTargetBranch={(() => {
+														const d = selectedWorkspaceDetailQuery.data;
+														const target =
+															d?.intendedTargetBranch ?? d?.defaultBranch;
+														if (!target) return null;
+														const remote = d?.remote ?? "origin";
+														return `${remote}/${target}`;
+													})()}
+													editorMode={workspaceViewMode === "editor"}
+													activeEditorPath={editorSession?.path ?? null}
+													onOpenEditorFile={handleOpenEditorFile}
+													onCommitAction={handleInspectorCommitAction}
+													currentSessionId={displayedSessionId}
+													onQueuePendingPromptForSession={
+														queuePendingPromptForSession
+													}
+													commitButtonMode={commitButtonMode}
+													commitButtonState={commitButtonState}
+													changeRequest={workspaceChangeRequest}
+													forgeIsRefreshing={workspaceForgeIsRefreshing}
+													onOpenSettings={handleOpenSettings}
+												/>
+											) : (
+												<InspectorSidebarMountPlaceholder />
+											)}
 										</aside>
 									</>
 								)}
@@ -2820,9 +2860,7 @@ function AppShell({
 								onToggleLeftSidebar={() =>
 									setSidebarCollapsed((collapsed) => !collapsed)
 								}
-								onToggleRightSidebar={() =>
-									setInspectorCollapsed((collapsed) => !collapsed)
-								}
+								onToggleRightSidebar={() => handleToggleInspectorSidebar()}
 								onFocusComposer={() =>
 									window.dispatchEvent(new Event("pathos:focus-composer"))
 								}
@@ -2854,5 +2892,41 @@ function AppShell({
 			<QuitConfirmDialog sendingSessionIds={sendingSessionIds} />
 		</TooltipProvider>
 	);
+}
+
+function InspectorSidebarMountPlaceholder() {
+	return (
+		<div
+			aria-hidden="true"
+			className="flex h-full min-h-0 flex-col gap-2 bg-sidebar px-3 py-2"
+		>
+			<div className="h-7 rounded-md border border-border/60 bg-muted/35" />
+			<div className="h-7 rounded-md border border-border/60 bg-muted/25" />
+			<div className="min-h-0 flex-1 rounded-md border border-border/60 bg-muted/15" />
+		</div>
+	);
+}
+
+function scheduleInteractionBackgroundTask(callback: () => void) {
+	const timeoutId = window.setTimeout(() => {
+		callback();
+	}, 80);
+	return () => window.clearTimeout(timeoutId);
+}
+
+function scheduleWorkspaceDisplayPrefetch(
+	queryClient: QueryClient,
+	workspaceId: string,
+	sessionId: string | null,
+) {
+	scheduleInteractionBackgroundTask(() => {
+		void queryClient.prefetchQuery(workspaceDetailQueryOptions(workspaceId));
+		void queryClient.prefetchQuery(workspaceSessionsQueryOptions(workspaceId));
+		if (sessionId) {
+			void queryClient.prefetchQuery(
+				sessionThreadMessagesQueryOptions(sessionId),
+			);
+		}
+	});
 }
 export default App;

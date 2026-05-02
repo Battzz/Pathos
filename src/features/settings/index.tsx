@@ -19,7 +19,7 @@ import {
 	UserRound,
 	Volume2,
 } from "lucide-react";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { ModelIcon } from "@/components/model-icon";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -230,6 +230,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 		settings.notifications && settings.notificationSound !== "none";
 	const [githubLogin, setGithubLogin] = useState<string | null>(null);
 	const [conductorEnabled, setConductorEnabled] = useState(false);
+	const contentRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		if (open) {
@@ -344,7 +345,13 @@ export const SettingsDialog = memo(function SettingsDialog({
 				}}
 			>
 				<DialogContent
+					ref={contentRef}
 					aria-describedby={undefined}
+					tabIndex={-1}
+					onOpenAutoFocus={(event) => {
+						event.preventDefault();
+						contentRef.current?.focus({ preventScroll: true });
+					}}
 					className="settings-dialog-shell h-[min(82vh,680px)] w-[min(86vw,940px)] max-w-[940px] gap-0 overflow-hidden rounded-2xl border-border/60 bg-background p-0 shadow-[0_30px_120px_-30px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.02)_inset] sm:max-w-[940px]"
 				>
 					<div className="relative h-full w-full overflow-hidden">

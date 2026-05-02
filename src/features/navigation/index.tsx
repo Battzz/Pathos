@@ -56,6 +56,7 @@ import { SpacePageDots } from "./space-page-dots";
 const MAX_COLLAPSED_CHATS = 8;
 const MAX_GENERIC_CHATS_COLLAPSED = 5;
 const CHAT_SHORTCUT_LIMIT = 10;
+const CHAT_SELECT_PREFETCH_DELAY_MS = 80;
 
 type PendingSidebarRemoval =
 	| { type: "chat"; chat: RepositoryFolderChat }
@@ -317,8 +318,10 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 
 			event.preventDefault();
 			event.stopPropagation();
-			onPrefetchChat(chat.workspaceId, chat.sessionId);
 			onSelectChat(chat.workspaceId, chat.sessionId);
+			window.setTimeout(() => {
+				onPrefetchChat(chat.workspaceId, chat.sessionId);
+			}, CHAT_SELECT_PREFETCH_DELAY_MS);
 		};
 		const handleKeyUp = (event: KeyboardEvent) => {
 			if (event.key === "Meta") {
@@ -474,10 +477,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 																})()}
 																showShortcutHint={showChatShortcuts}
 																deleteChatShortcut={deleteChatShortcut}
-																onSelect={(ws, session) => {
-																	onPrefetchChat(ws, session);
-																	onSelectChat(ws, session);
-																}}
+																onSelect={onSelectChat}
+																onPrefetch={onPrefetchChat}
 																onTogglePin={onToggleChatPin}
 																onDelete={() => removeChat(chat)}
 															/>
@@ -519,10 +520,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 					deleteChatShortcut={deleteChatShortcut}
 					creating={creatingGenericChat}
 					onCreateChat={onCreateGenericChat}
-					onSelectChat={(workspaceId, sessionId) => {
-						onPrefetchChat(workspaceId, sessionId);
-						onSelectChat(workspaceId, sessionId);
-					}}
+					onSelectChat={onSelectChat}
+					onPrefetchChat={onPrefetchChat}
 					onToggleChatPin={onToggleChatPin}
 					onDeleteChat={removeChat}
 				/>
@@ -698,6 +697,7 @@ function GenericChatsSection({
 	creating,
 	onCreateChat,
 	onSelectChat,
+	onPrefetchChat,
 	onToggleChatPin,
 	onDeleteChat,
 }: {
@@ -711,6 +711,7 @@ function GenericChatsSection({
 	creating: boolean;
 	onCreateChat: () => void;
 	onSelectChat: (workspaceId: string, sessionId: string) => void;
+	onPrefetchChat: (workspaceId: string, sessionId: string) => void;
 	onToggleChatPin?: (chat: RepositoryFolderChat) => void;
 	onDeleteChat: (chat: RepositoryFolderChat) => void;
 }) {
@@ -845,6 +846,7 @@ function GenericChatsSection({
 							showShortcutHint={showChatShortcuts}
 							deleteChatShortcut={deleteChatShortcut}
 							onSelect={onSelectChat}
+							onPrefetch={onPrefetchChat}
 							onTogglePin={onToggleChatPin}
 							onDelete={() => onDeleteChat(chat)}
 						/>

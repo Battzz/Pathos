@@ -27,7 +27,6 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { NumberTicker } from "@/components/ui/number-ticker";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
 	Tooltip,
@@ -1303,16 +1302,8 @@ function LineStats({
 
 	return (
 		<span className="flex shrink-0 items-center gap-1 text-[10px] tabular-nums">
-			{insertions > 0 && (
-				<span className="text-chart-2">
-					+<NumberTicker value={insertions} className="text-chart-2" />
-				</span>
-			)}
-			{deletions > 0 && (
-				<span className="text-destructive">
-					−<NumberTicker value={deletions} className="text-destructive" />
-				</span>
-			)}
+			{insertions > 0 && <span className="text-chart-2">+{insertions}</span>}
+			{deletions > 0 && <span className="text-destructive">-{deletions}</span>}
 		</span>
 	);
 }

@@ -11,6 +11,7 @@ import {
 import { WorkspacesSidebar } from "./index";
 
 afterEach(() => {
+	vi.useRealTimers();
 	cleanup();
 });
 
@@ -242,6 +243,7 @@ describe("WorkspacesSidebar", () => {
 	});
 
 	it("shows Cmd-number hints and selects the matching visible chat", () => {
+		vi.useFakeTimers();
 		const onPrefetchChat = vi.fn();
 		const onSelectChat = vi.fn();
 		renderSidebar(makeFolder(10), { onPrefetchChat, onSelectChat });
@@ -256,12 +258,47 @@ describe("WorkspacesSidebar", () => {
 
 		fireEvent.keyDown(window, { key: "3", code: "Digit3", metaKey: true });
 
-		expect(onPrefetchChat).toHaveBeenCalledWith("workspace-3", "session-3");
 		expect(onSelectChat).toHaveBeenCalledWith("workspace-3", "session-3");
+		expect(onPrefetchChat).not.toHaveBeenCalled();
+
+		vi.advanceTimersByTime(80);
+
+		expect(onPrefetchChat).toHaveBeenCalledWith("workspace-3", "session-3");
 
 		fireEvent.keyUp(window, { key: "Meta", code: "MetaLeft" });
 
 		expect(screen.queryByLabelText("Cmd+1")).not.toBeInTheDocument();
+	});
+
+	it("prefetches chats only after hover intent", () => {
+		vi.useFakeTimers();
+		const onPrefetchChat = vi.fn();
+		renderSidebar(makeFolder(1), { onPrefetchChat });
+
+		const chat = screen.getByRole("button", { name: /Chat 1/i });
+		fireEvent.pointerEnter(chat);
+		vi.advanceTimersByTime(119);
+
+		expect(onPrefetchChat).not.toHaveBeenCalled();
+
+		vi.advanceTimersByTime(1);
+
+		expect(onPrefetchChat).toHaveBeenCalledWith("workspace-1", "session-1");
+	});
+
+	it("does not prefetch when a click happens before hover intent settles", () => {
+		vi.useFakeTimers();
+		const onPrefetchChat = vi.fn();
+		const onSelectChat = vi.fn();
+		renderSidebar(makeFolder(1), { onPrefetchChat, onSelectChat });
+
+		const chat = screen.getByRole("button", { name: /Chat 1/i });
+		fireEvent.pointerEnter(chat);
+		fireEvent.click(chat);
+		vi.advanceTimersByTime(120);
+
+		expect(onPrefetchChat).not.toHaveBeenCalled();
+		expect(onSelectChat).toHaveBeenCalledWith("workspace-1", "session-1");
 	});
 
 	it("renders generic chats above the footer and can start one", () => {

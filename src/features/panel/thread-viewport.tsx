@@ -29,7 +29,7 @@ export type PresentedSessionPane = {
 	messages: ThreadMessageLike[];
 	sending: boolean;
 	hasLoaded: boolean;
-	presentationState: "presented";
+	presentationState: "presented" | "cached";
 };
 
 type RenderedMessage = ThreadMessageLike;
@@ -46,6 +46,10 @@ const PROGRESSIVE_VIEWPORT_HEADER_HEIGHT = 24;
 const PROGRESSIVE_VIEWPORT_STREAMING_FOOTER_HEIGHT = 40;
 const CONVERSATION_BOTTOM_SPACER_HEIGHT = 176;
 const PANE_WIDTH_BUCKET_SIZE = 32;
+const TAURI_IDLE_BOTTOM_ZONE_VIEWPORTS = 2;
+const TAURI_IDLE_BOTTOM_TAIL_VIEWPORTS = 3;
+const TAURI_ACTIVE_BOTTOM_ZONE_VIEWPORTS = 4;
+const TAURI_ACTIVE_BOTTOM_TAIL_VIEWPORTS = 6;
 
 type PaneWidthSnapshot = {
 	bucket: number;
@@ -85,6 +89,27 @@ export function resolvePaneWidthSnapshot(
 	}
 
 	return { bucket, width };
+}
+
+export function resolveTauriBottomWindowMetrics({
+	effectiveViewportHeight,
+	pinTailRows,
+}: {
+	effectiveViewportHeight: number;
+	pinTailRows: boolean;
+}) {
+	return {
+		zoneHeight:
+			effectiveViewportHeight *
+			(pinTailRows
+				? TAURI_ACTIVE_BOTTOM_ZONE_VIEWPORTS
+				: TAURI_IDLE_BOTTOM_ZONE_VIEWPORTS),
+		tailHeight:
+			effectiveViewportHeight *
+			(pinTailRows
+				? TAURI_ACTIVE_BOTTOM_TAIL_VIEWPORTS
+				: TAURI_IDLE_BOTTOM_TAIL_VIEWPORTS),
+	};
 }
 
 export function findFirstRowEndingAtOrAfter(
@@ -287,7 +312,10 @@ function ChatThread({
 	const { contentRef, scrollRef, scrollToBottom, stopScroll, isAtBottom } =
 		useStickToBottom({
 			initial: "instant",
-			resize: "smooth",
+			// Streaming grows the content box on nearly every chunk. The default
+			// spring animation keeps a rAF loop alive for each resize, which shows
+			// up as browser "other time" rather than React render time.
+			resize: "instant",
 		});
 	const handleScrollRef = useCallback(
 		(element: HTMLElement | null) => {
@@ -931,8 +959,13 @@ function ProgressiveConversationViewport({
 		0,
 		totalRowsHeight - (effectiveScrollTop + effectiveViewportHeight),
 	);
-	const tauriStableBottomZoneHeight = effectiveViewportHeight * 4;
-	const tauriStableBottomTailHeight = effectiveViewportHeight * 6;
+	const {
+		zoneHeight: tauriStableBottomZoneHeight,
+		tailHeight: tauriStableBottomTailHeight,
+	} = resolveTauriBottomWindowMetrics({
+		effectiveViewportHeight,
+		pinTailRows,
+	});
 	const visibleRows = useMemo(
 		() =>
 			measureSync(

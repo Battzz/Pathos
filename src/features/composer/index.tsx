@@ -1,14 +1,4 @@
-import { LexicalComposer } from "@lexical/react/LexicalComposer";
-import { ContentEditable } from "@lexical/react/LexicalContentEditable";
-import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
-import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
-import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin";
-import {
-	$getRoot,
-	$isElementNode,
-	$isTextNode,
-	type LexicalEditor,
-} from "lexical";
+import { $getRoot, type LexicalEditor } from "lexical";
 import { ArrowUp, Map as MapIcon, Plus, Square, Zap } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ModelIcon } from "@/components/model-icon";
@@ -35,7 +25,6 @@ import type { PendingDeferredTool } from "@/features/conversation/pending-deferr
 import type { PendingElicitation } from "@/features/conversation/pending-elicitation";
 import { humanizeBranch } from "@/features/navigation/shared";
 import { normalizeShortcutEvent } from "@/features/shortcuts/format";
-import { ShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import type {
 	AgentModelSection,
 	CandidateDirectory,
@@ -57,33 +46,19 @@ import type {
 } from "./deferred-tool";
 import { DeferredToolPanel } from "./deferred-tool-panel";
 import { clearPersistedDraft } from "./draft-storage";
-import { $insertAddDirTrigger } from "./editor/add-dir/insert";
-import { AddDirTriggerNode } from "./editor/add-dir/trigger-node";
-import {
-	type AddDirPickerEntry,
-	AddDirTypeaheadPlugin,
-} from "./editor/add-dir/typeahead-plugin";
-import { CustomTagBadgeNode } from "./editor/custom-tag-badge-node";
-import { FileBadgeNode } from "./editor/file-badge-node";
-import { ImageBadgeNode } from "./editor/image-badge-node";
-import { AutoResizePlugin } from "./editor/plugins/auto-resize-plugin";
-import { CompositionGuardPlugin } from "./editor/plugins/composition-guard-plugin";
-import { DraftPersistencePlugin } from "./editor/plugins/draft-persistence-plugin";
-import { DropFilePlugin } from "./editor/plugins/drop-file-plugin";
-import { EditablePlugin } from "./editor/plugins/editable-plugin";
-import { EditorRefPlugin } from "./editor/plugins/editor-ref-plugin";
-import { FileMentionPlugin } from "./editor/plugins/file-mention-plugin";
-import { HasContentPlugin } from "./editor/plugins/has-content-plugin";
-import { PasteImagePlugin } from "./editor/plugins/paste-image-plugin";
-import { SlashCommandPlugin } from "./editor/plugins/slash-command-plugin";
-import { SubmitPlugin } from "./editor/plugins/submit-plugin";
+import type { AddDirPickerEntry } from "./editor/add-dir/typeahead-plugin";
 import { $extractComposerContent } from "./editor/utils";
 import { $appendComposerInsertItems } from "./editor-ops";
+import { ComposerEditorSurface } from "./editor-surface";
 import type { ElicitationResponseHandler } from "./elicitation";
 import { ElicitationPanel } from "./elicitation-panel";
 import { FastModeLottieIcon } from "./fast-mode-lottie-icon";
 
 const OPEN_SETTINGS_EVENT = "pathos:open-settings";
+const EMPTY_RESTORE_IMAGES: string[] = [];
+const EMPTY_RESTORE_FILES: string[] = [];
+const EMPTY_RESTORE_CUSTOM_TAGS: ComposerCustomTag[] = [];
+const EMPTY_PENDING_INSERT_REQUESTS: ResolvedComposerInsertRequest[] = [];
 
 type WorkspaceComposerProps = {
 	contextKey: string;
@@ -171,51 +146,6 @@ const noopDeferredToolResponse = (
 	_options?: DeferredToolResponseOptions,
 ) => {};
 const noopElicitationResponse: ElicitationResponseHandler = () => {};
-const COMPOSER_INPUT_MIN_HEIGHT = 32;
-const COMPOSER_INPUT_MAX_HEIGHT = 120;
-// ---------------------------------------------------------------------------
-// Lexical editor config (stable reference — defined outside component)
-// ---------------------------------------------------------------------------
-
-const EDITOR_THEME = {
-	root: "composer-editor",
-	paragraph: "composer-paragraph",
-};
-
-function onEditorError(error: Error) {
-	console.error("[Composer Lexical]", error);
-}
-
-function getLastTextNode(rootElement: HTMLElement): Text | null {
-	const nodeFilter = rootElement.ownerDocument.defaultView?.NodeFilter;
-	if (!nodeFilter) return null;
-	const walker = rootElement.ownerDocument.createTreeWalker(
-		rootElement,
-		nodeFilter.SHOW_TEXT,
-	);
-	let lastText: Text | null = null;
-	while (walker.nextNode()) {
-		const node = walker.currentNode;
-		if (node.textContent) {
-			lastText = node as Text;
-		}
-	}
-	return lastText;
-}
-
-function focusRootElementAtEnd(rootElement: HTMLElement) {
-	rootElement.focus({ preventScroll: true });
-	const lastText = getLastTextNode(rootElement);
-	if (!lastText) return;
-	const selection = rootElement.ownerDocument.defaultView?.getSelection();
-	if (!selection) return;
-	const offset = lastText.textContent?.length ?? 0;
-	const range = rootElement.ownerDocument.createRange();
-	range.setStart(lastText, offset);
-	range.setEnd(lastText, offset);
-	selection.removeAllRanges();
-	selection.addRange(range);
-}
 
 export const WorkspaceComposer = memo(function WorkspaceComposer({
 	contextKey,
@@ -238,11 +168,11 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	onChangeFastMode,
 	sendError,
 	restoreDraft,
-	restoreImages = [],
-	restoreFiles = [],
-	restoreCustomTags = [],
+	restoreImages = EMPTY_RESTORE_IMAGES,
+	restoreFiles = EMPTY_RESTORE_FILES,
+	restoreCustomTags = EMPTY_RESTORE_CUSTOM_TAGS,
 	restoreNonce = 0,
-	pendingInsertRequests = [],
+	pendingInsertRequests = EMPTY_PENDING_INSERT_REQUESTS,
 	onPendingInsertRequestsConsumed,
 	slashCommands = EMPTY_SLASH_COMMANDS,
 	slashCommandsLoading = false,
@@ -290,45 +220,6 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	const [modelPickerOpen, setModelPickerOpen] = useState(false);
 	const [toolbarTooltipSuppressed, setToolbarTooltipSuppressed] =
 		useState(false);
-	useEffect(() => {
-		const handleFocusComposer = () => {
-			if (disabled) return;
-			const editor = editorRef.current;
-			if (editor) {
-				editor.update(
-					() => {
-						const root = $getRoot();
-						const lastText = root.getLastDescendant();
-						if ($isTextNode(lastText)) {
-							const offset = lastText.getTextContentSize();
-							lastText.select(offset, offset);
-							return;
-						}
-						const lastChild = root.getLastChild();
-						if ($isElementNode(lastChild)) {
-							lastChild.selectEnd();
-							return;
-						}
-						root.selectEnd();
-					},
-					{
-						onUpdate: () => {
-							const rootElement = editor.getRootElement();
-							if (rootElement) focusRootElementAtEnd(rootElement);
-						},
-					},
-				);
-				return;
-			}
-			composerRootRef.current
-				?.querySelector<HTMLElement>("[contenteditable='true']")
-				?.focus();
-		};
-
-		window.addEventListener("pathos:focus-composer", handleFocusComposer);
-		return () =>
-			window.removeEventListener("pathos:focus-composer", handleFocusComposer);
-	}, [disabled]);
 	const selectedModel = useMemo(() => {
 		for (const section of modelSections) {
 			for (const option of section.options) {
@@ -445,19 +336,6 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	const submitDisabledForPlugin = !submitEnabled;
 	const showFocusHint =
 		!isInputFocused && !hasContent && !inputDisabled && Boolean(focusShortcut);
-
-	// Lexical initial config — must be a new object per mount for key resets
-	const initialConfig = useRef({
-		namespace: "WorkspaceComposer",
-		theme: EDITOR_THEME,
-		nodes: [
-			ImageBadgeNode,
-			FileBadgeNode,
-			CustomTagBadgeNode,
-			AddDirTriggerNode,
-		],
-		onError: onEditorError,
-	}).current;
 
 	useEffect(() => {
 		const pendingIds = new Set(
@@ -675,100 +553,36 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 							disabled={linkedDirectoriesDisabled}
 						/>
 					) : null}
-					<LexicalComposer initialConfig={initialConfig}>
-						<div
-							className="relative"
-							onFocusCapture={() => setIsInputFocused(true)}
-							onBlurCapture={(event) => {
-								if (
-									event.currentTarget.contains(
-										event.relatedTarget as Node | null,
-									)
-								) {
-									return;
-								}
-								setIsInputFocused(false);
-							}}
-						>
-							<PlainTextPlugin
-								contentEditable={
-									<ContentEditable
-										id="workspace-input"
-										aria-label="Workspace input"
-										aria-multiline
-										className={cn(
-											"composer-editor min-h-[32px] max-h-[120px] resize-none overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-[14px] leading-5 tracking-[-0.01em] text-foreground outline-none",
-											showFocusHint && "pr-14",
-										)}
-									/>
-								}
-								placeholder={
-									<div className="pointer-events-none absolute left-0 top-0 text-[14px] leading-5 tracking-[-0.01em] text-muted-foreground/70">
-										{hasPlanReview && permissionMode === "plan"
-											? "Describe what to change, then click Request Changes"
-											: "Ask to make changes, @mention files, run /commands"}
-									</div>
-								}
-								ErrorBoundary={LexicalErrorBoundary}
-							/>
-							{showFocusHint && focusShortcut ? (
-								<div className="pointer-events-none absolute right-0 top-0 hidden h-5 items-center sm:flex">
-									<ShortcutDisplay hotkey={focusShortcut} />
-								</div>
-							) : null}
-						</div>
-						<HistoryPlugin />
-						<SlashCommandPlugin
-							commands={slashCommands}
-							isLoading={slashCommandsLoading}
-							isError={slashCommandsError}
-							onRetry={onRetrySlashCommands}
-							onClientAction={(name, nodeToReplace) => {
-								// Built-in /add-dir: swap the typed `/add-dir` text
-								// for a purple pill decorator node. Subsequent typing
-								// is picked up by AddDirTypeaheadPlugin. Any other
-								// client-action name is a no-op here for now.
-								if (name === "add-dir" && editorRef.current) {
-									$insertAddDirTrigger(editorRef.current, nodeToReplace);
-								}
-							}}
-							popupAnchorRef={composerRootRef}
-						/>
-						<AddDirTypeaheadPlugin
-							candidates={addDirCandidates}
-							linkedDirectories={linkedDirectories}
-							onPick={onPickAddDir}
-							popupAnchorRef={composerRootRef}
-						/>
-						<FileMentionPlugin
-							workspaceRootPath={workspaceRootPath}
-							popupAnchorRef={composerRootRef}
-						/>
-						<SubmitPlugin
-							onSubmit={handleSubmit}
-							onSubmitOpposite={handleSubmitOpposite}
-							toggleHotkey={toggleFollowUpShortcut}
-							disabled={submitDisabledForPlugin}
-						/>
-						<CompositionGuardPlugin />
-						<PasteImagePlugin />
-						<DropFilePlugin />
-						<AutoResizePlugin
-							minHeight={COMPOSER_INPUT_MIN_HEIGHT}
-							maxHeight={COMPOSER_INPUT_MAX_HEIGHT}
-						/>
-						<EditorRefPlugin editorRef={editorRef} />
-						<DraftPersistencePlugin
-							contextKey={contextKey}
-							restoreDraft={restoreDraft}
-							restoreImages={restoreImages}
-							restoreFiles={restoreFiles}
-							restoreCustomTags={restoreCustomTags}
-							restoreNonce={restoreNonce}
-						/>
-						<EditablePlugin disabled={inputDisabled} />
-						<HasContentPlugin onChange={setHasContent} />
-					</LexicalComposer>
+					<ComposerEditorSurface
+						composerRootRef={composerRootRef}
+						editorRef={editorRef}
+						disabled={disabled}
+						inputDisabled={inputDisabled}
+						hasPlanReview={hasPlanReview}
+						permissionMode={permissionMode}
+						showFocusHint={showFocusHint}
+						focusShortcut={focusShortcut}
+						slashCommands={slashCommands}
+						slashCommandsLoading={slashCommandsLoading}
+						slashCommandsError={slashCommandsError}
+						onRetrySlashCommands={onRetrySlashCommands}
+						workspaceRootPath={workspaceRootPath}
+						linkedDirectories={linkedDirectories}
+						addDirCandidates={addDirCandidates}
+						onPickAddDir={onPickAddDir}
+						onSubmit={handleSubmit}
+						onSubmitOpposite={handleSubmitOpposite}
+						toggleFollowUpShortcut={toggleFollowUpShortcut}
+						submitDisabledForPlugin={submitDisabledForPlugin}
+						contextKey={contextKey}
+						restoreDraft={restoreDraft}
+						restoreImages={restoreImages}
+						restoreFiles={restoreFiles}
+						restoreCustomTags={restoreCustomTags}
+						restoreNonce={restoreNonce}
+						onHasContentChange={setHasContent}
+						onInputFocusChange={setIsInputFocused}
+					/>
 
 					{sendError ? (
 						<div className="mt-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-[12px] text-muted-foreground">

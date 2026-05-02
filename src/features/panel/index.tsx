@@ -1,4 +1,4 @@
-import { memo, type ReactNode, useEffect } from "react";
+import { memo, type ReactNode, useEffect, useMemo } from "react";
 import type {
 	AgentProvider,
 	ChangeRequestInfo,
@@ -6,6 +6,7 @@ import type {
 	WorkspaceSessionSummary,
 } from "@/lib/api";
 import { PathosProfiler } from "@/lib/dev-react-profiler";
+import { cn } from "@/lib/utils";
 import type { WorkspaceScriptType } from "@/lib/workspace-script-actions";
 import { WorkspacePanelHeader } from "./header";
 import { EmptyState, preloadStreamdown } from "./message-components";
@@ -117,6 +118,18 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 		sessionPanes.find((pane) => pane.presentationState === "presented") ??
 		sessionPanes[0] ??
 		null;
+	const providerNameBySessionId = useMemo(
+		() =>
+			new Map(
+				sessions.map((session) => [
+					session.id,
+					providerDisplayName(
+						_sessionDisplayProviders?.[session.id] ?? session.agentType,
+					),
+				]),
+			),
+		[_sessionDisplayProviders, sessions],
+	);
 
 	useEffect(() => {
 		if (typeof window === "undefined") {
@@ -160,22 +173,51 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 
 				<div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
 					{activePane?.hasLoaded ? (
-						<ActiveThreadViewport
-							isShellResizing={isShellResizing}
-							hasSession={!!selectedSession}
-							pane={activePane}
-							providerName={selectedProviderName}
-							onCloneProject={onCloneProject}
-							workspaceLabel={
-								workspace?.directoryName ?? workspace?.title ?? null
-							}
-							onOpenProject={onOpenProject}
-							missingScriptTypes={missingScriptTypes}
-							onInitializeScript={onInitializeScript}
-							onRevertMessage={onRevertMessage}
-							onSubmitEditedMessage={onSubmitEditedMessage}
-							onRedoAssistantMessage={onRedoAssistantMessage}
-						/>
+						<div className="absolute inset-0">
+							{sessionPanes.map((pane) => {
+								const active = pane.presentationState === "presented";
+								const paneSession =
+									sessions.find((session) => session.id === pane.sessionId) ??
+									null;
+								return (
+									<div
+										key={pane.sessionId}
+										aria-hidden={!active}
+										className={cn(
+											"absolute inset-0 flex min-h-0 flex-col",
+											active
+												? "visible z-10"
+												: "pointer-events-none invisible z-0",
+										)}
+									>
+										<ActiveThreadViewport
+											isShellResizing={isShellResizing}
+											hasSession={paneSession !== null}
+											pane={pane}
+											providerName={
+												providerNameBySessionId.get(pane.sessionId) ?? null
+											}
+											onCloneProject={onCloneProject}
+											workspaceLabel={
+												workspace?.directoryName ?? workspace?.title ?? null
+											}
+											onOpenProject={onOpenProject}
+											missingScriptTypes={active ? missingScriptTypes : []}
+											onInitializeScript={
+												active ? onInitializeScript : undefined
+											}
+											onRevertMessage={active ? onRevertMessage : undefined}
+											onSubmitEditedMessage={
+												active ? onSubmitEditedMessage : undefined
+											}
+											onRedoAssistantMessage={
+												active ? onRedoAssistantMessage : undefined
+											}
+										/>
+									</div>
+								);
+							})}
+						</div>
 					) : loadingWorkspace || loadingSession ? (
 						<ConversationColdPlaceholder />
 					) : (
