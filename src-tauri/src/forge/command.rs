@@ -27,6 +27,20 @@ where
     run_command_with_timeout(program, args, DEFAULT_COMMAND_TIMEOUT)
 }
 
+pub(crate) fn run_command_with_env<I, S, K, V>(
+    program: &str,
+    args: I,
+    envs: &[(K, V)],
+) -> std::io::Result<CommandOutput>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+    K: AsRef<OsStr>,
+    V: AsRef<OsStr>,
+{
+    run_command_configured(program, args, DEFAULT_COMMAND_TIMEOUT, envs)
+}
+
 /// Prefer the bundled binary over whatever is on PATH.
 fn resolve_program(program: &str) -> PathBuf {
     bundled::bundled_path_for(program).unwrap_or_else(|| PathBuf::from(program))
@@ -40,6 +54,21 @@ pub(crate) fn run_command_with_timeout<I, S>(
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
+{
+    run_command_configured::<I, S, &str, &str>(program, args, timeout, &[])
+}
+
+fn run_command_configured<I, S, K, V>(
+    program: &str,
+    args: I,
+    timeout: Duration,
+    envs: &[(K, V)],
+) -> std::io::Result<CommandOutput>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+    K: AsRef<OsStr>,
+    V: AsRef<OsStr>,
 {
     let args: Vec<OsString> = args
         .into_iter()
@@ -58,6 +87,9 @@ where
         .env("NO_COLOR", "1")
         .env_remove("CLICOLOR_FORCE")
         .env_remove("FORCE_COLOR");
+    for (key, value) in envs {
+        command.env(key, value);
+    }
 
     #[cfg(unix)]
     {

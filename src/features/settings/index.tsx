@@ -55,12 +55,12 @@ import { ShortcutsSettingsPanel } from "@/features/shortcuts/settings-panel";
 import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
 import {
 	isConductorAvailable,
-	loadGithubIdentitySession,
 	playNotificationSound,
 	type RepositoryCreateOption,
 } from "@/lib/api";
 import {
 	agentModelSectionsQueryOptions,
+	githubIdentityQueryOptions,
 	pathosQueryKeys,
 	repositoriesQueryOptions,
 } from "@/lib/query-client";
@@ -300,14 +300,16 @@ export const SettingsDialog = memo(function SettingsDialog({
 
 	useEffect(() => {
 		if (open) {
-			void loadGithubIdentitySession().then((snapshot) => {
-				if (snapshot.status === "connected") {
-					setGithubLogin(snapshot.session.login);
-				}
-			});
+			void queryClient
+				.fetchQuery(githubIdentityQueryOptions())
+				.then((snapshot) => {
+					if (snapshot.status === "connected") {
+						setGithubLogin(snapshot.session.login);
+					}
+				});
 			void isConductorAvailable().then(setConductorEnabled);
 		}
-	}, [open]);
+	}, [open, queryClient]);
 
 	const isDev = import.meta.env.DEV;
 

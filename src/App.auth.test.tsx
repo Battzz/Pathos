@@ -1,12 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import {
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	waitFor,
-} from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
@@ -57,17 +50,6 @@ vi.mock("./lib/api", async (importOriginal) => {
 });
 
 import App from "./App";
-
-const CONNECTED_IDENTITY = {
-	provider: "github-cli",
-	githubUserId: 42,
-	login: "octocat",
-	name: "Octocat",
-	avatarUrl: "https://avatars.githubusercontent.com/u/42?v=4",
-	primaryEmail: "test@example.com",
-	tokenExpiresAt: "2026-04-04T12:00:00Z",
-	refreshTokenExpiresAt: "2026-10-04T12:00:00Z",
-} as const;
 
 function installTauriRuntime() {
 	Object.defineProperty(window, "__TAURI_INTERNALS__", {
@@ -147,14 +129,6 @@ function mockWorkspaceData() {
 	apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
 }
 
-async function openGithubMenu() {
-	const trigger = await screen.findByRole("button", {
-		name: "GitHub account menu",
-	});
-	fireEvent.pointerDown(trigger);
-	fireEvent.click(trigger);
-}
-
 describe("App GitHub identity states", () => {
 	beforeEach(() => {
 		window.localStorage.clear();
@@ -198,7 +172,7 @@ describe("App GitHub identity states", () => {
 		cleanup();
 	});
 
-	it("shows app onboarding once before checking GitHub identity", async () => {
+	it("shows app onboarding while preloading GitHub identity", async () => {
 		const invokeMock = vi.mocked(invoke);
 		invokeMock.mockImplementationOnce(async (command) => {
 			if (command === "get_app_settings") {
@@ -215,29 +189,29 @@ describe("App GitHub identity states", () => {
 			await screen.findByRole("main", { name: "Pathos onboarding" }),
 		).toBeInTheDocument();
 		expect(screen.getByLabelText("Welcome to Pathos")).toBeInTheDocument();
-		expect(apiMocks.loadGithubIdentitySession).not.toHaveBeenCalled();
+		await waitFor(() =>
+			expect(apiMocks.loadGithubIdentitySession).toHaveBeenCalled(),
+		);
 		expect(
 			screen.queryByRole("main", { name: "GitHub identity gate" }),
 		).not.toBeInTheDocument();
-
-		expect(apiMocks.loadGithubIdentitySession).not.toHaveBeenCalled();
 	});
 
 	it("renders the shell while GitHub account is disconnected", async () => {
 		render(<App />);
 
 		expect(
-			await screen.findByRole("main", { name: "GitHub identity gate" }),
+			await screen.findByRole("main", { name: "Application shell" }),
 		).toBeInTheDocument();
 		expect(
-			screen.queryByRole("main", { name: "Application shell" }),
+			screen.queryByRole("main", { name: "GitHub identity gate" }),
 		).not.toBeInTheDocument();
-		expect(
-			await screen.findByRole("button", { name: "Continue with GitHub CLI" }),
-		).toBeInTheDocument();
+		await waitFor(() =>
+			expect(apiMocks.loadGithubIdentitySession).toHaveBeenCalled(),
+		);
 	});
 
-	it("renders the identity unconfigured state without blocking the shell", async () => {
+	it("renders the shell when GitHub CLI is unconfigured", async () => {
 		apiMocks.loadGithubIdentitySession.mockResolvedValue({
 			status: "unconfigured",
 			message: "GitHub CLI is not available.",
@@ -245,59 +219,13 @@ describe("App GitHub identity states", () => {
 
 		render(<App />);
 		expect(
-			await screen.findByRole("main", { name: "GitHub identity gate" }),
+			await screen.findByRole("main", { name: "Application shell" }),
 		).toBeInTheDocument();
 		expect(
-			await screen.findByRole("heading", {
-				name: "GitHub CLI is not available",
-			}),
-		).toBeInTheDocument();
-		expect(
-			await screen.findByRole("button", { name: "Continue with GitHub CLI" }),
-		).toBeInTheDocument();
-	});
-
-	it("disconnects the GitHub identity from the account menu", async () => {
-		apiMocks.loadGithubIdentitySession
-			.mockResolvedValueOnce({
-				status: "connected",
-				session: CONNECTED_IDENTITY,
-				accounts: [CONNECTED_IDENTITY],
-			})
-			.mockResolvedValueOnce({ status: "disconnected" });
-
-		const user = userEvent.setup();
-		render(<App />);
-
-		await screen.findByRole("main", { name: "Application shell" });
-		await openGithubMenu();
-
-		await user.click(screen.getByRole("menuitem", { name: "Log out" }));
-
-		await waitFor(() => {
-			expect(apiMocks.disconnectGithubIdentity).toHaveBeenCalled();
-		});
-
-		expect(
-			await screen.findByRole("main", { name: "GitHub identity gate" }),
-		).toBeInTheDocument();
-		expect(
-			screen.getByRole("button", { name: "Continue with GitHub CLI" }),
-		).toBeInTheDocument();
-	});
-
-	it("uses a compact GitHub trigger in the toolbar", async () => {
-		apiMocks.loadGithubIdentitySession.mockResolvedValue({
-			status: "connected",
-			session: CONNECTED_IDENTITY,
-			accounts: [CONNECTED_IDENTITY],
-		});
-
-		render(<App />);
-
-		await screen.findByRole("main", { name: "Application shell" });
-		expect(
-			screen.getByRole("button", { name: "GitHub account menu" }),
-		).toHaveTextContent("octocat");
+			screen.queryByRole("main", { name: "GitHub identity gate" }),
+		).not.toBeInTheDocument();
+		await waitFor(() =>
+			expect(apiMocks.loadGithubIdentitySession).toHaveBeenCalled(),
+		);
 	});
 });

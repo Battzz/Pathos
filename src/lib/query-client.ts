@@ -29,6 +29,7 @@ import {
 	loadArchivedWorkspaces,
 	loadAutoCloseActionKinds,
 	loadAutoCloseOptInAsked,
+	loadGithubIdentitySession,
 	loadSessionThreadMessages,
 	loadWorkspaceDetail,
 	loadWorkspaceForgeActionStatus,
@@ -88,6 +89,7 @@ export const pathosQueryKeys = {
 		["workspaceForge", workspaceId] as const,
 	forgeCliStatus: (provider: ForgeProvider, host: string) =>
 		["forgeCliStatus", provider, host] as const,
+	githubIdentity: ["githubIdentity"] as const,
 	// Prefix for matching every `forgeCliStatus` cache entry — pass to
 	// `invalidateQueries` when an auth signal arrives from elsewhere.
 	forgeCliStatusAll: ["forgeCliStatus"] as const,
@@ -275,6 +277,17 @@ export function forgeCliStatusQueryOptions(
 		staleTime: 30_000,
 		refetchOnWindowFocus: "always",
 		refetchInterval: 60_000,
+	});
+}
+
+export function githubIdentityQueryOptions() {
+	return queryOptions({
+		queryKey: pathosQueryKeys.githubIdentity,
+		queryFn: loadGithubIdentitySession,
+		staleTime: 30_000,
+		gcTime: DEFAULT_GC_TIME,
+		refetchOnWindowFocus: false,
+		retry: false,
 	});
 }
 

@@ -1,3 +1,4 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -8,6 +9,10 @@ import {
 	startGithubIdentityConnect,
 	switchGithubIdentityAccount,
 } from "@/lib/api";
+import {
+	githubIdentityQueryOptions,
+	pathosQueryKeys,
+} from "@/lib/query-client";
 import { describeUnknownError } from "@/lib/workspace-helpers";
 import { getInitialGithubIdentityState } from "@/shell/layout";
 import type { GithubIdentityState } from "@/shell/types";
@@ -30,26 +35,29 @@ const CLI_AUTH_POLL_TIMEOUT_MS = 120_000;
 
 export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 	const pushToast = pushWorkspaceToast ?? sonnerFallbackToast;
+	const queryClient = useQueryClient();
+	const identityQuery = useQuery(githubIdentityQueryOptions());
 	const [githubIdentityState, setGithubIdentityState] =
 		useState<GithubIdentityState>(getInitialGithubIdentityState);
 
 	const refreshGithubIdentityState = useCallback(async () => {
-		const snapshot = await loadGithubIdentitySession();
+		const snapshot = await queryClient.fetchQuery(githubIdentityQueryOptions());
 		setGithubIdentityState(snapshot);
-	}, []);
+	}, [queryClient]);
+
+	useEffect(() => {
+		if (identityQuery.data) {
+			setGithubIdentityState(identityQuery.data);
+		}
+	}, [identityQuery.data]);
 
 	useEffect(() => {
 		let disposed = false;
 		let unlistenIdentity: (() => void) | undefined;
 
-		void loadGithubIdentitySession().then((snapshot) => {
-			if (!disposed) {
-				setGithubIdentityState(snapshot);
-			}
-		});
-
 		void listenGithubIdentityChanged((snapshot) => {
 			if (!disposed) {
+				queryClient.setQueryData(pathosQueryKeys.githubIdentity, snapshot);
 				setGithubIdentityState(snapshot);
 			}
 		}).then((unlisten) => {
@@ -65,7 +73,7 @@ export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 			disposed = true;
 			unlistenIdentity?.();
 		};
-	}, []);
+	}, [queryClient]);
 
 	const handleStartGithubIdentityConnect = useCallback(async () => {
 		try {
@@ -78,6 +86,7 @@ export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 					setTimeout(resolve, CLI_AUTH_POLL_INTERVAL_MS),
 				);
 				const snapshot = await loadGithubIdentitySession();
+				queryClient.setQueryData(pathosQueryKeys.githubIdentity, snapshot);
 				setGithubIdentityState(snapshot);
 				if (snapshot.status === "connected") {
 					return;
@@ -138,6 +147,7 @@ export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 	const handleDisconnectGithubIdentity = useCallback(async () => {
 		try {
 			await disconnectGithubIdentity();
+			queryClient.removeQueries({ queryKey: pathosQueryKeys.githubIdentity });
 			await refreshGithubIdentityState();
 		} catch (error) {
 			setGithubIdentityState({
@@ -154,6 +164,7 @@ export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 		async (githubUserId: number) => {
 			try {
 				const snapshot = await switchGithubIdentityAccount(githubUserId);
+				queryClient.setQueryData(pathosQueryKeys.githubIdentity, snapshot);
 				setGithubIdentityState(snapshot);
 			} catch (error) {
 				setGithubIdentityState({
@@ -165,7 +176,7 @@ export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 				});
 			}
 		},
-		[],
+		[queryClient],
 	);
 
 	return {

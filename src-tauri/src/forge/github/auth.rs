@@ -74,31 +74,72 @@ pub fn get_github_identity_session() -> Result<GithubIdentitySnapshot> {
         }
     }
 
-    let Some(user) = cli::get_github_cli_user()? else {
+    let cli_accounts = cli::list_github_cli_accounts()?;
+    let user = cli::get_github_cli_user()?;
+    let session_account = user
+        .as_ref()
+        .map(|user| GithubIdentityAccount {
+            github_user_id: user.id,
+            login: user.login.clone(),
+            name: user.name.clone(),
+            avatar_url: user.avatar_url.clone(),
+            primary_email: user.email.clone(),
+        })
+        .or_else(|| {
+            cli_accounts
+                .iter()
+                .find(|account| account.active)
+                .or_else(|| cli_accounts.first())
+                .map(|account| GithubIdentityAccount {
+                    github_user_id: account.id,
+                    login: account.login.clone(),
+                    name: account.name.clone(),
+                    avatar_url: account.avatar_url.clone(),
+                    primary_email: account.email.clone(),
+                })
+        });
+    let Some(session_account) = session_account else {
         return Ok(GithubIdentitySnapshot::Disconnected);
     };
+
     let session = GithubIdentitySession {
         provider: "github".to_string(),
-        github_user_id: user.id,
-        login: user.login,
-        name: user.name,
-        avatar_url: user.avatar_url,
-        primary_email: user.email,
+        github_user_id: session_account.github_user_id,
+        login: session_account.login.clone(),
+        name: session_account.name.clone(),
+        avatar_url: session_account.avatar_url.clone(),
+        primary_email: session_account.primary_email.clone(),
         token_expires_at: None,
         refresh_token_expires_at: None,
     };
-    let account = GithubIdentityAccount {
-        github_user_id: session.github_user_id,
-        login: session.login.clone(),
-        name: session.name.clone(),
-        avatar_url: session.avatar_url.clone(),
-        primary_email: session.primary_email.clone(),
-    };
+    let mut accounts: Vec<GithubIdentityAccount> = cli_accounts
+        .into_iter()
+        .map(|account| GithubIdentityAccount {
+            github_user_id: account.id,
+            login: account.login,
+            name: account.name,
+            avatar_url: account.avatar_url,
+            primary_email: account.email,
+        })
+        .collect();
 
-    Ok(GithubIdentitySnapshot::Connected {
-        session,
-        accounts: vec![account],
-    })
+    if !accounts
+        .iter()
+        .any(|account| account.github_user_id == session.github_user_id)
+    {
+        accounts.insert(
+            0,
+            GithubIdentityAccount {
+                github_user_id: session.github_user_id,
+                login: session.login.clone(),
+                name: session.name.clone(),
+                avatar_url: session.avatar_url.clone(),
+                primary_email: session.primary_email.clone(),
+            },
+        );
+    }
+
+    Ok(GithubIdentitySnapshot::Connected { session, accounts })
 }
 
 pub fn start_github_identity_connect(
@@ -139,8 +180,9 @@ pub fn disconnect_github_identity_headless() -> Result<()> {
 
 pub fn switch_github_identity_account(
     app: AppHandle,
-    _github_user_id: i64,
+    github_user_id: i64,
 ) -> Result<GithubIdentitySnapshot> {
+    cli::switch_github_cli_account(github_user_id)?;
     let snapshot = get_github_identity_session()?;
     emit_github_identity_snapshot(&app, &snapshot)?;
     Ok(snapshot)

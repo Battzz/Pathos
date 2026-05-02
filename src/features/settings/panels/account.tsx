@@ -46,10 +46,8 @@ export function AccountPanel({
 		handleCancelGithubIdentityConnect,
 		handleCopyGithubDeviceCode,
 		handleDisconnectGithubIdentity,
-		handleSwitchGithubIdentityAccount,
 	} = useGithubIdentity();
 	const [signingOut, setSigningOut] = useState(false);
-	const [switchingUserId, setSwitchingUserId] = useState<number | null>(null);
 	const [codeCopied, setCodeCopied] = useState(false);
 	const gitlabHosts = useMemo(
 		() => gitlabHostsForRepositories(repositories),
@@ -83,19 +81,6 @@ export function AccountPanel({
 		}
 	}, [handleDisconnectGithubIdentity, onSignedOut, queryClient]);
 
-	const handleSwitchAccount = useCallback(
-		async (githubUserId: number) => {
-			setSwitchingUserId(githubUserId);
-			try {
-				await handleSwitchGithubIdentityAccount(githubUserId);
-				await queryClient.invalidateQueries();
-			} finally {
-				setSwitchingUserId(null);
-			}
-		},
-		[handleSwitchGithubIdentityAccount, queryClient],
-	);
-
 	const handleCopyPendingCode = useCallback(async () => {
 		if (githubIdentityState.status !== "pending") return;
 		const copied = await handleCopyGithubDeviceCode(
@@ -119,13 +104,9 @@ export function AccountPanel({
 					}
 					codeCopied={codeCopied}
 					signingOut={signingOut}
-					switchingUserId={switchingUserId}
 					onCancelAddAccount={handleCancelGithubIdentityConnect}
 					onCopyPendingCode={() => void handleCopyPendingCode()}
 					onSignOut={() => void handleSignOut()}
-					onSwitchAccount={(githubUserId) =>
-						void handleSwitchAccount(githubUserId)
-					}
 				/>
 				<CliIntegrationRow
 					provider="github"
@@ -159,22 +140,18 @@ function GithubAccountsSection({
 	pendingFlow,
 	codeCopied,
 	signingOut,
-	switchingUserId,
 	onCancelAddAccount,
 	onCopyPendingCode,
 	onSignOut,
-	onSwitchAccount,
 }: {
 	identity: GithubIdentitySession | null;
 	accounts: GithubIdentityAccount[];
 	pendingFlow: GithubIdentityDeviceFlowStart | null;
 	codeCopied: boolean;
 	signingOut: boolean;
-	switchingUserId: number | null;
 	onCancelAddAccount: () => void;
 	onCopyPendingCode: () => void;
 	onSignOut: () => void;
-	onSwitchAccount: (githubUserId: number) => void;
 }) {
 	return (
 		<div className="select-none py-5">
@@ -214,9 +191,7 @@ function GithubAccountsSection({
 							account={account}
 							active={account.githubUserId === identity?.githubUserId}
 							onSignOut={onSignOut}
-							onSwitch={() => onSwitchAccount(account.githubUserId)}
 							signingOut={signingOut}
-							switching={switchingUserId === account.githubUserId}
 						/>
 					))}
 				</div>
@@ -233,16 +208,12 @@ function IdentityRow({
 	account,
 	active,
 	onSignOut,
-	onSwitch,
 	signingOut,
-	switching,
 }: {
 	account: GithubIdentityAccount;
 	active: boolean;
 	onSignOut: () => void;
-	onSwitch: () => void;
 	signingOut: boolean;
-	switching: boolean;
 }) {
 	return (
 		<div className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-muted/30">
@@ -268,7 +239,7 @@ function IdentityRow({
 					<span className="truncate">{account.login}</span>
 					{active ? (
 						<span className="rounded bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
-							Active
+							CLI default
 						</span>
 					) : null}
 				</div>
@@ -289,16 +260,9 @@ function IdentityRow({
 					Sign out
 				</Button>
 			) : (
-				<Button
-					variant="outline"
-					size="sm"
-					onClick={onSwitch}
-					disabled={switching}
-					className="shrink-0"
-				>
-					{switching ? <Loader2 className="size-3.5 animate-spin" /> : null}
-					Switch
-				</Button>
+				<div className="shrink-0 text-[12px] text-muted-foreground">
+					Available
+				</div>
 			)}
 		</div>
 	);

@@ -169,31 +169,19 @@ describe("AccountPanel", () => {
 		expect(screen.getAllByText("natllian").length).toBeGreaterThan(0);
 	});
 
-	it("shows multiple GitHub accounts and switches between them", async () => {
+	it("shows multiple GitHub accounts without a manual switch action", async () => {
 		apiMocks.loadGithubIdentitySession.mockResolvedValue(multiAccountSnapshot);
 		apiMocks.getForgeCliStatus.mockResolvedValue(githubReady);
-		apiMocks.switchGithubIdentityAccount.mockResolvedValue({
-			...multiAccountSnapshot,
-			session: {
-				provider: "github",
-				githubUserId: 2,
-				login: "workhub",
-				name: "Work Hub",
-				avatarUrl: "https://avatars/work.png",
-				primaryEmail: "work@example.com",
-			},
-		});
 
 		renderWithProviders(<AccountPanel repositories={[]} />);
 
 		expect(await screen.findByText("Nathan Lian")).toBeInTheDocument();
 		expect(screen.getByText("Work Hub")).toBeInTheDocument();
-
-		fireEvent.click(screen.getByRole("button", { name: "Switch" }));
-
-		await waitFor(() => {
-			expect(apiMocks.switchGithubIdentityAccount).toHaveBeenCalledWith(2);
-		});
+		expect(screen.getByText("Available")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "Switch" }),
+		).not.toBeInTheDocument();
+		expect(apiMocks.switchGithubIdentityAccount).not.toHaveBeenCalled();
 	});
 
 	it("shows the login inline (no Connect button) when CLI is ready", async () => {

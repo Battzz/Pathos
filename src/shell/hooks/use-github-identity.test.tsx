@@ -1,4 +1,6 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GithubIdentitySnapshot } from "@/lib/api";
 import { useGithubIdentity } from "./use-github-identity";
@@ -37,7 +39,14 @@ vi.mock("sonner", () => ({
 }));
 
 describe("useGithubIdentity — pushWorkspaceToast fallback", () => {
+	let queryClient: QueryClient;
+
 	beforeEach(() => {
+		queryClient = new QueryClient({
+			defaultOptions: {
+				queries: { retry: false },
+			},
+		});
 		toastMocks.toast.mockClear();
 		toastMocks.error.mockClear();
 		toastMocks.success.mockClear();
@@ -48,8 +57,15 @@ describe("useGithubIdentity — pushWorkspaceToast fallback", () => {
 	});
 
 	afterEach(() => {
+		queryClient.clear();
 		vi.unstubAllGlobals();
 	});
+
+	function wrapper({ children }: { children: ReactNode }) {
+		return (
+			<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+		);
+	}
 
 	it("falls back to sonner toast when no pushWorkspaceToast is provided", async () => {
 		// Force the clipboard branch: report no clipboard so the hook hits
@@ -57,7 +73,7 @@ describe("useGithubIdentity — pushWorkspaceToast fallback", () => {
 		// passed, the sonner fallback should fire.
 		vi.stubGlobal("navigator", {});
 
-		const { result } = renderHook(() => useGithubIdentity());
+		const { result } = renderHook(() => useGithubIdentity(), { wrapper });
 
 		await waitFor(() => {
 			expect(apiMocks.loadGithubIdentitySession).toHaveBeenCalled();
@@ -78,7 +94,9 @@ describe("useGithubIdentity — pushWorkspaceToast fallback", () => {
 		vi.stubGlobal("navigator", {});
 		const pushWorkspaceToast = vi.fn();
 
-		const { result } = renderHook(() => useGithubIdentity(pushWorkspaceToast));
+		const { result } = renderHook(() => useGithubIdentity(pushWorkspaceToast), {
+			wrapper,
+		});
 
 		await waitFor(() => {
 			expect(apiMocks.loadGithubIdentitySession).toHaveBeenCalled();

@@ -32,7 +32,12 @@ struct GithubCheckRunOutput {
     text: Option<String>,
 }
 
-fn gh_graphql<T>(query: &str, variables: &[(&str, &str)], context: &str) -> Result<Option<T>>
+fn gh_graphql<T>(
+    login: &str,
+    query: &str,
+    variables: &[(&str, &str)],
+    context: &str,
+) -> Result<Option<T>>
 where
     T: DeserializeOwned,
 {
@@ -45,14 +50,14 @@ where
         args.push("-f".to_string());
         args.push(format!("{key}={value}"));
     }
-    github_cli::github_api_json(args, context)
+    github_cli::github_api_json_for_login(login, args, context)
 }
 
-fn gh_rest<T>(path: String, context: &str) -> Result<Option<T>>
+fn gh_rest<T>(login: &str, path: String, context: &str) -> Result<Option<T>>
 where
     T: DeserializeOwned,
 {
-    github_cli::github_api_json(vec![path], context)
+    github_cli::github_api_json_for_login(login, vec![path], context)
 }
 /// Look up the (most recent) pull request matching this workspace's current
 /// branch on GitHub.
@@ -93,6 +98,9 @@ pub fn lookup_workspace_pr(workspace_id: &str) -> Result<Option<ChangeRequestInf
     if !workspace_branch_has_remote_tracking(&record) {
         return Ok(None);
     }
+    let Some(login) = github_cli::resolve_github_login_for_repo(&owner, &name)? else {
+        return Ok(None);
+    };
 
     let query = r#"
 query($owner: String!, $name: String!, $head: String!) {
@@ -111,6 +119,7 @@ query($owner: String!, $name: String!, $head: String!) {
 "#;
 
     let Some(parsed) = gh_graphql::<GraphqlEnvelope>(
+        &login,
         query,
         &[("owner", &owner), ("name", &name), ("head", branch)],
         "workspace PR lookup",
@@ -202,16 +211,13 @@ pub fn lookup_workspace_pr_action_status(workspace_id: &str) -> Result<ForgeActi
     if !workspace_branch_has_remote_tracking(&record) {
         return Ok(ForgeActionStatus::no_change_request());
     }
-    if !matches!(
-        github_cli::get_github_cli_status()?,
-        github_cli::GithubCliStatus::Ready { .. }
-    ) {
+    let Some(login) = github_cli::resolve_github_login_for_repo(&owner, &name)? else {
         return Ok(ForgeActionStatus::unavailable(
-            "GitHub CLI is not connected",
+            "No authenticated GitHub CLI account can access this repository",
         ));
-    }
+    };
 
-    let status = query_workspace_pr_action_status(owner, name, branch)
+    let status = query_workspace_pr_action_status(&login, owner, name, branch)
         .unwrap_or_else(|error| ForgeActionStatus::error(format!("{error:#}")));
 
     Ok(status)
@@ -231,15 +237,16 @@ pub fn lookup_workspace_pr_check_insert_text(workspace_id: &str, item_id: &str) 
     let Some(branch) = record.branch.as_deref().filter(|b| !b.is_empty()) else {
         bail!("Workspace has no current branch");
     };
-    if !matches!(
-        github_cli::get_github_cli_status()?,
-        github_cli::GithubCliStatus::Ready { .. }
-    ) {
-        crate::bail_coded!(ErrorCode::ForgeOnboarding, "GitHub CLI is not connected");
-    }
+    let Some(login) = github_cli::resolve_github_login_for_repo(&owner, &name)? else {
+        crate::bail_coded!(
+            ErrorCode::ForgeOnboarding,
+            "No authenticated GitHub CLI account can access this repository"
+        );
+    };
 
-    let action_status = query_workspace_pr_action_status(owner.clone(), name.clone(), branch)
-        .context("Failed to load current PR action status")?;
+    let action_status =
+        query_workspace_pr_action_status(&login, owner.clone(), name.clone(), branch)
+            .context("Failed to load current PR action status")?;
 
     let item = action_status
         .checks
@@ -251,7 +258,7 @@ pub fn lookup_workspace_pr_check_insert_text(workspace_id: &str, item_id: &str) 
         .id
         .strip_prefix("check-run-")
         .and_then(|value| value.parse::<i64>().ok())
-        .map(|check_run_id| query_check_run_detail(&owner, &name, check_run_id))
+        .map(|check_run_id| query_check_run_detail(&login, &owner, &name, check_run_id))
         .transpose()
         .context("Failed to load check run details")?;
 
@@ -259,6 +266,7 @@ pub fn lookup_workspace_pr_check_insert_text(workspace_id: &str, item_id: &str) 
 }
 
 fn query_workspace_pr_action_status(
+    login: &str,
     owner: String,
     name: String,
     branch: &str,
@@ -323,6 +331,7 @@ query($owner: String!, $name: String!, $head: String!) {
 "#;
 
     let Some(parsed) = gh_graphql::<ActionGraphqlEnvelope>(
+        login,
         query,
         &[("owner", &owner), ("name", &name), ("head", branch)],
         "workspace PR action status",
@@ -367,11 +376,13 @@ query($owner: String!, $name: String!, $head: String!) {
 }
 
 fn query_check_run_detail(
+    login: &str,
     owner: &str,
     name: &str,
     check_run_id: i64,
 ) -> Result<GithubCheckRunDetail> {
     gh_rest(
+        login,
         format!("/repos/{owner}/{name}/check-runs/{check_run_id}"),
         "check run detail",
     )?
@@ -403,6 +414,9 @@ pub fn merge_workspace_pr(workspace_id: &str) -> Result<Option<ChangeRequestInfo
     let Some(branch) = record.branch.as_deref().filter(|b| !b.is_empty()) else {
         return Ok(None);
     };
+    let Some(login) = github_cli::resolve_github_login_for_repo(&owner, &name)? else {
+        return Ok(None);
+    };
 
     // Fetch PR node ID
     let id_query = r#"
@@ -415,6 +429,7 @@ query($owner: String!, $name: String!, $head: String!) {
 }
 "#;
     let Some(id_response) = gh_graphql::<GraphqlEnvelope>(
+        &login,
         id_query,
         &[("owner", &owner), ("name", &name), ("head", branch)],
         "open PR node lookup",
@@ -441,6 +456,7 @@ mutation($prId: ID!) {
 }
 "#;
     let Some(merge_response) = gh_graphql::<serde_json::Value>(
+        &login,
         merge_mutation,
         &[("prId", &pr_node_id)],
         "mergePullRequest",
@@ -488,6 +504,9 @@ pub fn close_workspace_pr(workspace_id: &str) -> Result<Option<ChangeRequestInfo
     let Some(branch) = record.branch.as_deref().filter(|b| !b.is_empty()) else {
         return Ok(None);
     };
+    let Some(login) = github_cli::resolve_github_login_for_repo(&owner, &name)? else {
+        return Ok(None);
+    };
 
     // Fetch PR node ID
     let id_query = r#"
@@ -500,6 +519,7 @@ query($owner: String!, $name: String!, $head: String!) {
 }
 "#;
     let Some(id_response) = gh_graphql::<GraphqlEnvelope>(
+        &login,
         id_query,
         &[("owner", &owner), ("name", &name), ("head", branch)],
         "open PR node lookup",
@@ -525,6 +545,7 @@ mutation($prId: ID!) {
 }
 "#;
     let Some(close_response) = gh_graphql::<serde_json::Value>(
+        &login,
         close_mutation,
         &[("prId", &pr_node_id)],
         "closePullRequest",
