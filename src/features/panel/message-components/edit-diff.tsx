@@ -1,4 +1,10 @@
-import { type ReactNode, useCallback, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { CodeBlock } from "@/components/ai/code-block";
 import { Separator } from "@/components/ui/separator";
@@ -25,8 +31,14 @@ export function EditDiffTrigger({
 	variant?: "pill" | "row";
 }) {
 	const triggerRef = useRef<HTMLSpanElement>(null);
+	const previewRef = useRef<HTMLDivElement>(null);
 	const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+	const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+	const [placement, setPlacement] = useState<{
+		x: number;
+		y: number;
+		maxHeight: number;
+	} | null>(null);
 	const language = inferLanguageFromPath(file);
 
 	const show = useCallback(() => {
@@ -36,12 +48,49 @@ export function EditDiffTrigger({
 		}
 		if (triggerRef.current) {
 			const rect = triggerRef.current.getBoundingClientRect();
-			setPos({ x: rect.left, y: rect.bottom + 4 });
+			setAnchorRect(rect);
 		}
 	}, []);
 	const hideDelayed = useCallback(() => {
-		hideTimer.current = setTimeout(() => setPos(null), 120);
+		hideTimer.current = setTimeout(() => {
+			setAnchorRect(null);
+			setPlacement(null);
+		}, 120);
 	}, []);
+
+	useLayoutEffect(() => {
+		if (!anchorRect || !previewRef.current) return;
+
+		const margin = 12;
+		const offset = 6;
+		const viewportWidth = window.innerWidth;
+		const viewportHeight = window.innerHeight;
+		const previewRect = previewRef.current.getBoundingClientRect();
+		const width = Math.min(previewRect.width, viewportWidth - margin * 2);
+		const height = previewRect.height;
+		const belowY = anchorRect.bottom + offset;
+		const aboveY = anchorRect.top - offset;
+		const spaceBelow = viewportHeight - belowY - margin;
+		const spaceAbove = aboveY - margin;
+		const opensBelow = spaceBelow >= height || spaceBelow >= spaceAbove;
+		const maxHeight = Math.max(
+			160,
+			Math.min(height, opensBelow ? spaceBelow : spaceAbove),
+		);
+		const x = Math.min(
+			Math.max(anchorRect.left, margin),
+			viewportWidth - width - margin,
+		);
+		const y = opensBelow
+			? belowY
+			: Math.max(margin, aboveY - Math.min(height, maxHeight));
+
+		setPlacement((current) =>
+			current?.x === x && current.y === y && current.maxHeight === maxHeight
+				? current
+				: { x, y, maxHeight },
+		);
+	}, [anchorRect]);
 
 	return (
 		<>
@@ -75,18 +124,31 @@ export function EditDiffTrigger({
 					</span>
 				) : null}
 			</span>
-			{pos
+			{anchorRect
 				? createPortal(
 						<div
+							ref={previewRef}
 							onMouseEnter={show}
 							onMouseLeave={hideDelayed}
 							className="fixed z-[100] w-[min(40rem,90vw)] rounded-lg border border-border bg-popover shadow-xl"
-							style={{ left: pos.x, top: pos.y }}
+							style={{
+								left: placement?.x ?? anchorRect.left,
+								top: placement?.y ?? anchorRect.bottom + 6,
+								maxHeight: placement?.maxHeight,
+								visibility: placement ? "visible" : "hidden",
+							}}
 						>
 							<div className="border-b border-border/50 px-3 py-1.5 text-[11px] text-muted-foreground">
 								{file}
 							</div>
-							<div className="max-h-[24rem] overflow-auto">
+							<div
+								className="max-h-[24rem] overflow-auto"
+								style={
+									placement
+										? { maxHeight: Math.max(120, placement.maxHeight - 32) }
+										: undefined
+								}
+							>
 								{oldStr ? (
 									<DiffPreviewBlock
 										code={oldStr}
