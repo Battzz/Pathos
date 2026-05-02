@@ -817,7 +817,14 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		);
 
 		expect(canUseToolPromise).not.toBeNull();
-		await expect(canUseToolPromise as Promise<unknown>).resolves.toEqual({
+		if (!canUseToolPromise) {
+			throw new Error("Expected canUseTool to be called");
+		}
+		const canUseToolResult = (await canUseToolPromise) as {
+			behavior: string;
+			updatedInput: { file_path: string };
+		};
+		expect(canUseToolResult).toEqual({
 			behavior: "allow",
 			updatedInput: {
 				file_path: "/Applications/Cursor.app/Contents/Info.plist",
@@ -873,7 +880,14 @@ describe("ClaudeSessionManager.sendMessage", () => {
 		});
 
 		manager.resolvePermission("tool-open-app", "allow");
-		await expect(canUseToolPromise as Promise<unknown>).resolves.toMatchObject({
+		if (!canUseToolPromise) {
+			throw new Error("Expected canUseTool to be called");
+		}
+		const canUseToolResult = (await canUseToolPromise) as {
+			behavior: string;
+			updatedInput: { command: string };
+		};
+		expect(canUseToolResult).toMatchObject({
 			behavior: "allow",
 			updatedInput: { command: "open -a Cursor ." },
 		});
