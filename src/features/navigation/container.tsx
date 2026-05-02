@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { memo, type ReactNode, useEffect } from "react";
+import { memo, type ReactNode, useEffect, useRef } from "react";
 import {
 	PATHOS_CLONE_PROJECT_EVENT,
 	PATHOS_OPEN_PROJECT_EVENT,
@@ -112,6 +112,22 @@ export const WorkspacesSidebarContainer = memo(
 				window.removeEventListener(PATHOS_SWITCH_SPACE_EVENT, handleSwitch);
 			};
 		}, [spaces, setActiveSpaceId]);
+
+		// Deselect the current chat/workspace whenever the user moves to a
+		// different Space. A repository belongs to exactly one Space, so the
+		// previously selected chat is by definition not visible in the new
+		// page — leaving it selected would keep stale git changes / actions
+		// in the right inspector after the sidebar already swapped contents.
+		//
+		// The ref starts equal to `activeSpaceId`, so the first effect run on
+		// mount short-circuits and does *not* clobber any selection that was
+		// restored from a prior session.
+		const previousActiveSpaceIdRef = useRef(activeSpaceId);
+		useEffect(() => {
+			if (previousActiveSpaceIdRef.current === activeSpaceId) return;
+			previousActiveSpaceIdRef.current = activeSpaceId;
+			onSelectWorkspace(null);
+		}, [activeSpaceId, onSelectWorkspace]);
 
 		return (
 			<WorkspacesSidebar
