@@ -11,9 +11,17 @@ import {
 	AnimatePresence,
 	motion,
 	type PanInfo,
+	useReducedMotion,
 	type Variants,
 } from "motion/react";
-import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+	memo,
+	type ReactNode,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -221,14 +229,28 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	// that sits earlier in the list, +1 when later. AnimatePresence reads
 	// it via the `custom` prop so the exit/enter offsets line up with the
 	// user's gesture.
-	const activeIndex = useMemo(() => {
-		const index = spaces.findIndex((space) => space.id === activeSpaceId);
-		return index === -1 ? 0 : index;
-	}, [spaces, activeSpaceId]);
-	const [direction, setDirection] = useState(0);
+	//
+	// We derive it from the *previous* active space (held in a ref) so that
+	// every entry point — dot click, swipe, keyboard shortcut, programmatic
+	// switch after creating a space — animates correctly. An earlier
+	// implementation set a separate `direction` state from `goToSpace`, but
+	// keyboard shortcuts and the post-create selection bypassed it and
+	// silently fell back to a non-directional fade.
+	const previousSpaceIdRef = useRef(activeSpaceId);
+	const direction = useMemo(() => {
+		const previousSpaceId = previousSpaceIdRef.current;
+		if (previousSpaceId === activeSpaceId) return 0;
+		const previousIndex = spaces.findIndex(
+			(space) => space.id === previousSpaceId,
+		);
+		const nextIndex = spaces.findIndex((space) => space.id === activeSpaceId);
+		if (previousIndex === -1 || nextIndex === -1) return 0;
+		return nextIndex > previousIndex ? 1 : -1;
+	}, [activeSpaceId, spaces]);
+	useEffect(() => {
+		previousSpaceIdRef.current = activeSpaceId;
+	}, [activeSpaceId]);
 	const goToSpace = (spaceId: string) => {
-		const nextIndex = spaces.findIndex((space) => space.id === spaceId);
-		setDirection(nextIndex < activeIndex ? -1 : 1);
 		onSelectSpace(spaceId);
 	};
 
@@ -519,7 +541,6 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 					trailing={
 						<CreateSpaceButton
 							onSpaceCreated={(space) => {
-								setDirection(1);
 								onSelectSpace(space.id);
 							}}
 						/>
@@ -895,6 +916,7 @@ function SpacePager({
 }) {
 	const activeIndex = spaces.findIndex((space) => space.id === activeSpaceId);
 	const dragEnabled = spaces.length > 1;
+	const prefersReducedMotion = useReducedMotion();
 
 	const handleDragEnd = (
 		_event: PointerEvent | MouseEvent | TouchEvent,
@@ -914,25 +936,48 @@ function SpacePager({
 		}
 	};
 
+	// Spring on `x`, short tween on `opacity`. The spring matters because
+	// when a drag past threshold flips the active space, the exiting
+	// element is animated from its current drag offset (often 80–150px) to
+	// the exit position. A linear tween snapped from there to ±24px in one
+	// frame, producing a visible pop. A spring smoothly absorbs the
+	// release velocity so the transition feels continuous with the gesture.
+	const transition = prefersReducedMotion
+		? { duration: 0 }
+		: {
+				x: {
+					type: "spring" as const,
+					stiffness: 360,
+					damping: 34,
+					mass: 0.7,
+				},
+				opacity: { duration: 0.16, ease: "easeOut" as const },
+			};
+
 	return (
-		<div className="relative w-full">
+		// `overflow-x-clip` keeps the slide animation from briefly bleeding
+		// past the sidebar's horizontal edges during the transition.
+		<div className="relative w-full overflow-x-clip">
 			<AnimatePresence custom={direction} initial={false} mode="popLayout">
 				<motion.div
 					key={activeSpaceId}
 					custom={direction}
 					drag={dragEnabled ? "x" : false}
 					dragConstraints={{ left: 0, right: 0 }}
-					dragElastic={0.2}
+					dragElastic={0.18}
+					dragTransition={{ bounceStiffness: 360, bounceDamping: 34 }}
 					onDragEnd={handleDragEnd}
 					variants={pagerVariants}
 					initial="enter"
 					animate="center"
 					exit="exit"
-					transition={{ duration: 0.18, ease: "easeOut" }}
+					transition={transition}
 					// touch-pan-y leaves vertical scrolling to the parent
 					// scroll container while still capturing horizontal
-					// pan gestures for the pager.
-					className="touch-pan-y"
+					// pan gestures for the pager. will-change-transform
+					// hints the compositor to keep the element on its own
+					// layer for the duration of the slide.
+					className="touch-pan-y will-change-transform"
 				>
 					{children}
 				</motion.div>
@@ -941,10 +986,14 @@ function SpacePager({
 	);
 }
 
+// Slide distance is large enough to read as motion (24px barely registered
+// against the spring's ease-in) but small enough to stay snappy.
+const PAGER_SLIDE_PX = 40;
+
 const pagerVariants: Variants = {
-	enter: (direction: number) => ({ x: direction * 24, opacity: 0 }),
+	enter: (direction: number) => ({ x: direction * PAGER_SLIDE_PX, opacity: 0 }),
 	center: { x: 0, opacity: 1 },
-	exit: (direction: number) => ({ x: -direction * 24, opacity: 0 }),
+	exit: (direction: number) => ({ x: -direction * PAGER_SLIDE_PX, opacity: 0 }),
 };
 
 function EmptySpacePlaceholder() {
@@ -952,14 +1001,5 @@ function EmptySpacePlaceholder() {
 	// project" affordance from `ProjectsHeader`; doubling it up here
 	// just clutters the empty page (and clashes with the existing
 	// "Add project" accessible name in tests).
-	return (
-		<div className="flex flex-col items-start gap-1 px-1 pt-2 pb-3">
-			<p className="text-app-foreground/60 text-[12px] leading-snug">
-				No projects in this Space yet.
-			</p>
-			<p className="text-app-foreground/40 text-[11px] leading-snug">
-				Use the + button above to add one.
-			</p>
-		</div>
-	);
+	return null;
 }
