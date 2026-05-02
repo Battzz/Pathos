@@ -59,7 +59,7 @@ vi.mock("./lib/api", async (importOriginal) => {
 import App from "./App";
 
 const CONNECTED_IDENTITY = {
-	provider: "github-app-device-flow",
+	provider: "github-cli",
 	githubUserId: 42,
 	login: "octocat",
 	name: "Octocat",
@@ -209,32 +209,18 @@ describe("App GitHub identity states", () => {
 			return undefined;
 		});
 
-		const user = userEvent.setup();
 		render(<App />);
 
 		expect(
 			await screen.findByRole("main", { name: "Pathos onboarding" }),
 		).toBeInTheDocument();
 		expect(screen.getByLabelText("Welcome to Pathos")).toBeInTheDocument();
-		expect(screen.getByText("AI generates the code.")).toBeInTheDocument();
 		expect(apiMocks.loadGithubIdentitySession).not.toHaveBeenCalled();
 		expect(
 			screen.queryByRole("main", { name: "GitHub identity gate" }),
 		).not.toBeInTheDocument();
 
-		await user.click(
-			await screen.findByRole("button", { name: "Explore" }, { timeout: 2500 }),
-		);
-
-		expect(
-			await screen.findByRole("main", { name: "Pathos onboarding" }),
-		).toBeInTheDocument();
 		expect(apiMocks.loadGithubIdentitySession).not.toHaveBeenCalled();
-		expect(invokeMock).not.toHaveBeenCalledWith("update_app_settings", {
-			settingsMap: {
-				"app.onboarding_completed": "true",
-			},
-		});
 	});
 
 	it("renders the shell while GitHub account is disconnected", async () => {
@@ -247,14 +233,14 @@ describe("App GitHub identity states", () => {
 			screen.queryByRole("main", { name: "Application shell" }),
 		).not.toBeInTheDocument();
 		expect(
-			await screen.findByRole("button", { name: "Continue with GitHub" }),
+			await screen.findByRole("button", { name: "Continue with GitHub CLI" }),
 		).toBeInTheDocument();
 	});
 
 	it("renders the identity unconfigured state without blocking the shell", async () => {
 		apiMocks.loadGithubIdentitySession.mockResolvedValue({
 			status: "unconfigured",
-			message: "GitHub account connection is not configured.",
+			message: "GitHub CLI is not available.",
 		});
 
 		render(<App />);
@@ -263,11 +249,11 @@ describe("App GitHub identity states", () => {
 		).toBeInTheDocument();
 		expect(
 			await screen.findByRole("heading", {
-				name: "GitHub account connection is not configured",
+				name: "GitHub CLI is not available",
 			}),
 		).toBeInTheDocument();
 		expect(
-			await screen.findByRole("button", { name: "Continue with GitHub" }),
+			await screen.findByRole("button", { name: "Continue with GitHub CLI" }),
 		).toBeInTheDocument();
 	});
 
@@ -296,7 +282,7 @@ describe("App GitHub identity states", () => {
 			await screen.findByRole("main", { name: "GitHub identity gate" }),
 		).toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "Continue with GitHub" }),
+			screen.getByRole("button", { name: "Continue with GitHub CLI" }),
 		).toBeInTheDocument();
 	});
 

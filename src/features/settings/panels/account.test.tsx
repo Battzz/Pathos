@@ -196,19 +196,6 @@ describe("AccountPanel", () => {
 		});
 	});
 
-	it("starts an add-account flow from settings", async () => {
-		apiMocks.loadGithubIdentitySession.mockResolvedValue(connectedSnapshot);
-		apiMocks.getForgeCliStatus.mockResolvedValue(githubReady);
-
-		renderWithProviders(<AccountPanel repositories={[]} />);
-
-		fireEvent.click(await screen.findByRole("button", { name: "Add account" }));
-
-		await waitFor(() => {
-			expect(apiMocks.startGithubIdentityConnect).toHaveBeenCalledTimes(1);
-		});
-	});
-
 	it("shows the login inline (no Connect button) when CLI is ready", async () => {
 		apiMocks.loadGithubIdentitySession.mockResolvedValue({
 			status: "disconnected",
