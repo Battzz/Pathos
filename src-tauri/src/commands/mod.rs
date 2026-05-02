@@ -8,6 +8,7 @@ pub(crate) mod repository_commands;
 pub(crate) mod script_commands;
 pub(crate) mod session_commands;
 pub(crate) mod settings_commands;
+pub(crate) mod space_commands;
 pub(crate) mod system_commands;
 pub(crate) mod terminal_commands;
 pub(crate) mod updater_commands;

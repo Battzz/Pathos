@@ -491,6 +491,25 @@ fn run_migrations(connection: &Connection) -> Result<()> {
         .execute_batch("UPDATE sessions SET model = 'default' WHERE model = 'opus-1m'")
         .ok();
 
+    // Migration: add `space_id` column to repos so projects can be grouped
+    // into user-defined Spaces. NULL means "Default Space" — read paths
+    // coalesce NULL → 'default'. The Default space row itself is seeded
+    // by SCHEMA_SQL via INSERT OR IGNORE.
+    if has_table(connection, "repos") && !has_column(connection, "repos", "space_id") {
+        connection
+            .execute_batch("ALTER TABLE repos ADD COLUMN space_id TEXT")
+            .context("Failed to add repos.space_id column")?;
+    }
+
+    // Index lives here (rather than SCHEMA_SQL) so legacy databases that
+    // didn't have `space_id` survive the first startup after upgrade.
+    // Idempotent via `IF NOT EXISTS`.
+    if has_column(connection, "repos", "space_id") {
+        connection
+            .execute_batch("CREATE INDEX IF NOT EXISTS idx_repos_space_id ON repos(space_id)")
+            .context("Failed to create idx_repos_space_id")?;
+    }
+
     Ok(())
 }
 
@@ -515,6 +534,7 @@ CREATE TABLE IF NOT EXISTS repos (
     forge_provider TEXT,
     branch_prefix_custom TEXT,
     is_git INTEGER NOT NULL DEFAULT 1,
+    space_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -589,10 +609,29 @@ CREATE TABLE IF NOT EXISTS session_messages (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Spaces: user-defined organizational layer that groups projects (repos).
+-- Repos with `space_id IS NULL` belong to the seeded "Default" space below;
+-- read paths coalesce NULL → 'default' so existing rows survive without a
+-- destructive backfill.
+CREATE TABLE IF NOT EXISTS spaces (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT OR IGNORE INTO spaces (id, name, display_order) VALUES ('default', 'Default', 0);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_session_messages_sent_at ON session_messages(session_id, sent_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_workspace_id ON sessions(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_workspaces_repository_id ON workspaces(repository_id);
+-- idx_repos_space_id is created in run_migrations, after the migration
+-- that adds the column to legacy installs. Putting it here would fail
+-- on the first startup of an upgrade because SCHEMA_SQL runs before
+-- run_migrations, and `CREATE INDEX IF NOT EXISTS` doesn't tolerate a
+-- missing column even when the index already exists.
 
 -- Triggers (use CREATE TRIGGER IF NOT EXISTS where supported, otherwise wrapped)
 CREATE TRIGGER IF NOT EXISTS update_repos_updated_at
@@ -613,6 +652,13 @@ CREATE TRIGGER IF NOT EXISTS update_sessions_updated_at
     AFTER UPDATE ON sessions
     BEGIN
         UPDATE sessions SET updated_at = datetime('now')
+        WHERE id = NEW.id;
+    END;
+
+CREATE TRIGGER IF NOT EXISTS update_spaces_updated_at
+    AFTER UPDATE ON spaces
+    BEGIN
+        UPDATE spaces SET updated_at = datetime('now')
         WHERE id = NEW.id;
     END;
 
@@ -1158,6 +1204,83 @@ mod tests {
         let (connection, _dir) = open_test_db();
         ensure_schema(&connection).unwrap();
         assert!(column_exists(&connection, "repos", "forge_provider"));
+    }
+
+    #[test]
+    fn spaces_table_seeded_with_default_on_fresh_install() {
+        let (connection, _dir) = open_test_db();
+        ensure_schema(&connection).unwrap();
+
+        assert!(table_exists(&connection, "spaces"));
+        let default_name: String = connection
+            .query_row("SELECT name FROM spaces WHERE id = 'default'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(default_name, "Default");
+
+        // Idempotent: re-running ensure_schema must not duplicate the seed.
+        ensure_schema(&connection).unwrap();
+        let count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM spaces WHERE id = 'default'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn migration_adds_space_id_column_and_preserves_existing_repos() {
+        let (connection, _dir) = open_test_db();
+
+        // Pre-migration shape: repos table without `space_id`. The full
+        // legacy schema isn't needed here — only repos is — but we still
+        // need the other tables that subsequent unconditional migrations
+        // touch. Easiest path: run ensure_schema, then strip the space_id
+        // column so we re-enter the migration with a "missing" column.
+        // The dependent index has to go first; SQLite refuses to drop a
+        // column that any index references.
+        ensure_schema(&connection).unwrap();
+        connection
+            .execute_batch(
+                r#"
+                DROP INDEX IF EXISTS idx_repos_space_id;
+                ALTER TABLE repos DROP COLUMN space_id;
+                "#,
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO repos (id, name, root_path) VALUES ('r1', 'demo', '/tmp/demo')",
+                [],
+            )
+            .unwrap();
+
+        run_migrations(&connection).unwrap();
+        assert!(column_exists(&connection, "repos", "space_id"));
+
+        // Existing rows survive — the migration is additive only.
+        let preserved: String = connection
+            .query_row("SELECT name FROM repos WHERE id = 'r1'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(preserved, "demo");
+
+        // Pre-existing rows have NULL space_id; reads coalesce that to
+        // 'default' at the model layer.
+        let space_id: Option<String> = connection
+            .query_row("SELECT space_id FROM repos WHERE id = 'r1'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert!(space_id.is_none());
+
+        // Idempotent on a second run.
+        run_migrations(&connection).unwrap();
+        assert!(column_exists(&connection, "repos", "space_id"));
     }
 
     #[test]

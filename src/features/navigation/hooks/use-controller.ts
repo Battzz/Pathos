@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { closeAllTerminalsForWorkspace } from "@/features/inspector/terminal-store";
 import {
 	addRepositoryFromLocalPath,
+	assignRepoToSpace,
 	cloneRepositoryFromUrl,
 	createChatSessionInRepo,
 	createGenericChatSession,
@@ -41,6 +42,7 @@ type WorkspaceToastFn = (
 
 type Args = {
 	selectedWorkspaceId: string | null;
+	activeSpaceId: string;
 	onSelectWorkspace: (workspaceId: string | null) => void;
 	onSelectChat: (workspaceId: string, sessionId: string) => void;
 	pushWorkspaceToast: WorkspaceToastFn;
@@ -177,6 +179,7 @@ function writeCollapseState(state: CollapseState) {
 
 export function useFolderSidebarController({
 	selectedWorkspaceId,
+	activeSpaceId,
 	onSelectWorkspace,
 	onSelectChat,
 	pushWorkspaceToast,
@@ -287,6 +290,7 @@ export function useFolderSidebarController({
 			}
 			setAddRepositoryPhase("importing");
 			const response = await addRepositoryFromLocalPath(selectedPath);
+			await assignRepoToSpace(response.repositoryId, activeSpaceId);
 			refetchFolders();
 			if (!response.createdRepository) {
 				pushWorkspaceToast(
@@ -313,7 +317,7 @@ export function useFolderSidebarController({
 		} finally {
 			setAddRepositoryPhase("idle");
 		}
-	}, [addRepositoryPhase, pushWorkspaceToast, refetchFolders]);
+	}, [activeSpaceId, addRepositoryPhase, pushWorkspaceToast, refetchFolders]);
 
 	const handleOpenCloneDialog = useCallback(() => {
 		setIsCloneDialogOpen(true);
@@ -329,6 +333,7 @@ export function useFolderSidebarController({
 	const handleCloneFromUrl = useCallback(
 		async (args: { gitUrl: string; cloneDirectory: string }) => {
 			const response = await cloneRepositoryFromUrl(args);
+			await assignRepoToSpace(response.repositoryId, activeSpaceId);
 			refetchFolders();
 			setCloneDefaultDirectory(args.cloneDirectory);
 			setCollapseState((current) => ({
@@ -336,7 +341,7 @@ export function useFolderSidebarController({
 				[response.repositoryId]: true,
 			}));
 		},
-		[refetchFolders],
+		[activeSpaceId, refetchFolders],
 	);
 
 	const createChatMutation = useMutation({

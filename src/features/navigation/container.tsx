@@ -1,10 +1,17 @@
+import { useQuery } from "@tanstack/react-query";
 import { memo, type ReactNode, useEffect } from "react";
 import {
 	PATHOS_CLONE_PROJECT_EVENT,
 	PATHOS_OPEN_PROJECT_EVENT,
 } from "@/lib/project-action-events";
+import { spacesQueryOptions } from "@/lib/query-client";
+import { useActiveSpace } from "./hooks/use-active-space";
 import { useFolderSidebarController } from "./hooks/use-controller";
 import { WorkspacesSidebar } from "./index";
+import {
+	PATHOS_SWITCH_SPACE_EVENT,
+	type SwitchSpaceDetail,
+} from "./space-events";
 
 type WorkspaceToastVariant = "default" | "destructive";
 
@@ -40,6 +47,9 @@ export const WorkspacesSidebarContainer = memo(
 		accountControl,
 		pushWorkspaceToast,
 	}: WorkspacesSidebarContainerProps) {
+		const { data: spaces = [] } = useQuery(spacesQueryOptions());
+		const { activeSpaceId, setActiveSpaceId } = useActiveSpace(spaces);
+
 		const {
 			folders,
 			genericChats,
@@ -65,6 +75,7 @@ export const WorkspacesSidebarContainer = memo(
 			prefetchChat,
 		} = useFolderSidebarController({
 			selectedWorkspaceId,
+			activeSpaceId,
 			onSelectWorkspace,
 			onSelectChat,
 			pushWorkspaceToast,
@@ -86,6 +97,21 @@ export const WorkspacesSidebarContainer = memo(
 				window.removeEventListener(PATHOS_CLONE_PROJECT_EVENT, cloneProject);
 			};
 		}, [handleAddRepository, handleOpenCloneDialog]);
+
+		useEffect(() => {
+			const handleSwitch = (event: Event) => {
+				const detail = (event as CustomEvent<SwitchSpaceDetail>).detail;
+				if (!detail) return;
+				const target = spaces[detail.position - 1];
+				if (!target) return;
+				setActiveSpaceId(target.id);
+			};
+
+			window.addEventListener(PATHOS_SWITCH_SPACE_EVENT, handleSwitch);
+			return () => {
+				window.removeEventListener(PATHOS_SWITCH_SPACE_EVENT, handleSwitch);
+			};
+		}, [spaces, setActiveSpaceId]);
 
 		return (
 			<WorkspacesSidebar
@@ -130,6 +156,9 @@ export const WorkspacesSidebarContainer = memo(
 				onToggleFolder={toggleFolder}
 				footerControls={footerControls}
 				accountControl={accountControl}
+				spaces={spaces}
+				activeSpaceId={activeSpaceId}
+				onSelectSpace={setActiveSpaceId}
 			/>
 		);
 	},

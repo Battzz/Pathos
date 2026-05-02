@@ -308,6 +308,21 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		scopes: ["app"],
 		editable: true,
 	},
+	...Array.from({ length: 9 }, (_, i): ShortcutDefinition => {
+		const position = i + 1;
+		return {
+			id: `space.switch.${position}` as ShortcutId,
+			title: `Switch to space ${position}`,
+			description:
+				position === 1
+					? "Jump directly to a space by its position in the sidebar pager. Inactive when fewer spaces exist."
+					: undefined,
+			group: "Navigation",
+			defaultHotkey: `Control+${position}`,
+			scopes: ["app"],
+			editable: true,
+		};
+	}),
 ];
 
 export const SHORTCUT_DEFINITION_BY_ID = new Map(

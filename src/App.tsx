@@ -37,6 +37,7 @@ import { WorkspaceEditorSurface } from "@/features/editor";
 import { WorkspaceInspectorSidebar } from "@/features/inspector";
 import { DiffStatsBadge } from "@/features/inspector/diff-stats-badge";
 import { WorkspacesSidebarContainer } from "@/features/navigation/container";
+import { requestSwitchSpace } from "@/features/navigation/space-events";
 import { AppOnboarding } from "@/features/onboarding";
 import { seedNewSessionInCache } from "@/features/panel/session-cache";
 import { useConfirmSessionClose } from "@/features/panel/use-confirm-session-close";
@@ -2077,6 +2078,24 @@ function AppShell({
 				id: "zoom.reset" as const,
 				callback: () => updateSettings({ zoomLevel: 1.0 }),
 			},
+			...(
+				[
+					"space.switch.1",
+					"space.switch.2",
+					"space.switch.3",
+					"space.switch.4",
+					"space.switch.5",
+					"space.switch.6",
+					"space.switch.7",
+					"space.switch.8",
+					"space.switch.9",
+				] as const
+			).map(
+				(id, i): ShortcutHandler => ({
+					id,
+					callback: () => requestSwitchSpace(i + 1),
+				}),
+			),
 		],
 		[
 			appSettings.zoomLevel,

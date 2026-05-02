@@ -36,6 +36,11 @@ pub enum UiMutationEvent {
     RepositoryChanged {
         repo_id: String,
     },
+    /// Emitted when the set of Spaces changes (create / rename / delete /
+    /// reorder) or when a repo's space membership changes. Both cases
+    /// invalidate the same caches in the bridge — split variants would
+    /// add complexity without buying anything in practice.
+    SpaceListChanged,
     SettingsChanged {
         key: Option<String>,
     },
@@ -158,6 +163,7 @@ mod tests {
                 UiMutationEvent::GithubIdentityChanged,
                 "githubIdentityChanged",
             ),
+            (UiMutationEvent::SpaceListChanged, "spaceListChanged"),
         ];
         for (event, expected) in cases {
             let json = serde_json::to_value(&event).unwrap();

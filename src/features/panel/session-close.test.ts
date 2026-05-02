@@ -100,6 +100,7 @@ function repositoryFolders(
 			rootPath: "/tmp/repo",
 			defaultBranch: "main",
 			isGit: true,
+			spaceId: "default",
 			chats: sessions.map((item) => ({
 				sessionId: item.id,
 				workspaceId: item.workspaceId,

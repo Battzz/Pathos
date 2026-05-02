@@ -415,6 +415,12 @@ export type RepositoryFolder = {
 	rootPath?: string | null;
 	defaultBranch?: string | null;
 	isGit: boolean;
+	/**
+	 * Space the repo belongs to. The Rust side coalesces NULL → "default"
+	 * so legacy installs (which lack the column entry) report as the
+	 * seeded Default space rather than as orphans.
+	 */
+	spaceId: string;
 	chats: RepositoryFolderChat[];
 	workspaces: RepositoryFolderWorkspace[];
 };
@@ -1228,6 +1234,7 @@ export type UiMutationEvent =
 	| { type: "workspaceChangeRequestChanged"; workspaceId: string }
 	| { type: "repositoryListChanged" }
 	| { type: "repositoryChanged"; repoId: string }
+	| { type: "spaceListChanged" }
 	| { type: "settingsChanged"; key: string | null }
 	| { type: "githubIdentityChanged" }
 	| {
@@ -1949,14 +1956,59 @@ export async function cloneRepositoryFromUrl(args: {
 	return invoke<AddRepositoryResponse>("clone_repository_from_url", args);
 }
 
-export async function listRepositoryFolders(): Promise<RepositoryFolder[]> {
+export async function listRepositoryFolders(
+	spaceId?: string | null,
+): Promise<RepositoryFolder[]> {
 	try {
-		return await invoke<RepositoryFolder[]>("list_repository_folders");
+		return await invoke<RepositoryFolder[]>("list_repository_folders", {
+			spaceId: spaceId ?? null,
+		});
 	} catch (error) {
 		throw new Error(
 			describeInvokeError(error, "Unable to load repository folders."),
 		);
 	}
+}
+
+/**
+ * User-defined organisational layer above projects. The `'default'` Space
+ * is auto-seeded; it is the implicit home for repos that haven't been
+ * explicitly assigned and cannot be deleted.
+ */
+export type Space = {
+	id: string;
+	name: string;
+	displayOrder: number;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export const DEFAULT_SPACE_ID = "default";
+
+export async function listSpaces(): Promise<Space[]> {
+	return invoke<Space[]>("list_spaces");
+}
+
+export async function createSpace(name: string): Promise<Space> {
+	return invoke<Space>("create_space", { name });
+}
+
+export async function renameSpace(
+	spaceId: string,
+	name: string,
+): Promise<void> {
+	await invoke<void>("rename_space", { spaceId, name });
+}
+
+export async function deleteSpace(spaceId: string): Promise<void> {
+	await invoke<void>("delete_space", { spaceId });
+}
+
+export async function assignRepoToSpace(
+	repoId: string,
+	spaceId: string | null,
+): Promise<void> {
+	await invoke<void>("assign_repo_to_space", { repoId, spaceId });
 }
 
 export async function createChatSessionInRepo(

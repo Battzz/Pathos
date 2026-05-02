@@ -7,9 +7,14 @@ import {
 	MessageSquarePlus,
 	Plus,
 } from "lucide-react";
+import {
+	AnimatePresence,
+	motion,
+	type PanInfo,
+	type Variants,
+} from "motion/react";
 import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
 import { TrafficLightSpacer } from "@/components/chrome/traffic-light-spacer";
-import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
 	DropdownMenu,
@@ -23,13 +28,22 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { UsageStatsIndicator } from "@/features/composer/usage-stats-indicator";
+import { getShortcut } from "@/features/shortcuts/registry";
 import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
-import type { RepositoryFolder, RepositoryFolderChat } from "@/lib/api";
+import type { ShortcutId } from "@/features/shortcuts/types";
+import {
+	DEFAULT_SPACE_ID,
+	type RepositoryFolder,
+	type RepositoryFolderChat,
+	type Space,
+} from "@/lib/api";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { ChatRow } from "./chat-row";
 import { CloneFromUrlDialog } from "./clone-from-url-dialog";
+import { CreateSpaceButton } from "./create-space-button";
 import { FolderRow } from "./folder-row";
+import { SpacePageDots } from "./space-page-dots";
 
 const MAX_COLLAPSED_CHATS = 8;
 const MAX_GENERIC_CHATS_COLLAPSED = 5;
@@ -111,6 +125,10 @@ export type WorkspacesSidebarProps = {
 	onToggleFolder: (repoId: string) => void;
 	footerControls?: ReactNode;
 	accountControl?: ReactNode;
+	/** Sorted spaces for the pager (Default first; user-created next). */
+	spaces: Space[];
+	activeSpaceId: string;
+	onSelectSpace: (spaceId: string) => void;
 };
 
 export const WorkspacesSidebar = memo(function WorkspacesSidebar({
@@ -145,6 +163,9 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	onToggleFolder,
 	footerControls,
 	accountControl,
+	spaces,
+	activeSpaceId,
+	onSelectSpace,
 }: WorkspacesSidebarProps) {
 	const { settings } = useSettings();
 	const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
@@ -186,9 +207,45 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			window.removeEventListener("pathos:open-add-repository", handler);
 	}, []);
 
+	// Folders are fetched once for every Space, then filtered client-side
+	// per page. This keeps the existing optimistic-update paths in
+	// `App.tsx` and `use-streaming.ts` (which mutate the unscoped query
+	// key) working without a per-space cache fanout.
+	const visibleFolders = useMemo(() => {
+		return folders.filter(
+			(folder) => (folder.spaceId ?? DEFAULT_SPACE_ID) === activeSpaceId,
+		);
+	}, [folders, activeSpaceId]);
+
+	// Direction of the page transition: -1 when we're moving to a space
+	// that sits earlier in the list, +1 when later. AnimatePresence reads
+	// it via the `custom` prop so the exit/enter offsets line up with the
+	// user's gesture.
+	const activeIndex = useMemo(() => {
+		const index = spaces.findIndex((space) => space.id === activeSpaceId);
+		return index === -1 ? 0 : index;
+	}, [spaces, activeSpaceId]);
+	const [direction, setDirection] = useState(0);
+	const goToSpace = (spaceId: string) => {
+		const nextIndex = spaces.findIndex((space) => space.id === spaceId);
+		setDirection(nextIndex < activeIndex ? -1 : 1);
+		onSelectSpace(spaceId);
+	};
+
+	// Per-position hotkey for the dot tooltip + accessible label. We expose
+	// the first 9 positions because the registry only seeds `Mod+1..Mod+9`;
+	// any space beyond that just shows its name in the tooltip.
+	const spaceShortcutHotkeys = useMemo(
+		() =>
+			Array.from({ length: 9 }, (_, i) =>
+				getShortcut(settings.shortcuts, `space.switch.${i + 1}` as ShortcutId),
+			),
+		[settings.shortcuts],
+	);
+
 	const shortcutChats = useMemo(
 		() =>
-			folders
+			visibleFolders
 				.flatMap((folder) => {
 					if (!isFolderExpanded(folder.repoId)) return [];
 					const visibleChats = expandedChatRepoIds.has(folder.repoId)
@@ -198,7 +255,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 				})
 				.concat(genericChats)
 				.slice(0, CHAT_SHORTCUT_LIMIT),
-		[expandedChatRepoIds, folders, genericChats, isFolderExpanded],
+		[expandedChatRepoIds, visibleFolders, genericChats, isFolderExpanded],
 	);
 	const shortcutIndexBySessionId = useMemo(
 		() =>
@@ -300,115 +357,134 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 
 			<div
 				className={cn(
-					"scrollbar-stable min-h-0 flex-1 overflow-y-auto",
+					"scrollbar-stable min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
 					"pr-1 pl-2",
 				)}
 			>
-				{folders.length === 0 ? null : (
-					<ul className="flex flex-col gap-0.5 pb-2 pt-1">
-						{importingRepository ? <PendingProjectRow /> : null}
-						{folders.map((folder) => (
-							<li key={folder.repoId} className="flex flex-col">
-								<FolderRow
-									folder={folder}
-									highlighted={recentlyAddedRepoId === folder.repoId}
-									expanded={isFolderExpanded(folder.repoId)}
-									itemCount={folder.chats.length}
-									onToggle={onToggleFolder}
-									onCreateChat={onCreateChat}
-									newChatShortcut={newChatShortcut}
-									onCollapseChats={(repoId) => {
-										setExpandedChatRepoIds((repoIds) => {
-											const next = new Set(repoIds);
-											next.delete(repoId);
-											return next;
-										});
-									}}
-									onDeleteProjectChats={() => removeProjectChats(folder)}
-									onRemoveProject={() => removeProject(folder)}
-									creatingChat={creatingChatRepoId === folder.repoId}
-									chatOverflowExpanded={
-										folder.chats.length > MAX_COLLAPSED_CHATS &&
-										expandedChatRepoIds.has(folder.repoId)
-									}
-								/>
-								{isFolderExpanded(folder.repoId) ? (
-									<div
-										className="relative ml-[14px] flex flex-col gap-0.5 pb-1 pl-3"
-										style={{
-											backgroundImage:
-												"linear-gradient(to bottom, color-mix(in oklch, var(--border) 70%, transparent) 0%, color-mix(in oklch, var(--border) 70%, transparent) 100%)",
-											backgroundSize: "1px calc(100% - 8px)",
-											backgroundPosition: "0 4px",
-											backgroundRepeat: "no-repeat",
+				<ProjectsHeader
+					addBusy={addBusy}
+					addRepositoryShortcut={addRepositoryShortcut}
+					importingRepository={importingRepository}
+					isAddMenuOpen={isAddMenuOpen}
+					onAddMenuOpenChange={setIsAddMenuOpen}
+					onAddRepository={onAddRepository}
+					onOpenCloneDialog={onOpenCloneDialog}
+				/>
+				<SpacePager
+					activeSpaceId={activeSpaceId}
+					direction={direction}
+					spaces={spaces}
+					onSwipe={goToSpace}
+				>
+					{visibleFolders.length === 0 ? null : (
+						<ul className="flex flex-col gap-0.5 pb-2 pt-1">
+							{importingRepository ? <PendingProjectRow /> : null}
+							{visibleFolders.map((folder) => (
+								<li key={folder.repoId} className="flex flex-col">
+									<FolderRow
+										folder={folder}
+										highlighted={recentlyAddedRepoId === folder.repoId}
+										expanded={isFolderExpanded(folder.repoId)}
+										itemCount={folder.chats.length}
+										onToggle={onToggleFolder}
+										onCreateChat={onCreateChat}
+										newChatShortcut={newChatShortcut}
+										onCollapseChats={(repoId) => {
+											setExpandedChatRepoIds((repoIds) => {
+												const next = new Set(repoIds);
+												next.delete(repoId);
+												return next;
+											});
 										}}
-									>
-										{folder.chats.length === 0 ? (
-											<FolderEmptyState
-												onCreateChat={() => onCreateChat(folder.repoId)}
-												busy={creatingChatRepoId === folder.repoId}
-											/>
-										) : (
-											<>
-												{folder.chats
-													.slice(
-														0,
-														expandedChatRepoIds.has(folder.repoId)
-															? folder.chats.length
-															: MAX_COLLAPSED_CHATS,
-													)
-													.map((chat) => (
-														<ChatRow
-															key={chat.sessionId}
-															chat={chat}
-															selected={
-																selectedWorkspaceId === chat.workspaceId &&
-																selectedSessionId === chat.sessionId
+										onDeleteProjectChats={() => removeProjectChats(folder)}
+										onRemoveProject={() => removeProject(folder)}
+										creatingChat={creatingChatRepoId === folder.repoId}
+										chatOverflowExpanded={
+											folder.chats.length > MAX_COLLAPSED_CHATS &&
+											expandedChatRepoIds.has(folder.repoId)
+										}
+									/>
+									{isFolderExpanded(folder.repoId) ? (
+										<div
+											className="relative ml-[14px] flex flex-col gap-0.5 pb-1 pl-3"
+											style={{
+												backgroundImage:
+													"linear-gradient(to bottom, color-mix(in oklch, var(--border) 70%, transparent) 0%, color-mix(in oklch, var(--border) 70%, transparent) 100%)",
+												backgroundSize: "1px calc(100% - 8px)",
+												backgroundPosition: "0 4px",
+												backgroundRepeat: "no-repeat",
+											}}
+										>
+											{folder.chats.length === 0 ? (
+												<FolderEmptyState
+													onCreateChat={() => onCreateChat(folder.repoId)}
+													busy={creatingChatRepoId === folder.repoId}
+												/>
+											) : (
+												<>
+													{folder.chats
+														.slice(
+															0,
+															expandedChatRepoIds.has(folder.repoId)
+																? folder.chats.length
+																: MAX_COLLAPSED_CHATS,
+														)
+														.map((chat) => (
+															<ChatRow
+																key={chat.sessionId}
+																chat={chat}
+																selected={
+																	selectedWorkspaceId === chat.workspaceId &&
+																	selectedSessionId === chat.sessionId
+																}
+																isInteractionRequired={
+																	interactionRequiredSessionIds?.has(
+																		chat.sessionId,
+																	) ?? false
+																}
+																shortcutLabel={(() => {
+																	const shortcutIndex =
+																		shortcutIndexBySessionId.get(
+																			chat.sessionId,
+																		);
+																	if (shortcutIndex === undefined) return null;
+																	return `Cmd+${shortcutIndex === 9 ? 0 : shortcutIndex + 1}`;
+																})()}
+																showShortcutHint={showChatShortcuts}
+																deleteChatShortcut={deleteChatShortcut}
+																onSelect={(ws, session) => {
+																	onPrefetchChat(ws, session);
+																	onSelectChat(ws, session);
+																}}
+																onTogglePin={onToggleChatPin}
+																onDelete={() => removeChat(chat)}
+															/>
+														))}
+													{folder.chats.length > MAX_COLLAPSED_CHATS &&
+													!expandedChatRepoIds.has(folder.repoId) ? (
+														<ShowMoreChatsButton
+															hiddenCount={
+																folder.chats.length - MAX_COLLAPSED_CHATS
 															}
-															isInteractionRequired={
-																interactionRequiredSessionIds?.has(
-																	chat.sessionId,
-																) ?? false
-															}
-															shortcutLabel={(() => {
-																const shortcutIndex =
-																	shortcutIndexBySessionId.get(chat.sessionId);
-																if (shortcutIndex === undefined) return null;
-																return `Cmd+${shortcutIndex === 9 ? 0 : shortcutIndex + 1}`;
-															})()}
-															showShortcutHint={showChatShortcuts}
-															deleteChatShortcut={deleteChatShortcut}
-															onSelect={(ws, session) => {
-																onPrefetchChat(ws, session);
-																onSelectChat(ws, session);
+															onClick={() => {
+																setExpandedChatRepoIds((repoIds) => {
+																	const next = new Set(repoIds);
+																	next.add(folder.repoId);
+																	return next;
+																});
 															}}
-															onTogglePin={onToggleChatPin}
-															onDelete={() => removeChat(chat)}
 														/>
-													))}
-												{folder.chats.length > MAX_COLLAPSED_CHATS &&
-												!expandedChatRepoIds.has(folder.repoId) ? (
-													<ShowMoreChatsButton
-														hiddenCount={
-															folder.chats.length - MAX_COLLAPSED_CHATS
-														}
-														onClick={() => {
-															setExpandedChatRepoIds((repoIds) => {
-																const next = new Set(repoIds);
-																next.add(folder.repoId);
-																return next;
-															});
-														}}
-													/>
-												) : null}
-											</>
-										)}
-									</div>
-								) : null}
-							</li>
-						))}
-					</ul>
-				)}
+													) : null}
+												</>
+											)}
+										</div>
+									) : null}
+								</li>
+							))}
+						</ul>
+					)}
+					{visibleFolders.length === 0 ? <EmptySpacePlaceholder /> : null}
+				</SpacePager>
 			</div>
 			{onCreateGenericChat ? (
 				<GenericChatsSection
@@ -429,87 +505,28 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 					onDeleteChat={removeChat}
 				/>
 			) : null}
-			<div className="flex shrink-0 items-center justify-between px-3 pb-3 pt-1">
-				{accountControl}
+			<div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-3 pt-1">
+				<div className="flex items-center gap-[2px]">
+					{footerControls}
+					{accountControl}
+				</div>
+				<SpacePageDots
+					spaces={spaces}
+					activeSpaceId={activeSpaceId}
+					onSelect={goToSpace}
+					hotkeys={spaceShortcutHotkeys}
+					className="shrink-0"
+					trailing={
+						<CreateSpaceButton
+							onSpaceCreated={(space) => {
+								setDirection(1);
+								onSelectSpace(space.id);
+							}}
+						/>
+					}
+				/>
 				<div className="flex items-center gap-[2px]">
 					<UsageStatsIndicator />
-					<DropdownMenu open={isAddMenuOpen} onOpenChange={setIsAddMenuOpen}>
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<DropdownMenuTrigger asChild>
-									<Button
-										type="button"
-										aria-label="Add project"
-										variant="ghost"
-										size="icon"
-										disabled={addBusy}
-										className={cn(
-											"text-muted-foreground hover:text-foreground",
-											addBusy && "cursor-not-allowed opacity-60",
-										)}
-									>
-										{addBusy ? (
-											<LoaderCircle
-												className="size-[15px] animate-spin"
-												strokeWidth={2.1}
-											/>
-										) : (
-											<FolderPlus className="size-[15px]" strokeWidth={1.8} />
-										)}
-									</Button>
-								</DropdownMenuTrigger>
-							</TooltipTrigger>
-							<TooltipContent
-								side="top"
-								sideOffset={4}
-								className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
-							>
-								<span>Add project</span>
-								{addRepositoryShortcut ? (
-									<InlineShortcutDisplay
-										hotkey={addRepositoryShortcut}
-										className="text-tooltip-foreground/55"
-									/>
-								) : null}
-							</TooltipContent>
-						</Tooltip>
-						<DropdownMenuContent
-							align="start"
-							sideOffset={6}
-							className="min-w-44"
-						>
-							<DropdownMenuItem
-								disabled={addBusy}
-								onSelect={() => {
-									onAddRepository();
-								}}
-								className="cursor-pointer gap-1.5 px-2 py-1 text-[13px] leading-5"
-							>
-								{addBusy ? (
-									<LoaderCircle
-										className="size-3.5 animate-spin"
-										strokeWidth={2.1}
-									/>
-								) : (
-									<FolderPlus className="size-3.5" strokeWidth={2} />
-								)}
-								<span>
-									{importingRepository ? "Adding project..." : "Open project"}
-								</span>
-							</DropdownMenuItem>
-							<DropdownMenuItem
-								disabled={addBusy}
-								onSelect={() => {
-									onOpenCloneDialog();
-								}}
-								className="cursor-pointer gap-1.5 px-2 py-1 text-[13px] leading-5"
-							>
-								<Globe className="size-3.5" strokeWidth={2} />
-								<span>Clone from URL</span>
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
-					{footerControls}
 				</div>
 			</div>
 		</div>
@@ -535,6 +552,103 @@ function ShowMoreChatsButton({
 				{hiddenCount}
 			</span>
 		</button>
+	);
+}
+
+function ProjectsHeader({
+	addBusy,
+	addRepositoryShortcut,
+	importingRepository,
+	isAddMenuOpen,
+	onAddMenuOpenChange,
+	onAddRepository,
+	onOpenCloneDialog,
+}: {
+	addBusy: boolean;
+	addRepositoryShortcut?: string | null;
+	importingRepository: boolean;
+	isAddMenuOpen: boolean;
+	onAddMenuOpenChange: (open: boolean) => void;
+	onAddRepository: () => void;
+	onOpenCloneDialog: () => void;
+}) {
+	return (
+		<div className="flex h-7 select-none items-center gap-2 px-1.5 pt-1">
+			<span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
+				Projects
+			</span>
+			<DropdownMenu open={isAddMenuOpen} onOpenChange={onAddMenuOpenChange}>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<DropdownMenuTrigger asChild>
+							<button
+								type="button"
+								aria-label="Add project"
+								disabled={addBusy}
+								className={cn(
+									"flex size-6 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors",
+									"hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+									"disabled:cursor-not-allowed disabled:opacity-60",
+								)}
+							>
+								{addBusy ? (
+									<LoaderCircle
+										className="size-3.5 animate-spin"
+										strokeWidth={2.1}
+									/>
+								) : (
+									<FolderPlus className="size-3.5" strokeWidth={2} />
+								)}
+							</button>
+						</DropdownMenuTrigger>
+					</TooltipTrigger>
+					<TooltipContent
+						side="top"
+						sideOffset={4}
+						className="flex h-[24px] items-center gap-2 rounded-md px-2 text-[12px] leading-none"
+					>
+						<span>Add project</span>
+						{addRepositoryShortcut ? (
+							<InlineShortcutDisplay
+								hotkey={addRepositoryShortcut}
+								className="text-tooltip-foreground/55"
+							/>
+						) : null}
+					</TooltipContent>
+				</Tooltip>
+				<DropdownMenuContent align="end" sideOffset={6} className="min-w-44">
+					<DropdownMenuItem
+						disabled={addBusy}
+						onSelect={() => {
+							onAddRepository();
+						}}
+						className="cursor-pointer gap-1.5 px-2 py-1 text-[13px] leading-5"
+					>
+						{addBusy ? (
+							<LoaderCircle
+								className="size-3.5 animate-spin"
+								strokeWidth={2.1}
+							/>
+						) : (
+							<FolderPlus className="size-3.5" strokeWidth={2} />
+						)}
+						<span>
+							{importingRepository ? "Adding project..." : "Open project"}
+						</span>
+					</DropdownMenuItem>
+					<DropdownMenuItem
+						disabled={addBusy}
+						onSelect={() => {
+							onOpenCloneDialog();
+						}}
+						className="cursor-pointer gap-1.5 px-2 py-1 text-[13px] leading-5"
+					>
+						<Globe className="size-3.5" strokeWidth={2} />
+						<span>Clone from URL</span>
+					</DropdownMenuItem>
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</div>
 	);
 }
 
@@ -750,5 +864,102 @@ function FolderEmptyState({
 			/>
 			<span className="tracking-[-0.005em]">New chat</span>
 		</button>
+	);
+}
+
+/**
+ * Pager wrapper around the active Space's project list. The container
+ * stays in place; only the inner pane animates so collapsing folders
+ * inside the active page doesn't push the dots / footer around.
+ *
+ * Drag thresholds are tuned for trackpad two-finger gestures: 60px of
+ * travel OR 500px/s velocity is enough to commit. Below that, the page
+ * springs back. With a single space, drag is disabled — there's nowhere
+ * to swipe to.
+ */
+const SWIPE_DISTANCE_PX = 60;
+const SWIPE_VELOCITY_PX_PER_S = 500;
+
+function SpacePager({
+	activeSpaceId,
+	direction,
+	spaces,
+	onSwipe,
+	children,
+}: {
+	activeSpaceId: string;
+	direction: number;
+	spaces: Space[];
+	onSwipe: (spaceId: string) => void;
+	children: ReactNode;
+}) {
+	const activeIndex = spaces.findIndex((space) => space.id === activeSpaceId);
+	const dragEnabled = spaces.length > 1;
+
+	const handleDragEnd = (
+		_event: PointerEvent | MouseEvent | TouchEvent,
+		info: PanInfo,
+	) => {
+		if (!dragEnabled || activeIndex === -1) return;
+		const swipedRight =
+			info.offset.x > SWIPE_DISTANCE_PX ||
+			info.velocity.x > SWIPE_VELOCITY_PX_PER_S;
+		const swipedLeft =
+			info.offset.x < -SWIPE_DISTANCE_PX ||
+			info.velocity.x < -SWIPE_VELOCITY_PX_PER_S;
+		if (swipedLeft && activeIndex < spaces.length - 1) {
+			onSwipe(spaces[activeIndex + 1].id);
+		} else if (swipedRight && activeIndex > 0) {
+			onSwipe(spaces[activeIndex - 1].id);
+		}
+	};
+
+	return (
+		<div className="relative w-full">
+			<AnimatePresence custom={direction} initial={false} mode="popLayout">
+				<motion.div
+					key={activeSpaceId}
+					custom={direction}
+					drag={dragEnabled ? "x" : false}
+					dragConstraints={{ left: 0, right: 0 }}
+					dragElastic={0.2}
+					onDragEnd={handleDragEnd}
+					variants={pagerVariants}
+					initial="enter"
+					animate="center"
+					exit="exit"
+					transition={{ duration: 0.18, ease: "easeOut" }}
+					// touch-pan-y leaves vertical scrolling to the parent
+					// scroll container while still capturing horizontal
+					// pan gestures for the pager.
+					className="touch-pan-y"
+				>
+					{children}
+				</motion.div>
+			</AnimatePresence>
+		</div>
+	);
+}
+
+const pagerVariants: Variants = {
+	enter: (direction: number) => ({ x: direction * 24, opacity: 0 }),
+	center: { x: 0, opacity: 1 },
+	exit: (direction: number) => ({ x: -direction * 24, opacity: 0 }),
+};
+
+function EmptySpacePlaceholder() {
+	// Quiet placeholder. The user already has the top-of-list "Add
+	// project" affordance from `ProjectsHeader`; doubling it up here
+	// just clutters the empty page (and clashes with the existing
+	// "Add project" accessible name in tests).
+	return (
+		<div className="flex flex-col items-start gap-1 px-1 pt-2 pb-3">
+			<p className="text-app-foreground/60 text-[12px] leading-snug">
+				No projects in this Space yet.
+			</p>
+			<p className="text-app-foreground/40 text-[11px] leading-snug">
+				Use the + button above to add one.
+			</p>
+		</div>
 	);
 }

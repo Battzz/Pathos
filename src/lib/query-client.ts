@@ -21,6 +21,7 @@ import {
 	listRepositories,
 	listRepositoryFolders,
 	listSlashCommands,
+	listSpaces,
 	listWorkspaceCandidateDirectories,
 	listWorkspaceChangesWithContent,
 	listWorkspaceFiles,
@@ -52,6 +53,7 @@ const PERSIST_GC_TIME = 24 * 60 * 60_000; // 24h — persisted entries live this
 export const pathosQueryKeys = {
 	workspaceGroups: ["workspaceGroups"] as const,
 	repositoryFolders: ["repositoryFolders"] as const,
+	spaces: ["spaces"] as const,
 	genericChats: ["genericChats"] as const,
 	archivedWorkspaces: ["archivedWorkspaces"] as const,
 	repositories: ["repositories"] as const,
@@ -199,10 +201,26 @@ export function workspaceGroupsQueryOptions() {
 	});
 }
 
+/**
+ * Repository folders. Always fetches the full list (every Space) so the
+ * existing optimistic-update paths in `App.tsx` and `use-streaming.ts`
+ * keep working with one cache key. The sidebar pager filters per-page on
+ * the client by `folder.spaceId`.
+ */
 export function repositoryFoldersQueryOptions() {
 	return queryOptions({
 		queryKey: pathosQueryKeys.repositoryFolders,
-		queryFn: listRepositoryFolders,
+		queryFn: () => listRepositoryFolders(),
+		initialData: [],
+		initialDataUpdatedAt: 0,
+		staleTime: 0,
+	});
+}
+
+export function spacesQueryOptions() {
+	return queryOptions({
+		queryKey: pathosQueryKeys.spaces,
+		queryFn: listSpaces,
 		initialData: [],
 		initialDataUpdatedAt: 0,
 		staleTime: 0,

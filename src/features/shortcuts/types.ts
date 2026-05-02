@@ -35,7 +35,16 @@ export type ShortcutId =
 	| "terminal.next"
 	| "terminal.previous"
 	| "inspector.toggleScripts"
-	| "inspector.focusTerminal";
+	| "inspector.focusTerminal"
+	| "space.switch.1"
+	| "space.switch.2"
+	| "space.switch.3"
+	| "space.switch.4"
+	| "space.switch.5"
+	| "space.switch.6"
+	| "space.switch.7"
+	| "space.switch.8"
+	| "space.switch.9";
 
 export type ShortcutGroup =
 	| "Navigation"

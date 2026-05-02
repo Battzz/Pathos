@@ -195,6 +195,11 @@ pub struct RepositoryFolder {
     pub root_path: Option<String>,
     pub default_branch: Option<String>,
     pub is_git: bool,
+    /// Space the repo belongs to. Coalesced from the column on read so
+    /// legacy rows (NULL) report as the seeded "default" space rather
+    /// than as orphans. The frontend filters the unscoped sidebar list
+    /// by this field to render the active page of the pager.
+    pub space_id: String,
     /// Sessions inside the repo's project workspace, newest first.
     pub chats: Vec<RepositoryFolderChat>,
     /// Deprecated compatibility field. Project folders no longer surface
@@ -205,37 +210,97 @@ pub struct RepositoryFolder {
 /// Per-repo folders for the project sidebar. Each folder lists only the
 /// repo's chats (sessions in its project workspace). Repos with no chats
 /// yet still appear so the user can land on the empty state.
-pub fn list_repository_folders() -> Result<Vec<RepositoryFolder>> {
+///
+/// `space_id`:
+///   - `None` → unscoped, every visible repo (legacy callers / tests).
+///   - `Some(id)` → only repos in that space. The `'default'` space also
+///     captures repos whose `space_id IS NULL` so legacy installs keep
+///     working without a destructive backfill.
+pub fn list_repository_folders(space_id: Option<&str>) -> Result<Vec<RepositoryFolder>> {
     let connection = db::read_conn()?;
-    let mut statement = connection
-        .prepare(
+
+    // SQL branches on whether a space filter was supplied. The Default
+    // space also matches legacy NULL rows so installs that pre-date the
+    // `space_id` column keep showing their projects without a backfill.
+    // `COALESCE(space_id, 'default')` exposes the resolved id to callers
+    // so client-side filtering / display works without re-deriving it.
+    let (sql, bind_param): (&str, Option<&str>) = match space_id {
+        None => (
             r#"
             SELECT
               id,
               name,
               root_path,
               default_branch,
-              COALESCE(is_git, 1)
+              COALESCE(is_git, 1),
+              COALESCE(space_id, 'default')
             FROM repos
             WHERE COALESCE(hidden, 0) = 0
             ORDER BY COALESCE(display_order, 0) ASC, LOWER(name) ASC
             "#,
-        )
-        .context("Failed to prepare repository folder query")?;
+            None,
+        ),
+        Some(id) if id == crate::models::spaces::DEFAULT_SPACE_ID => (
+            r#"
+            SELECT
+              id,
+              name,
+              root_path,
+              default_branch,
+              COALESCE(is_git, 1),
+              COALESCE(space_id, 'default')
+            FROM repos
+            WHERE COALESCE(hidden, 0) = 0
+              AND (space_id IS NULL OR space_id = ?1)
+            ORDER BY COALESCE(display_order, 0) ASC, LOWER(name) ASC
+            "#,
+            Some(id),
+        ),
+        Some(id) => (
+            r#"
+            SELECT
+              id,
+              name,
+              root_path,
+              default_branch,
+              COALESCE(is_git, 1),
+              COALESCE(space_id, 'default')
+            FROM repos
+            WHERE COALESCE(hidden, 0) = 0
+              AND space_id = ?1
+            ORDER BY COALESCE(display_order, 0) ASC, LOWER(name) ASC
+            "#,
+            Some(id),
+        ),
+    };
 
-    let repo_rows = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, i64>(4)? != 0,
-            ))
-        })
-        .context("Failed to load repositories for folder listing")?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .context("Failed to collect repositories for folder listing")?;
+    type RepoRow = (String, String, Option<String>, Option<String>, bool, String);
+
+    let mut statement = connection
+        .prepare(sql)
+        .context("Failed to prepare repository folder query")?;
+    let mapper = |row: &rusqlite::Row<'_>| -> rusqlite::Result<RepoRow> {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, i64>(4)? != 0,
+            row.get::<_, String>(5)?,
+        ))
+    };
+    let repo_rows: Vec<RepoRow> = match bind_param {
+        Some(value) => statement
+            .query_map([value], mapper)
+            .context("Failed to load repositories for folder listing")?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("Failed to collect repositories for folder listing")?,
+        None => statement
+            .query_map([], mapper)
+            .context("Failed to load repositories for folder listing")?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("Failed to collect repositories for folder listing")?,
+    };
 
     drop(statement);
     drop(connection);
@@ -243,7 +308,7 @@ pub fn list_repository_folders() -> Result<Vec<RepositoryFolder>> {
     let workspace_records = workspace_models::load_workspace_records()?;
 
     let mut folders = Vec::with_capacity(repo_rows.len());
-    for (repo_id, repo_name, root_path, default_branch, is_git) in repo_rows {
+    for (repo_id, repo_name, root_path, default_branch, is_git, space_id) in repo_rows {
         let repo_initials = helpers::repo_initials_for_name(&repo_name);
         let repo_icon_src = helpers::repo_icon_src_for_root_path(root_path.as_deref());
 
@@ -273,6 +338,7 @@ pub fn list_repository_folders() -> Result<Vec<RepositoryFolder>> {
             root_path,
             default_branch,
             is_git,
+            space_id,
             chats,
             workspaces,
         });
@@ -1359,7 +1425,7 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let folders = list_repository_folders().unwrap();
+        let folders = list_repository_folders(None).unwrap();
         let folder = folders
             .iter()
             .find(|folder| folder.repo_id == "r1")
@@ -1413,7 +1479,7 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let folders = list_repository_folders().unwrap();
+        let folders = list_repository_folders(None).unwrap();
         let folder = folders
             .iter()
             .find(|folder| folder.repo_id == "r1")
@@ -1458,7 +1524,7 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let folders = list_repository_folders().unwrap();
+        let folders = list_repository_folders(None).unwrap();
         let folder = folders
             .iter()
             .find(|folder| folder.repo_id == "r1")
@@ -1520,7 +1586,7 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let folders = list_repository_folders().unwrap();
+        let folders = list_repository_folders(None).unwrap();
         let folder = folders
             .iter()
             .find(|folder| folder.repo_id == "r1")
@@ -1596,7 +1662,7 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let folders = list_repository_folders().unwrap();
+        let folders = list_repository_folders(None).unwrap();
         let folder = folders
             .iter()
             .find(|folder| folder.repo_id == "r1")

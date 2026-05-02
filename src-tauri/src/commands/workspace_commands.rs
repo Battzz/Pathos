@@ -26,8 +26,10 @@ pub async fn list_workspace_groups() -> CmdResult<Vec<workspaces::WorkspaceSideb
 }
 
 #[tauri::command]
-pub async fn list_repository_folders() -> CmdResult<Vec<workspaces::RepositoryFolder>> {
-    run_blocking(workspaces::list_repository_folders).await
+pub async fn list_repository_folders(
+    space_id: Option<String>,
+) -> CmdResult<Vec<workspaces::RepositoryFolder>> {
+    run_blocking(move || workspaces::list_repository_folders(space_id.as_deref())).await
 }
 
 #[tauri::command]

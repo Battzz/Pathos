@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { RepositoryFolder, RepositoryFolderChat } from "@/lib/api";
+import type { RepositoryFolder, RepositoryFolderChat, Space } from "@/lib/api";
 import {
 	type AppSettings,
 	DEFAULT_SETTINGS,
@@ -35,6 +35,7 @@ function makeFolder(chatCount: number): RepositoryFolder {
 		repoName: "helmor",
 		repoInitials: "HE",
 		isGit: true,
+		spaceId: "default",
 		chats: Array.from({ length: chatCount }, (_, index) => makeChat(index + 1)),
 		workspaces: [],
 	};
@@ -51,6 +52,9 @@ function renderSidebar(
 		onRemoveProject?: (repoId: string) => void;
 		onPrefetchChat?: (workspaceId: string, sessionId: string) => void;
 		onSelectChat?: (workspaceId: string, sessionId: string) => void;
+		onSelectSpace?: (spaceId: string) => void;
+		spaces?: Space[];
+		activeSpaceId?: string;
 	} = {},
 ) {
 	const onDeleteChat = options.onDeleteChat ?? vi.fn();
@@ -59,6 +63,7 @@ function renderSidebar(
 	const onCreateGenericChat = options.onCreateGenericChat ?? vi.fn();
 	const onPrefetchChat = options.onPrefetchChat ?? vi.fn();
 	const onSelectChat = options.onSelectChat ?? vi.fn();
+	const onSelectSpace = options.onSelectSpace ?? vi.fn();
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	});
@@ -97,6 +102,19 @@ function renderSidebar(
 						onRemoveProject={onRemoveProject}
 						isFolderExpanded={() => true}
 						onToggleFolder={vi.fn()}
+						spaces={
+							options.spaces ?? [
+								{
+									id: "default",
+									name: "Default",
+									displayOrder: 0,
+									createdAt: "2026-04-30T00:00:00Z",
+									updatedAt: "2026-04-30T00:00:00Z",
+								},
+							]
+						}
+						activeSpaceId={options.activeSpaceId ?? "default"}
+						onSelectSpace={onSelectSpace}
 					/>
 				</TooltipProvider>
 			</SettingsContext.Provider>
@@ -271,5 +289,34 @@ describe("WorkspacesSidebar", () => {
 		fireEvent.click(screen.getByRole("button", { name: "New generic chat" }));
 
 		expect(onCreateGenericChat).toHaveBeenCalled();
+	});
+
+	it("shows footer dots for switching between spaces", () => {
+		const onSelectSpace = vi.fn();
+		renderSidebar(makeFolder(1), {
+			onSelectSpace,
+			spaces: [
+				{
+					id: "default",
+					name: "Default",
+					displayOrder: 0,
+					createdAt: "2026-04-30T00:00:00Z",
+					updatedAt: "2026-04-30T00:00:00Z",
+				},
+				{
+					id: "side",
+					name: "Side projects",
+					displayOrder: 1,
+					createdAt: "2026-04-30T00:00:00Z",
+					updatedAt: "2026-04-30T00:00:00Z",
+				},
+			],
+		});
+
+		expect(screen.getByRole("tablist", { name: "Spaces" })).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("tab", { name: "Side projects" }));
+
+		expect(onSelectSpace).toHaveBeenCalledWith("side");
 	});
 });

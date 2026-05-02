@@ -168,11 +168,22 @@ function handleUiMutation(
 			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.repositories,
 			});
+			// `repositoryFolders` is a prefix that also matches the
+			// per-space variant (`["repositoryFolders", spaceId]`), so a
+			// single invalidate fans out across every page of the pager.
 			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.repositoryFolders,
 			});
 			void queryClient.invalidateQueries({
 				queryKey: pathosQueryKeys.genericChats,
+			});
+			return;
+		case "spaceListChanged":
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.spaces,
+			});
+			void queryClient.invalidateQueries({
+				queryKey: pathosQueryKeys.repositoryFolders,
 			});
 			return;
 		case "repositoryChanged":
