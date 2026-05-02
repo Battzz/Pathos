@@ -47,7 +47,6 @@ export type FolderRowProps = {
 	creatingChat?: boolean;
 	chatOverflowExpanded?: boolean;
 	highlighted?: boolean;
-	active?: boolean;
 };
 
 export const FolderRow = memo(function FolderRow({
@@ -66,7 +65,6 @@ export const FolderRow = memo(function FolderRow({
 	creatingChat,
 	chatOverflowExpanded,
 	highlighted,
-	active,
 }: FolderRowProps) {
 	const busy = Boolean(creatingChat);
 	const currentSpaceId = folder.spaceId ?? DEFAULT_SPACE_ID;
@@ -76,12 +74,10 @@ export const FolderRow = memo(function FolderRow({
 			<ContextMenuTrigger asChild>
 				<div
 					data-expanded={expanded ? "true" : "false"}
-					data-active-project={active ? "true" : undefined}
 					className={cn(
 						"group/folder relative flex h-8 select-none items-center gap-1 rounded-md pr-1 pl-1.5 text-[13px] font-semibold tracking-[-0.01em] text-foreground/90 transition-colors",
 						"hover:bg-accent/40 hover:text-foreground",
 						"data-[expanded=true]:text-foreground",
-						active && "workspace-folder-active text-foreground",
 						highlighted && "pathos-project-added bg-accent/35",
 					)}
 				>

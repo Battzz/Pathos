@@ -894,26 +894,6 @@ body {
 	background: var(--workspace-sidebar-selected-bg);
 }
 
-.workspace-folder-active {
-	background: color-mix(
-		in oklch,
-		var(--workspace-sidebar-selected-bg) 55%,
-		transparent
-	);
-}
-
-.workspace-folder-active::before {
-	content: "";
-	position: absolute;
-	left: -2px;
-	top: 50%;
-	height: 14px;
-	width: 2px;
-	transform: translateY(-50%);
-	border-radius: 2px;
-	background: color-mix(in oklch, var(--foreground) 55%, transparent);
-}
-
 /* Streamdown theme overrides — minimal, no !important */
 .conversation-streamdown {
 	color: var(--conversation-body-foreground);

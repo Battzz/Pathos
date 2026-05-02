@@ -411,11 +411,6 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 									<FolderRow
 										folder={folder}
 										highlighted={recentlyAddedRepoId === folder.repoId}
-										active={folder.chats.some(
-											(chat) =>
-												chat.workspaceId === selectedWorkspaceId &&
-												chat.sessionId === selectedSessionId,
-										)}
 										expanded={isFolderExpanded(folder.repoId)}
 										itemCount={folder.chats.length}
 										onToggle={onToggleFolder}
