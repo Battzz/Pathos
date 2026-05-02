@@ -65,7 +65,7 @@ export function GithubStatusMenu({
 				className="min-w-64 select-none p-1.5"
 			>
 				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 text-[10px] uppercase tracking-[0.08em] text-muted-foreground/80">
-					GitHub accounts
+					GitHub CLI account
 				</DropdownMenuLabel>
 				<div className="flex flex-col gap-0.5">
 					{accounts.map((account) => (
@@ -83,7 +83,7 @@ export function GithubStatusMenu({
 					className="gap-2 px-2 py-1.5 text-[13px]"
 				>
 					<Plus className="size-3.5" strokeWidth={1.8} />
-					Add account
+					Reconnect
 				</DropdownMenuItem>
 				<DropdownMenuItem
 					onClick={onDisconnectGithub}
@@ -141,7 +141,7 @@ function AccountMenuItem({
 					{account.login}
 				</span>
 				<span className="truncate text-[10.5px] text-muted-foreground/80">
-					{active ? "Active" : "Switch to this account"}
+					{active ? "Active" : "Reconnect with this account"}
 				</span>
 			</div>
 			{active ? (

@@ -66,7 +66,7 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
 
     let app = builder
-        .manage(auth::GithubIdentityFlowRuntime::default())
+        .manage(auth::GithubIdentityFlowRuntime)
         .manage(sidecar::ManagedSidecar::new())
         .manage(agents::ActiveStreams::new())
         .manage(agents::SlashCommandCache::new())

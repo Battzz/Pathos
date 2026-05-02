@@ -578,48 +578,13 @@ fn remote_url_looks_like_gitlab(settings: &crate::settings::EffectiveBranchPrefi
         .is_some_and(|remote| remote.host.contains("gitlab"))
 }
 
-/// Read the GitHub login from the stored identity metadata.
 fn resolve_github_login() -> Result<Option<String>> {
-    if let Some(raw_active) = crate::settings::load_setting_value("github_identity_active_user_id")?
-    {
-        if let Ok(active_user_id) = raw_active.parse::<i64>() {
-            if let Some(raw_accounts) =
-                crate::settings::load_setting_value("github_identity_accounts_meta")?
-            {
-                let accounts: Vec<serde_json::Value> = serde_json::from_str(&raw_accounts)?;
-                if let Some(account) = accounts.iter().find(|account| {
-                    account.get("githubUserId").and_then(|value| value.as_i64())
-                        == Some(active_user_id)
-                }) {
-                    return Ok(account
-                        .get("login")
-                        .and_then(|value| value.as_str())
-                        .map(String::from));
-                }
-            }
-        }
-    }
-
-    if let Some(raw_accounts) =
-        crate::settings::load_setting_value("github_identity_accounts_meta")?
-    {
-        let accounts: Vec<serde_json::Value> = serde_json::from_str(&raw_accounts)?;
-        if let Some(account) = accounts.first() {
-            return Ok(account
-                .get("login")
-                .and_then(|value| value.as_str())
-                .map(String::from));
-        }
-    }
-
-    let Some(raw) = crate::settings::load_setting_value("github_identity_meta")? else {
-        return Ok(None);
-    };
-    let meta: serde_json::Value = serde_json::from_str(&raw)?;
-    Ok(meta
-        .get("login")
-        .and_then(|value| value.as_str())
-        .map(String::from))
+    Ok(
+        match forge::get_forge_cli_status(ForgeProvider::Github, Some("github.com"))? {
+            ForgeCliStatus::Ready { login, .. } => Some(login),
+            _ => None,
+        },
+    )
 }
 
 fn resolve_gitlab_login(

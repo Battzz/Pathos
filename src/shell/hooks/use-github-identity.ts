@@ -25,6 +25,9 @@ const sonnerFallbackToast: WorkspaceToastFn = (description, title, variant) => {
 	fn(title ?? description, title ? { description } : undefined);
 };
 
+const CLI_AUTH_POLL_INTERVAL_MS = 2000;
+const CLI_AUTH_POLL_TIMEOUT_MS = 120_000;
+
 export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 	const pushToast = pushWorkspaceToast ?? sonnerFallbackToast;
 	const [githubIdentityState, setGithubIdentityState] =
@@ -66,15 +69,34 @@ export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 
 	const handleStartGithubIdentityConnect = useCallback(async () => {
 		try {
-			const flow = await startGithubIdentityConnect();
-			setGithubIdentityState({ status: "pending", flow });
+			await startGithubIdentityConnect();
+			pushToast("Complete GitHub CLI auth in Terminal.");
+
+			const startedAt = Date.now();
+			while (Date.now() - startedAt < CLI_AUTH_POLL_TIMEOUT_MS) {
+				await new Promise((resolve) =>
+					setTimeout(resolve, CLI_AUTH_POLL_INTERVAL_MS),
+				);
+				const snapshot = await loadGithubIdentitySession();
+				setGithubIdentityState(snapshot);
+				if (snapshot.status === "connected") {
+					return;
+				}
+			}
+
+			pushToast(
+				"Finish GitHub CLI auth in Terminal, then click Continue again.",
+			);
 		} catch (error) {
 			setGithubIdentityState({
 				status: "error",
-				message: describeUnknownError(error, "Unable to start GitHub sign-in."),
+				message: describeUnknownError(
+					error,
+					"Unable to start GitHub CLI auth.",
+				),
 			});
 		}
-	}, []);
+	}, [pushToast]);
 
 	const handleCopyGithubDeviceCode = useCallback(
 		async (userCode: string) => {
@@ -107,7 +129,7 @@ export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 					status: "error",
 					message: describeUnknownError(
 						error,
-						"Unable to cancel GitHub account connection.",
+						"Unable to cancel GitHub CLI auth.",
 					),
 				});
 			});
@@ -122,7 +144,7 @@ export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 				status: "error",
 				message: describeUnknownError(
 					error,
-					"Unable to disconnect the GitHub account.",
+					"Unable to disconnect GitHub CLI.",
 				),
 			});
 		}
@@ -138,7 +160,7 @@ export function useGithubIdentity(pushWorkspaceToast?: WorkspaceToastFn) {
 					status: "error",
 					message: describeUnknownError(
 						error,
-						"Unable to switch GitHub account.",
+						"Unable to switch GitHub CLI account.",
 					),
 				});
 			}

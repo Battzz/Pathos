@@ -6,7 +6,6 @@ import {
 	Copy,
 	Loader2,
 	LogOut,
-	Plus,
 } from "lucide-react";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -47,7 +46,6 @@ export function AccountPanel({
 		handleCancelGithubIdentityConnect,
 		handleCopyGithubDeviceCode,
 		handleDisconnectGithubIdentity,
-		handleStartGithubIdentityConnect,
 		handleSwitchGithubIdentityAccount,
 	} = useGithubIdentity();
 	const [signingOut, setSigningOut] = useState(false);
@@ -98,11 +96,6 @@ export function AccountPanel({
 		[handleSwitchGithubIdentityAccount, queryClient],
 	);
 
-	const handleAddAccount = useCallback(() => {
-		setCodeCopied(false);
-		void handleStartGithubIdentityConnect();
-	}, [handleStartGithubIdentityConnect]);
-
 	const handleCopyPendingCode = useCallback(async () => {
 		if (githubIdentityState.status !== "pending") return;
 		const copied = await handleCopyGithubDeviceCode(
@@ -127,7 +120,6 @@ export function AccountPanel({
 					codeCopied={codeCopied}
 					signingOut={signingOut}
 					switchingUserId={switchingUserId}
-					onAddAccount={handleAddAccount}
 					onCancelAddAccount={handleCancelGithubIdentityConnect}
 					onCopyPendingCode={() => void handleCopyPendingCode()}
 					onSignOut={() => void handleSignOut()}
@@ -168,7 +160,6 @@ function GithubAccountsSection({
 	codeCopied,
 	signingOut,
 	switchingUserId,
-	onAddAccount,
 	onCancelAddAccount,
 	onCopyPendingCode,
 	onSignOut,
@@ -180,7 +171,6 @@ function GithubAccountsSection({
 	codeCopied: boolean;
 	signingOut: boolean;
 	switchingUserId: number | null;
-	onAddAccount: () => void;
 	onCancelAddAccount: () => void;
 	onCopyPendingCode: () => void;
 	onSignOut: () => void;
@@ -191,17 +181,8 @@ function GithubAccountsSection({
 			<div className="mb-3 flex items-center justify-between gap-3">
 				<div className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
 					<GithubBrandIcon size={14} />
-					<span>GitHub accounts</span>
+					<span>GitHub CLI account</span>
 				</div>
-				<Button
-					variant="outline"
-					size="sm"
-					onClick={onAddAccount}
-					disabled={!!pendingFlow}
-				>
-					<Plus className="size-3.5" strokeWidth={1.8} />
-					Add account
-				</Button>
 			</div>
 			{pendingFlow ? (
 				<div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/25 px-3 py-2">
@@ -241,7 +222,7 @@ function GithubAccountsSection({
 				</div>
 			) : (
 				<div className="rounded-md border border-dashed border-border/70 px-3 py-3 text-[12px] text-muted-foreground">
-					No GitHub account connected.
+					GitHub CLI is not connected.
 				</div>
 			)}
 		</div>

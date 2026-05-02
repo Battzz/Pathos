@@ -1,24 +1,20 @@
 //! GitHub GraphQL helpers used by in-app features that talk directly to
 //! api.github.com (e.g. the commit button's post-stream PR verification).
 //!
-//! Unlike `github_cli.rs`, which shells out to `gh`, this module goes straight
-//! to the v4 GraphQL endpoint using the OAuth access token persisted by the
-//! device-flow identity stored in `auth.rs`. It exists so Pathos can look up
-//! PR state without requiring `gh` to be installed on the user's machine.
+//! GitHub access goes through the local `gh` CLI so Pathos uses the same
+//! account and credential store as the user's terminal.
 
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Utc};
-use reqwest::blocking::Client;
-use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use serde_json::json;
 use std::collections::BTreeMap;
 
 use crate::forge::{
     ActionProvider, ActionStatusKind, ChangeRequestInfo, ForgeActionItem, ForgeActionStatus,
     RemoteState,
 };
-use crate::{auth, error::ErrorCode, git_ops, models::workspaces as workspace_models};
+use crate::{error::ErrorCode, git_ops, github_cli, models::workspaces as workspace_models};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,38 +32,27 @@ struct GithubCheckRunOutput {
     text: Option<String>,
 }
 
-/// Send a blocking HTTP request with up to 2 retries on transient network
-/// failures (TLS handshake, connect, timeout, connection reset). JSON bodies
-/// are always cloneable via `try_clone`; on the rare non-cloneable case we
-/// fall through to a single send.
-fn send_with_retry(
-    builder: reqwest::blocking::RequestBuilder,
-) -> reqwest::Result<reqwest::blocking::Response> {
-    const BACKOFF_MS: [u64; 2] = [200, 500];
-    for &delay in &BACKOFF_MS {
-        let Some(attempt) = builder.try_clone() else {
-            return builder.send();
-        };
-        match attempt.send() {
-            Ok(resp) => return Ok(resp),
-            Err(e) if is_transient_network_error(&e) => {
-                std::thread::sleep(std::time::Duration::from_millis(delay));
-            }
-            Err(e) => return Err(e),
-        }
+fn gh_graphql<T>(query: &str, variables: &[(&str, &str)], context: &str) -> Result<Option<T>>
+where
+    T: DeserializeOwned,
+{
+    let mut args = vec![
+        "graphql".to_string(),
+        "-f".to_string(),
+        format!("query={query}"),
+    ];
+    for (key, value) in variables {
+        args.push("-f".to_string());
+        args.push(format!("{key}={value}"));
     }
-    builder.send()
+    github_cli::github_api_json(args, context)
 }
 
-fn is_transient_network_error(err: &reqwest::Error) -> bool {
-    if err.is_connect() || err.is_timeout() {
-        return true;
-    }
-    let msg = err.to_string().to_lowercase();
-    msg.contains("tls handshake")
-        || msg.contains("handshake eof")
-        || msg.contains("connection reset")
-        || msg.contains("connection closed")
+fn gh_rest<T>(path: String, context: &str) -> Result<Option<T>>
+where
+    T: DeserializeOwned,
+{
+    github_cli::github_api_json(vec![path], context)
 }
 /// Look up the (most recent) pull request matching this workspace's current
 /// branch on GitHub.
@@ -109,15 +94,6 @@ pub fn lookup_workspace_pr(workspace_id: &str) -> Result<Option<ChangeRequestInf
         return Ok(None);
     }
 
-    let Some(access_token) = auth::load_valid_github_access_token()? else {
-        // User isn't connected, or their refresh token has expired.
-        return Ok(None);
-    };
-
-    let client = Client::builder()
-        .build()
-        .context("Failed to build GitHub HTTP client")?;
-
     let query = r#"
 query($owner: String!, $name: String!, $head: String!) {
   repository(owner: $owner, name: $name) {
@@ -134,41 +110,14 @@ query($owner: String!, $name: String!, $head: String!) {
 }
 "#;
 
-    let body = json!({
-        "query": query,
-        "variables": {
-            "owner": owner,
-            "name": name,
-            "head": branch,
-        },
-    });
-
-    let response = send_with_retry(
-        client
-            .post("https://api.github.com/graphql")
-            .header(USER_AGENT, "Pathos")
-            .header(ACCEPT, "application/json")
-            .header(CONTENT_TYPE, "application/json")
-            .header(AUTHORIZATION, format!("Bearer {access_token}"))
-            .json(&body),
-    )
-    .context("Failed to reach GitHub GraphQL API")?;
-
-    let status = response.status();
-    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        // Token was rejected — treat as "not connected" rather than erroring.
+    let Some(parsed) = gh_graphql::<GraphqlEnvelope>(
+        query,
+        &[("owner", &owner), ("name", &name), ("head", branch)],
+        "workspace PR lookup",
+    )?
+    else {
         return Ok(None);
-    }
-    if !status.is_success() {
-        return Err(anyhow!(
-            "GitHub GraphQL API returned HTTP {status}: {}",
-            response.text().unwrap_or_default()
-        ));
-    }
-
-    let parsed: GraphqlEnvelope = response
-        .json()
-        .context("Failed to decode GitHub GraphQL response")?;
+    };
 
     if let Some(errors) = &parsed.errors {
         if !errors.is_empty() {
@@ -217,7 +166,7 @@ query($owner: String!, $name: String!, $head: String!) {
 
 /// Full PR action status for the inspector Actions panel.
 ///
-/// Missing GitHub configuration, missing OAuth, inaccessible repositories, and
+/// Missing GitHub CLI auth, inaccessible repositories, and
 /// "no PR for this branch" are represented in the returned status instead of
 /// bubbling as command errors. That keeps the local Git rows usable even when
 /// remote status cannot be queried.
@@ -253,17 +202,16 @@ pub fn lookup_workspace_pr_action_status(workspace_id: &str) -> Result<ForgeActi
     if !workspace_branch_has_remote_tracking(&record) {
         return Ok(ForgeActionStatus::no_change_request());
     }
-    let Some(access_token) = auth::load_valid_github_access_token()? else {
+    if !matches!(
+        github_cli::get_github_cli_status()?,
+        github_cli::GithubCliStatus::Ready { .. }
+    ) {
         return Ok(ForgeActionStatus::unavailable(
-            "GitHub account is not connected",
+            "GitHub CLI is not connected",
         ));
-    };
+    }
 
-    let client = Client::builder()
-        .build()
-        .context("Failed to build GitHub HTTP client")?;
-
-    let status = query_workspace_pr_action_status(&client, &access_token, owner, name, branch)
+    let status = query_workspace_pr_action_status(owner, name, branch)
         .unwrap_or_else(|error| ForgeActionStatus::error(format!("{error:#}")));
 
     Ok(status)
@@ -283,25 +231,15 @@ pub fn lookup_workspace_pr_check_insert_text(workspace_id: &str, item_id: &str) 
     let Some(branch) = record.branch.as_deref().filter(|b| !b.is_empty()) else {
         bail!("Workspace has no current branch");
     };
-    let Some(access_token) = auth::load_valid_github_access_token()? else {
-        crate::bail_coded!(
-            ErrorCode::ForgeOnboarding,
-            "GitHub account is not connected"
-        );
-    };
+    if !matches!(
+        github_cli::get_github_cli_status()?,
+        github_cli::GithubCliStatus::Ready { .. }
+    ) {
+        crate::bail_coded!(ErrorCode::ForgeOnboarding, "GitHub CLI is not connected");
+    }
 
-    let client = Client::builder()
-        .build()
-        .context("Failed to build GitHub HTTP client")?;
-
-    let action_status = query_workspace_pr_action_status(
-        &client,
-        &access_token,
-        owner.clone(),
-        name.clone(),
-        branch,
-    )
-    .context("Failed to load current PR action status")?;
+    let action_status = query_workspace_pr_action_status(owner.clone(), name.clone(), branch)
+        .context("Failed to load current PR action status")?;
 
     let item = action_status
         .checks
@@ -313,9 +251,7 @@ pub fn lookup_workspace_pr_check_insert_text(workspace_id: &str, item_id: &str) 
         .id
         .strip_prefix("check-run-")
         .and_then(|value| value.parse::<i64>().ok())
-        .map(|check_run_id| {
-            query_check_run_detail(&client, &access_token, &owner, &name, check_run_id)
-        })
+        .map(|check_run_id| query_check_run_detail(&owner, &name, check_run_id))
         .transpose()
         .context("Failed to load check run details")?;
 
@@ -323,8 +259,6 @@ pub fn lookup_workspace_pr_check_insert_text(workspace_id: &str, item_id: &str) 
 }
 
 fn query_workspace_pr_action_status(
-    client: &Client,
-    access_token: &str,
     owner: String,
     name: String,
     branch: &str,
@@ -388,40 +322,16 @@ query($owner: String!, $name: String!, $head: String!) {
 }
 "#;
 
-    let body = json!({
-        "query": query,
-        "variables": {
-            "owner": owner,
-            "name": name,
-            "head": branch,
-        },
-    });
-
-    let response = send_with_retry(
-        client
-            .post("https://api.github.com/graphql")
-            .header(USER_AGENT, "Pathos")
-            .header(ACCEPT, "application/json")
-            .header(CONTENT_TYPE, "application/json")
-            .header(AUTHORIZATION, format!("Bearer {access_token}"))
-            .json(&body),
-    )
-    .context("Failed to reach GitHub GraphQL API")?;
-
-    let status = response.status();
-    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        return Ok(ForgeActionStatus::unavailable("GitHub token was rejected"));
-    }
-    if !status.is_success() {
-        return Ok(ForgeActionStatus::error(format!(
-            "GitHub GraphQL API returned HTTP {status}: {}",
-            response.text().unwrap_or_default()
-        )));
-    }
-
-    let parsed: ActionGraphqlEnvelope = response
-        .json()
-        .context("Failed to decode GitHub GraphQL action status response")?;
+    let Some(parsed) = gh_graphql::<ActionGraphqlEnvelope>(
+        query,
+        &[("owner", &owner), ("name", &name), ("head", branch)],
+        "workspace PR action status",
+    )?
+    else {
+        return Ok(ForgeActionStatus::unavailable(
+            "GitHub CLI is not connected",
+        ));
+    };
 
     if let Some(errors) = &parsed.errors {
         if !errors.is_empty() {
@@ -457,34 +367,15 @@ query($owner: String!, $name: String!, $head: String!) {
 }
 
 fn query_check_run_detail(
-    client: &Client,
-    access_token: &str,
     owner: &str,
     name: &str,
     check_run_id: i64,
 ) -> Result<GithubCheckRunDetail> {
-    let response = send_with_retry(
-        client
-            .get(format!(
-                "https://api.github.com/repos/{owner}/{name}/check-runs/{check_run_id}"
-            ))
-            .header(USER_AGENT, "Pathos")
-            .header(ACCEPT, "application/vnd.github+json")
-            .header(AUTHORIZATION, format!("Bearer {access_token}")),
-    )
-    .context("Failed to reach GitHub REST API")?;
-
-    let status = response.status();
-    if !status.is_success() {
-        return Err(anyhow!(
-            "GitHub check run API returned HTTP {status}: {}",
-            response.text().unwrap_or_default()
-        ));
-    }
-
-    response
-        .json::<GithubCheckRunDetail>()
-        .context("Failed to decode GitHub check run response")
+    gh_rest(
+        format!("/repos/{owner}/{name}/check-runs/{check_run_id}"),
+        "check run detail",
+    )?
+    .context("GitHub CLI is not connected")
 }
 
 /// Merge a workspace's open PR via the GitHub GraphQL `mergePullRequest`
@@ -498,11 +389,6 @@ pub fn merge_workspace_pr(workspace_id: &str) -> Result<Option<ChangeRequestInfo
     if pr.state != "OPEN" {
         bail!("PR #{} is not open (state: {})", pr.number, pr.state);
     }
-
-    let access_token = auth::load_valid_github_access_token()?;
-    let Some(access_token) = access_token else {
-        return Ok(None);
-    };
 
     // We need the PR's GraphQL node ID. Re-query with node ID included.
     let Some(record) = workspace_models::load_workspace_record_by_id(workspace_id)? else {
@@ -518,10 +404,6 @@ pub fn merge_workspace_pr(workspace_id: &str) -> Result<Option<ChangeRequestInfo
         return Ok(None);
     };
 
-    let client = Client::builder()
-        .build()
-        .context("Failed to build GitHub HTTP client")?;
-
     // Fetch PR node ID
     let id_query = r#"
 query($owner: String!, $name: String!, $head: String!) {
@@ -532,23 +414,14 @@ query($owner: String!, $name: String!, $head: String!) {
   }
 }
 "#;
-    let id_body = json!({
-        "query": id_query,
-        "variables": { "owner": owner, "name": name, "head": branch },
-    });
-
-    let id_response: GraphqlEnvelope = send_with_retry(
-        client
-            .post("https://api.github.com/graphql")
-            .header(USER_AGENT, "Pathos")
-            .header(ACCEPT, "application/json")
-            .header(CONTENT_TYPE, "application/json")
-            .header(AUTHORIZATION, format!("Bearer {access_token}"))
-            .json(&id_body),
-    )
-    .context("Failed to reach GitHub GraphQL API")?
-    .json()
-    .context("Failed to decode GraphQL response")?;
+    let Some(id_response) = gh_graphql::<GraphqlEnvelope>(
+        id_query,
+        &[("owner", &owner), ("name", &name), ("head", branch)],
+        "open PR node lookup",
+    )?
+    else {
+        return Ok(None);
+    };
 
     let pr_node_id = id_response
         .data
@@ -567,23 +440,14 @@ mutation($prId: ID!) {
   }
 }
 "#;
-    let merge_body = json!({
-        "query": merge_mutation,
-        "variables": { "prId": pr_node_id },
-    });
-
-    let merge_response: serde_json::Value = send_with_retry(
-        client
-            .post("https://api.github.com/graphql")
-            .header(USER_AGENT, "Pathos")
-            .header(ACCEPT, "application/json")
-            .header(CONTENT_TYPE, "application/json")
-            .header(AUTHORIZATION, format!("Bearer {access_token}"))
-            .json(&merge_body),
-    )
-    .context("Failed to call mergePullRequest")?
-    .json()
-    .context("Failed to decode merge response")?;
+    let Some(merge_response) = gh_graphql::<serde_json::Value>(
+        merge_mutation,
+        &[("prId", &pr_node_id)],
+        "mergePullRequest",
+    )?
+    else {
+        return Ok(None);
+    };
 
     if let Some(errors) = merge_response.get("errors") {
         if let Some(arr) = errors.as_array() {
@@ -612,11 +476,6 @@ pub fn close_workspace_pr(workspace_id: &str) -> Result<Option<ChangeRequestInfo
         bail!("PR #{} is not open (state: {})", pr.number, pr.state);
     }
 
-    let access_token = auth::load_valid_github_access_token()?;
-    let Some(access_token) = access_token else {
-        return Ok(None);
-    };
-
     let Some(record) = workspace_models::load_workspace_record_by_id(workspace_id)? else {
         bail!("Workspace not found: {workspace_id}");
     };
@@ -630,10 +489,6 @@ pub fn close_workspace_pr(workspace_id: &str) -> Result<Option<ChangeRequestInfo
         return Ok(None);
     };
 
-    let client = Client::builder()
-        .build()
-        .context("Failed to build GitHub HTTP client")?;
-
     // Fetch PR node ID
     let id_query = r#"
 query($owner: String!, $name: String!, $head: String!) {
@@ -644,23 +499,14 @@ query($owner: String!, $name: String!, $head: String!) {
   }
 }
 "#;
-    let id_body = json!({
-        "query": id_query,
-        "variables": { "owner": owner, "name": name, "head": branch },
-    });
-
-    let id_response: GraphqlEnvelope = send_with_retry(
-        client
-            .post("https://api.github.com/graphql")
-            .header(USER_AGENT, "Pathos")
-            .header(ACCEPT, "application/json")
-            .header(CONTENT_TYPE, "application/json")
-            .header(AUTHORIZATION, format!("Bearer {access_token}"))
-            .json(&id_body),
-    )
-    .context("Failed to reach GitHub GraphQL API")?
-    .json()
-    .context("Failed to decode GraphQL response")?;
+    let Some(id_response) = gh_graphql::<GraphqlEnvelope>(
+        id_query,
+        &[("owner", &owner), ("name", &name), ("head", branch)],
+        "open PR node lookup",
+    )?
+    else {
+        return Ok(None);
+    };
 
     let pr_node_id = id_response
         .data
@@ -678,23 +524,14 @@ mutation($prId: ID!) {
   }
 }
 "#;
-    let close_body = json!({
-        "query": close_mutation,
-        "variables": { "prId": pr_node_id },
-    });
-
-    let close_response: serde_json::Value = send_with_retry(
-        client
-            .post("https://api.github.com/graphql")
-            .header(USER_AGENT, "Pathos")
-            .header(ACCEPT, "application/json")
-            .header(CONTENT_TYPE, "application/json")
-            .header(AUTHORIZATION, format!("Bearer {access_token}"))
-            .json(&close_body),
-    )
-    .context("Failed to call closePullRequest")?
-    .json()
-    .context("Failed to decode close response")?;
+    let Some(close_response) = gh_graphql::<serde_json::Value>(
+        close_mutation,
+        &[("prId", &pr_node_id)],
+        "closePullRequest",
+    )?
+    else {
+        return Ok(None);
+    };
 
     if let Some(errors) = close_response.get("errors") {
         if let Some(arr) = errors.as_array() {

@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -126,6 +127,82 @@ pub fn get_github_cli_user() -> Result<Option<GithubCliUser>> {
 pub fn list_github_accessible_repositories() -> Result<Vec<GithubRepositorySummary>> {
     let status = get_github_cli_status()?;
     list_github_accessible_repositories_with_status(&SystemGhRunner, &status)
+}
+
+pub fn github_api_json<T>(args: Vec<String>, context: &str) -> Result<Option<T>>
+where
+    T: DeserializeOwned,
+{
+    let status = get_github_cli_status()?;
+    if !github_cli_is_ready(&status) {
+        return Ok(None);
+    }
+
+    let output = match run_gh_api(&SystemGhRunner, args) {
+        Ok(output) => output,
+        Err(GhCommandError::NotFound) => {
+            tracing::warn!("gh binary missing during API call");
+            return Ok(None);
+        }
+        Err(GhCommandError::Failed {
+            stdout,
+            stderr,
+            code,
+        }) => {
+            let detail = command_error_detail(&stdout, &stderr, code);
+            if looks_like_unauthenticated(&detail) {
+                tracing::warn!(code = ?code, detail = %detail, "gh API call unauthenticated");
+                return Ok(None);
+            }
+
+            tracing::warn!(code = ?code, detail = %detail, "gh API call failed");
+            return Err(anyhow!("GitHub CLI API call failed: {detail}"));
+        }
+        Err(GhCommandError::Other(message)) => {
+            tracing::warn!(error = %message, "gh API call failed (IO error)");
+            return Err(anyhow!("GitHub CLI API call failed: {message}"));
+        }
+    };
+
+    serde_json::from_str::<T>(&output.stdout)
+        .with_context(|| format!("Failed to decode GitHub CLI API response for {context}"))
+        .map(Some)
+}
+
+pub fn logout_github_cli() -> Result<()> {
+    let status = get_github_cli_status()?;
+    let GithubCliStatus::Ready { login, .. } = status else {
+        return Ok(());
+    };
+
+    match SystemGhRunner.run([
+        "auth",
+        "logout",
+        "--hostname",
+        GITHUB_HOST,
+        "--user",
+        &login,
+    ]) {
+        Ok(_) => {
+            status_cache::refresh_cached(&SYSTEM_GH_STATUS_CACHE, GITHUB_HOST, || {
+                get_github_cli_status_with(&SystemGhRunner)
+            })?;
+            Ok(())
+        }
+        Err(GhCommandError::NotFound) => Ok(()),
+        Err(GhCommandError::Failed {
+            stdout,
+            stderr,
+            code,
+        }) => {
+            let detail = command_error_detail(&stdout, &stderr, code);
+            if looks_like_unauthenticated(&detail) {
+                return Ok(());
+            }
+            Err(anyhow!("GitHub CLI logout failed: {detail}"))
+        }
+        Err(GhCommandError::Other(message)) => Err(anyhow!("GitHub CLI logout failed: {message}")),
+    }
 }
 
 fn get_github_cli_status_with(runner: &impl GhCommandRunner) -> Result<GithubCliStatus> {
@@ -393,6 +470,16 @@ fn list_github_accessible_repositories_with_status(
             pushed_at: repository.pushed_at,
         })
         .collect())
+}
+
+fn run_gh_api(
+    runner: &impl GhCommandRunner,
+    args: Vec<String>,
+) -> std::result::Result<GhCommandOutput, GhCommandError> {
+    let mut command_args = Vec::with_capacity(args.len() + 1);
+    command_args.push("api".to_string());
+    command_args.extend(args);
+    runner.run(command_args)
 }
 
 fn parse_gh_version(stdout: &str) -> String {

@@ -2,7 +2,6 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const GITHUB_CLIENT_ID_KEY: &str = "PATHOS_GITHUB_CLIENT_ID";
 const UPDATER_ENDPOINTS_KEY: &str = "PATHOS_UPDATER_ENDPOINTS";
 const UPDATER_PUBKEY_KEY: &str = "PATHOS_UPDATER_PUBKEY";
 
@@ -10,11 +9,7 @@ fn main() {
     ensure_external_bin_placeholders();
 
     println!("cargo:rerun-if-changed=build.rs");
-    for key in [
-        GITHUB_CLIENT_ID_KEY,
-        UPDATER_ENDPOINTS_KEY,
-        UPDATER_PUBKEY_KEY,
-    ] {
+    for key in [UPDATER_ENDPOINTS_KEY, UPDATER_PUBKEY_KEY] {
         println!("cargo:rerun-if-env-changed={key}");
     }
 
@@ -25,7 +20,6 @@ fn main() {
         if env_path.exists() {
             println!("cargo:rerun-if-changed={}", env_path.display());
         }
-        load_env_var(&env_path, GITHUB_CLIENT_ID_KEY);
         load_env_var(&env_path, UPDATER_ENDPOINTS_KEY);
         load_env_var(&env_path, UPDATER_PUBKEY_KEY);
     }

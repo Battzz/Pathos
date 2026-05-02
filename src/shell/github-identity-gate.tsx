@@ -101,7 +101,7 @@ export function GithubIdentityGate({
 						<div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
 							<div className="space-y-1">
 								<h1 className="text-lg font-semibold text-foreground">
-									GitHub account connection is not configured
+									GitHub CLI is not available
 								</h1>
 								<p className="text-sm text-muted-foreground">
 									{identityState.message}
@@ -109,7 +109,7 @@ export function GithubIdentityGate({
 							</div>
 							<Button disabled size="lg">
 								<GithubBrandIcon size={16} data-icon="inline-start" />
-								Continue with GitHub
+								Continue with GitHub CLI
 							</Button>
 						</div>
 					) : identityState.status === "checking" ? (
@@ -126,8 +126,8 @@ export function GithubIdentityGate({
 							>
 								<GithubBrandIcon size={16} data-icon="inline-start" />
 								{identityState.status === "error"
-									? "Retry with GitHub"
-									: "Continue with GitHub"}
+									? "Retry GitHub CLI"
+									: "Continue with GitHub CLI"}
 							</Button>
 						</div>
 					)}
