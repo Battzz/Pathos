@@ -397,6 +397,13 @@ export class CodexAppServerManager implements SessionManager {
 
 				if (APPROVAL_METHODS.has(req.method)) {
 					const p = (req.params ?? {}) as Record<string, unknown>;
+					if (codexApproval === "never") {
+						ctx.server.sendResponse(req.id, { decision: "accept" });
+						logger.debug(`Codex approval auto-accepted`, {
+							method: req.method,
+						});
+						return;
+					}
 					const permissionId = `codex-${crypto.randomUUID()}`;
 
 					this.pendingApprovals.set(permissionId, {

@@ -1,19 +1,28 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { WorkspaceDetail, WorkspaceSessionSummary } from "@/lib/api";
+import type {
+	ActionKind,
+	WorkspaceDetail,
+	WorkspaceSessionSummary,
+} from "@/lib/api";
 import { pathosQueryKeys } from "@/lib/query-client";
 
 export function buildOptimisticSession(
 	workspaceId: string,
 	sessionId: string,
 	createdAt: string,
+	options: {
+		title?: string;
+		model?: string | null;
+		actionKind?: ActionKind | null;
+	} = {},
 ): WorkspaceSessionSummary {
 	return {
 		id: sessionId,
 		workspaceId,
-		title: "Untitled",
+		title: options.title ?? "Untitled",
 		agentType: null,
 		status: "idle",
-		model: null,
+		model: options.model ?? null,
 		permissionMode: "default",
 		providerSessionId: null,
 		effortLevel: null,
@@ -23,7 +32,7 @@ export function buildOptimisticSession(
 		updatedAt: createdAt,
 		lastUserMessageAt: null,
 		isHidden: false,
-		actionKind: null,
+		actionKind: options.actionKind ?? null,
 		active: true,
 	};
 }
@@ -35,6 +44,9 @@ type SeedNewSessionInCacheOptions = {
 	workspace?: WorkspaceDetail | null;
 	existingSessions?: WorkspaceSessionSummary[];
 	createdAt?: string;
+	title?: string;
+	model?: string | null;
+	actionKind?: ActionKind | null;
 };
 
 export function seedNewSessionInCache({
@@ -44,11 +56,15 @@ export function seedNewSessionInCache({
 	workspace = null,
 	existingSessions,
 	createdAt = new Date().toISOString(),
+	title,
+	model,
+	actionKind,
 }: SeedNewSessionInCacheOptions): WorkspaceSessionSummary {
 	const optimisticSession = buildOptimisticSession(
 		workspaceId,
 		sessionId,
 		createdAt,
+		{ title, model, actionKind },
 	);
 
 	queryClient.setQueryData(
@@ -62,7 +78,7 @@ export function seedNewSessionInCache({
 			return {
 				...base,
 				activeSessionId: sessionId,
-				activeSessionTitle: "Untitled",
+				activeSessionTitle: optimisticSession.title,
 				activeSessionAgentType: null,
 				activeSessionStatus: "idle",
 				sessionCount:

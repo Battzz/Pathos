@@ -69,6 +69,22 @@ describe("createFilePreviewLoader", () => {
 		});
 	});
 
+	it("resolves relative paths against the workspace root", async () => {
+		mockStat.mockResolvedValue(okStat(24));
+		mockRead.mockResolvedValue({
+			path: "/repo/tweak.xm",
+			content: "%hook Example\n%end\n",
+			mtimeMs: 0,
+		});
+
+		await createFilePreviewLoader("tweak.xm", {
+			workspaceRootPath: "/repo",
+		})();
+
+		expect(mockStat).toHaveBeenCalledWith("/repo/tweak.xm");
+		expect(mockRead).toHaveBeenCalledWith("/repo/tweak.xm");
+	});
+
 	it("short-circuits files larger than the preview cap", async () => {
 		mockStat.mockResolvedValue(okStat(10 * 1024 * 1024));
 

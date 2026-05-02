@@ -153,7 +153,11 @@ export function partStructurallyEqual(
 		}
 		case "custom-tag-mention": {
 			const cb = b as CustomTagMentionPart;
-			return a.label === cb.label && (a.kind ?? null) === (cb.kind ?? null);
+			return (
+				a.label === cb.label &&
+				a.submitText === cb.submitText &&
+				(a.kind ?? null) === (cb.kind ?? null)
+			);
 		}
 		case "plan-review": {
 			const pb = b as PlanReviewPart;

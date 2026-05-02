@@ -21,12 +21,17 @@ import {
 import { Button } from "@/components/ui/button";
 import type { MessagePart } from "@/lib/api";
 import { formatCompactElapsedTime } from "@/lib/compact-relative-time";
+import {
+	type ComposerPreviewPayload,
+	inferComposerPreviewLanguage,
+} from "@/lib/composer-insert";
 import { basename } from "@/lib/path-util";
 import { useSettings } from "@/lib/settings";
 import {
 	CopyMessageButton,
 	serializeMessageForClipboard,
 } from "./copy-message";
+import { useFileLinkContext } from "./file-link-context";
 import type { RenderedMessage } from "./shared";
 import {
 	isCustomTagMentionPart,
@@ -37,7 +42,11 @@ import {
 
 function BubbleFileBadge({ path }: { path: string }) {
 	const fileName = basename(path);
-	const previewLoader = useMemo(() => createFilePreviewLoader(path), [path]);
+	const { workspaceRootPath } = useFileLinkContext();
+	const previewLoader = useMemo(
+		() => createFilePreviewLoader(path, { workspaceRootPath }),
+		[path, workspaceRootPath],
+	);
 	return (
 		<InlineBadge
 			nonSelectable={false}
@@ -72,11 +81,18 @@ function BubbleImageBadge({ path }: { path: string }) {
 
 function BubbleCustomTagBadge({
 	label,
+	submitText,
 	kind,
 }: {
 	label: string;
+	submitText: string;
 	kind?: string | null;
 }) {
+	const preview = useMemo<ComposerPreviewPayload | null>(
+		() => createCustomTagPreview(label, submitText, kind),
+		[label, kind, submitText],
+	);
+
 	return (
 		<InlineBadge
 			nonSelectable={false}
@@ -91,8 +107,31 @@ function BubbleCustomTagBadge({
 				/>
 			}
 			label={label}
+			preview={preview}
 		/>
 	);
+}
+
+function createCustomTagPreview(
+	label: string,
+	submitText: string,
+	kind?: string | null,
+): ComposerPreviewPayload | null {
+	if (!submitText.trim()) return null;
+	const language = inferComposerPreviewLanguage(submitText);
+	if (kind === "code" || language) {
+		return {
+			kind: "code",
+			title: label,
+			code: submitText,
+			...(language ? { language } : {}),
+		};
+	}
+	return {
+		kind: "text",
+		title: label,
+		text: submitText,
+	};
 }
 
 let minuteTickerIntervalId: number | null = null;
@@ -318,6 +357,7 @@ export function ChatUserMessage({
 										<BubbleCustomTagBadge
 											key={index}
 											label={part.label}
+											submitText={part.submitText}
 											kind={part.kind ?? null}
 										/>
 									);

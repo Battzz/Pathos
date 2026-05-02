@@ -126,7 +126,8 @@ export function isCustomTagMentionPart(
 	return (
 		isObj(part) &&
 		part.type === "custom-tag-mention" &&
-		typeof part.label === "string"
+		typeof part.label === "string" &&
+		typeof part.submitText === "string"
 	);
 }
 

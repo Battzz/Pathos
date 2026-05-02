@@ -98,6 +98,8 @@ pub enum NormPart {
     },
     CustomTagMention {
         label: String,
+        submit_text_length: usize,
+        submit_text_preview: String,
         kind: Option<String>,
     },
 }
@@ -254,8 +256,15 @@ fn normalize_basic(part: &MessagePart) -> NormPart {
         },
         MessagePart::FileMention { path, .. } => NormPart::FileMention { path: path.clone() },
         MessagePart::ImageMention { path, .. } => NormPart::ImageMention { path: path.clone() },
-        MessagePart::CustomTagMention { label, kind, .. } => NormPart::CustomTagMention {
+        MessagePart::CustomTagMention {
+            label,
+            submit_text,
+            kind,
+            ..
+        } => NormPart::CustomTagMention {
             label: label.clone(),
+            submit_text_length: submit_text.len(),
+            submit_text_preview: truncate(submit_text),
             kind: kind.clone(),
         },
     }

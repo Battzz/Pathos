@@ -445,6 +445,7 @@ describe("splitTextWithFiles", () => {
 				type: "custom-tag-mention",
 				id: "m1:mention:0",
 				label: "Pasted text",
+				submitText: "--PASTED-CONTENT--",
 				kind: "text",
 			},
 			{ type: "text", id: "m1:txt:1", text: " suffix" },

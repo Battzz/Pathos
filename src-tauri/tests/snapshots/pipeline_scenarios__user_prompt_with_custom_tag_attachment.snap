@@ -10,6 +10,8 @@ expression: run_normalized(msgs)
       text: "look at "
     - type: custom-tag-mention
       label: Pasted ticket
+      submit_text_length: 24
+      submit_text_preview: "--PASTED--TICKET--BODY--"
       kind: text
     - type: text
       text: " and fix it"

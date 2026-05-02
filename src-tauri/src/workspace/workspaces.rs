@@ -335,7 +335,6 @@ fn load_chats_for_workspace(record: &WorkspaceRecord) -> Result<Vec<RepositoryFo
         FROM sessions
         WHERE workspace_id = ?1
           AND COALESCE(is_hidden, 0) = 0
-          AND action_kind IS NULL
           AND EXISTS (
             SELECT 1
             FROM session_messages
@@ -1422,6 +1421,51 @@ mod tests {
 
         assert_eq!(folder.chats.len(), 1);
         assert_eq!(folder.chats[0].session_id, "s-started");
+    }
+
+    #[test]
+    fn repository_folders_keep_started_action_chats() {
+        let env = TestEnv::new("folders-keep-action-chats");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        conn.execute(
+            r#"
+            INSERT INTO workspaces (
+              id,
+              repository_id,
+              directory_name,
+              state,
+              status,
+              kind,
+              branch
+            ) VALUES ('w-project', 'r1', '', 'ready', 'in-progress', 'project', 'main')
+            "#,
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, workspace_id, status, title, action_kind) VALUES ('s-action', 'w-project', 'idle', 'Create PR', 'create-pr')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO session_messages (id, session_id, role, content, sent_at)
+            VALUES ('m-action', 's-action', 'user', '{"type":"user_prompt","text":"create a pr"}', datetime('now'))
+            "#,
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let folders = list_repository_folders().unwrap();
+        let folder = folders
+            .iter()
+            .find(|folder| folder.repo_id == "r1")
+            .unwrap();
+
+        assert_eq!(folder.chats.len(), 1);
+        assert_eq!(folder.chats[0].session_id, "s-action");
     }
 
     #[test]

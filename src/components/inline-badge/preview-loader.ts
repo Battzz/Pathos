@@ -31,23 +31,45 @@ export function clearInlineBadgePreviewCache(): void {
 	previewCache.clear();
 }
 
+export type FilePreviewLoaderOptions = {
+	workspaceRootPath?: string | null;
+};
+
 export function createFilePreviewLoader(
 	path: string,
+	options: FilePreviewLoaderOptions = {},
 ): () => Promise<ComposerPreviewPayload> {
+	const previewPath = resolveFilePreviewPath(path, options.workspaceRootPath);
 	return () => {
-		const existing = previewCache.get(path);
+		const existing = previewCache.get(previewPath);
 		if (existing) return existing;
 
-		const pending = loadFilePreview(path);
-		previewCache.set(path, pending);
+		const pending = loadFilePreview(previewPath);
+		previewCache.set(previewPath, pending);
 
 		// On failure, evict so the next hover gets a retry.
 		pending.catch(() => {
-			previewCache.delete(path);
+			previewCache.delete(previewPath);
 		});
 
 		return pending;
 	};
+}
+
+export function resolveFilePreviewPath(
+	path: string,
+	workspaceRootPath?: string | null,
+): string {
+	const normalizedPath = path.replace(/\\/g, "/");
+	if (!normalizedPath || normalizedPath.startsWith("/") || !workspaceRootPath) {
+		return normalizedPath;
+	}
+
+	const normalizedRoot = workspaceRootPath
+		.replace(/\\/g, "/")
+		.replace(/\/+$/, "");
+	const relativePath = normalizedPath.replace(/^\.?\//, "");
+	return `${normalizedRoot}/${relativePath}`;
 }
 
 async function loadFilePreview(path: string): Promise<ComposerPreviewPayload> {

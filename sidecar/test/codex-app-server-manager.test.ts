@@ -10,11 +10,24 @@ type RequestRecord = {
 	params: unknown;
 };
 
+type ResponseRecord = {
+	requestId: string | number;
+	result: unknown;
+};
+
 const serverState = {
 	requests: [] as RequestRecord[],
+	responses: [] as ResponseRecord[],
 	onNotification: null as
 		| null
 		| ((notification: { method: string; params?: unknown }) => void),
+	onRequest: null as
+		| null
+		| ((request: {
+				id: string | number;
+				method: string;
+				params?: unknown;
+		  }) => void | Promise<void>),
 	/** Optional hook tests use to inject extra notifications between
 	 *  `turn/started` and `turn/completed` (e.g. `thread/tokenUsage/updated`). */
 	beforeTurnCompleted: null as null | (() => void),
@@ -56,14 +69,21 @@ class MockCodexAppServer {
 			method: string;
 			params?: unknown;
 		}) => void,
-		_onRequest: unknown,
+		onRequest: (request: {
+			id: string | number;
+			method: string;
+			params?: unknown;
+		}) => void | Promise<void>,
 	): void {
 		serverState.onNotification = onNotification;
+		serverState.onRequest = onRequest;
 	}
 
 	setActiveRequestId(_id: string): void {}
 
-	sendResponse(_requestId: string | number, _result: unknown): void {}
+	sendResponse(requestId: string | number, result: unknown): void {
+		serverState.responses.push({ requestId, result });
+	}
 	kill(): void {
 		this.killed = true;
 	}
@@ -86,7 +106,9 @@ describe("CodexAppServerManager", () => {
 
 	beforeEach(() => {
 		serverState.requests = [];
+		serverState.responses = [];
 		serverState.onNotification = null;
+		serverState.onRequest = null;
 		serverState.beforeTurnCompleted = null;
 		gitAccessState.directories = [];
 		emitter = createSidecarEmitter(() => {});
@@ -285,6 +307,86 @@ describe("CodexAppServerManager", () => {
 				},
 			}),
 		);
+	});
+
+	test("bypassPermissions auto-accepts Codex approval requests without emitting a permission prompt", async () => {
+		const manager = new CodexAppServerManager();
+		const captured: Array<Record<string, unknown>> = [];
+		emitter = createSidecarEmitter((event) => {
+			captured.push(event as Record<string, unknown>);
+		});
+		serverState.beforeTurnCompleted = () => {
+			void serverState.onRequest?.({
+				id: "approval-read-app",
+				method: "item/fileRead/requestApproval",
+				params: { path: "/Applications/Cursor.app/Contents/Info.plist" },
+			});
+		};
+
+		await manager.sendMessage(
+			"REQ-codex-bypass-approval",
+			{
+				sessionId: "session-codex-bypass-approval",
+				prompt: "check the installed app",
+				model: "gpt-5.4",
+				cwd: "/tmp",
+				resume: undefined,
+				permissionMode: "bypassPermissions",
+				effortLevel: "medium",
+				fastMode: false,
+			},
+			emitter,
+		);
+
+		expect(serverState.responses).toContainEqual({
+			requestId: "approval-read-app",
+			result: { decision: "accept" },
+		});
+		expect(captured.some((event) => event.type === "permissionRequest")).toBe(
+			false,
+		);
+	});
+
+	test("default permission mode still emits Codex approval requests as permission prompts", async () => {
+		const manager = new CodexAppServerManager();
+		const captured: Array<Record<string, unknown>> = [];
+		emitter = createSidecarEmitter((event) => {
+			captured.push(event as Record<string, unknown>);
+		});
+		serverState.beforeTurnCompleted = () => {
+			void serverState.onRequest?.({
+				id: "approval-open-app",
+				method: "item/commandExecution/requestApproval",
+				params: { command: "open -a Cursor ." },
+			});
+		};
+
+		await manager.sendMessage(
+			"REQ-codex-default-approval",
+			{
+				sessionId: "session-codex-default-approval",
+				prompt: "open the app",
+				model: "gpt-5.4",
+				cwd: "/tmp",
+				resume: undefined,
+				permissionMode: "default",
+				effortLevel: "medium",
+				fastMode: false,
+			},
+			emitter,
+		);
+
+		expect(
+			captured.find((event) => event.type === "permissionRequest"),
+		).toMatchObject({
+			id: "REQ-codex-default-approval",
+			toolName: "Bash",
+			toolInput: { command: "open -a Cursor ." },
+		});
+		expect(serverState.responses).not.toContainEqual({
+			requestId: "approval-open-app",
+			result: { decision: "accept" },
+		});
 	});
 
 	test("prepends a linked-directories preamble to the turn input", async () => {

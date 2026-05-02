@@ -92,7 +92,11 @@ pub(crate) struct UserCustomTag {
 enum MentionKind {
     File(String),
     Image(String),
-    CustomTag { label: String, kind: Option<String> },
+    CustomTag {
+        label: String,
+        submit_text: String,
+        kind: Option<String>,
+    },
 }
 
 /// Split `text` on `@<file>`, `@<image>`, and `customTag.submit_text`
@@ -142,6 +146,7 @@ pub(crate) fn split_user_text_with_files(
             tag.submit_text.clone(),
             MentionKind::CustomTag {
                 label: tag.label.clone(),
+                submit_text: tag.submit_text.clone(),
                 kind: tag.kind.clone(),
             },
         ));
@@ -192,9 +197,16 @@ pub(crate) fn split_user_text_with_files(
         parts.push(match kind {
             MentionKind::File(path) => MessagePart::FileMention { id, path },
             MentionKind::Image(path) => MessagePart::ImageMention { id, path },
-            MentionKind::CustomTag { label, kind } => {
-                MessagePart::CustomTagMention { id, label, kind }
-            }
+            MentionKind::CustomTag {
+                label,
+                submit_text,
+                kind,
+            } => MessagePart::CustomTagMention {
+                id,
+                label,
+                submit_text,
+                kind,
+            },
         });
         cursor = end;
     }

@@ -585,7 +585,12 @@ export type LiveCustomTag = {
 type Mention =
 	| { kind: "file"; path: string }
 	| { kind: "image"; path: string }
-	| { kind: "custom-tag"; label: string; tagKind?: string | null };
+	| {
+			kind: "custom-tag";
+			label: string;
+			submitText: string;
+			tagKind?: string | null;
+	  };
 
 /**
  * Split `text` on `@<file>`, `@<image>`, and `customTag.submitText`
@@ -632,6 +637,7 @@ export function splitTextWithFiles(
 			mention: {
 				kind: "custom-tag",
 				label: tag.label,
+				submitText: tag.submitText,
 				tagKind: tag.kind ?? null,
 			},
 		});
@@ -673,6 +679,7 @@ export function splitTextWithFiles(
 				type: "custom-tag-mention",
 				id,
 				label: m.mention.label,
+				submitText: m.mention.submitText,
 				kind: m.mention.tagKind ?? null,
 			});
 		}

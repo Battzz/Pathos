@@ -7,6 +7,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { seedNewSessionInCache } from "@/features/panel/session-cache";
 import {
 	type ChangeRequestInfo,
 	closeWorkspaceChangeRequest,
@@ -40,6 +41,7 @@ import { DEFAULT_SETTINGS, useSettings } from "@/lib/settings";
 import { moveWorkspaceToGroup } from "@/lib/workspace-helpers";
 import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import type { CommitButtonState, WorkspaceCommitButtonMode } from "../button";
+import { getCommitButtonLabel } from "../button";
 
 /**
  * Derive the workspace lane this PR state implies. Mirrors the backend's
@@ -55,6 +57,39 @@ function deriveStatusFromChangeRequest(
 	if (changeRequest.state === "OPEN") return "review";
 	if (changeRequest.state === "CLOSED") return "canceled";
 	return null;
+}
+
+function getActionSuccessTitle(
+	mode: WorkspaceCommitButtonMode,
+	changeRequestName: string,
+): string {
+	return getCommitButtonLabel(mode, "done", changeRequestName);
+}
+
+function getActionSuccessDescription(
+	mode: WorkspaceCommitButtonMode,
+	changeRequestName: string,
+): string {
+	switch (mode) {
+		case "create-pr":
+			return `${changeRequestName} created successfully.`;
+		case "open-pr":
+			return `${changeRequestName} reopened successfully.`;
+		case "commit-and-push":
+			return "Changes committed and pushed successfully.";
+		case "push":
+			return "Branch pushed successfully.";
+		case "fix":
+			return "Action completed successfully.";
+		case "resolve-conflicts":
+			return "Conflict resolution completed successfully.";
+		case "merge":
+			return `${changeRequestName} merged successfully.`;
+		case "closed":
+			return `${changeRequestName} closed successfully.`;
+		case "merged":
+			return `${changeRequestName} is already merged.`;
+	}
 }
 
 /**
@@ -125,6 +160,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
 type CommitLifecycle = {
 	workspaceId: string;
 	trackedSessionId: string | null;
+	previousSessionId: string | null;
 	mode: WorkspaceCommitButtonMode;
 	phase: "creating" | "streaming" | "verifying" | "done" | "error";
 	changeRequest: ChangeRequestInfo | null;
@@ -230,6 +266,10 @@ export function useWorkspaceCommitLifecycle({
 
 			completedSessionHandledRef.current = null;
 			console.log("[commitButton] begin", { mode, workspaceId });
+			const previousSessionId =
+				queryClient.getQueryData<WorkspaceDetail | null>(
+					pathosQueryKeys.workspaceDetail(workspaceId),
+				)?.activeSessionId ?? null;
 
 			if (mode === "merge" || mode === "closed") {
 				// ── Merge pre-validation ─────────────────────────────────
@@ -278,6 +318,7 @@ export function useWorkspaceCommitLifecycle({
 				setCommitLifecycle({
 					workspaceId,
 					trackedSessionId: null,
+					previousSessionId,
 					mode,
 					phase: "done",
 					changeRequest: optimisticChangeRequest,
@@ -305,6 +346,11 @@ export function useWorkspaceCommitLifecycle({
 						queryClient.setQueryData(
 							pathosQueryKeys.workspaceChangeRequest(workspaceId),
 							result,
+						);
+						pushToast?.(
+							getActionSuccessDescription(mode, changeRequestName),
+							getActionSuccessTitle(mode, changeRequestName),
+							"default",
 						);
 					} catch (error) {
 						console.error(`[commitButton] ${mode} failed:`, error);
@@ -335,6 +381,7 @@ export function useWorkspaceCommitLifecycle({
 			setCommitLifecycle({
 				workspaceId,
 				trackedSessionId: null,
+				previousSessionId,
 				mode,
 				phase: "creating",
 				changeRequest: null,
@@ -343,6 +390,11 @@ export function useWorkspaceCommitLifecycle({
 			if (mode === "push") {
 				try {
 					await pushWorkspaceToRemote(workspaceId);
+					pushToast?.(
+						getActionSuccessDescription(mode, changeRequestName),
+						getActionSuccessTitle(mode, changeRequestName),
+						"default",
+					);
 					setCommitLifecycle((current) =>
 						current ? { ...current, phase: "done" } : current,
 					);
@@ -368,6 +420,14 @@ export function useWorkspaceCommitLifecycle({
 				const { sessionId } = await createSession(workspaceId, {
 					actionKind: mode,
 					modelId: commitActionModelId,
+				});
+				seedNewSessionInCache({
+					queryClient,
+					workspaceId,
+					sessionId,
+					model: commitActionModelId,
+					actionKind: mode,
+					title: getCommitButtonLabel(mode, "idle", changeRequestName),
 				});
 				const repoPreferences = selectedRepoId
 					? await loadRepoPreferences(selectedRepoId)
@@ -560,6 +620,17 @@ export function useWorkspaceCommitLifecycle({
 					};
 				});
 				refreshWorkspaceRemoteStatus(workspaceId);
+				void queryClient.invalidateQueries({
+					queryKey: pathosQueryKeys.repositoryFolders,
+				});
+				void queryClient.invalidateQueries({
+					queryKey: pathosQueryKeys.genericChats,
+				});
+				pushToast?.(
+					getActionSuccessDescription(current.mode, changeRequestName),
+					getActionSuccessTitle(current.mode, changeRequestName),
+					"default",
+				);
 			} catch (error) {
 				console.error("[commitButton] PR lookup failed:", error);
 				pushToast?.(
@@ -591,7 +662,8 @@ export function useWorkspaceCommitLifecycle({
 			return;
 		}
 
-		const { phase, mode, trackedSessionId, workspaceId } = commitLifecycle;
+		const { phase, mode, previousSessionId, trackedSessionId, workspaceId } =
+			commitLifecycle;
 
 		if (phase === "done") {
 			if (mode !== "merge" && mode !== "closed") {
@@ -618,7 +690,12 @@ export function useWorkspaceCommitLifecycle({
 					const detail = queryClient.getQueryData<WorkspaceDetail | null>(
 						pathosQueryKeys.workspaceDetail(workspaceId),
 					);
-					onSelectSession(detail?.activeSessionId ?? null);
+					const nextSessionId =
+						detail?.activeSessionId &&
+						detail.activeSessionId !== trackedSessionId
+							? detail.activeSessionId
+							: previousSessionId;
+					onSelectSession(nextSessionId ?? null);
 				} catch (error) {
 					console.error(
 						"[commitButton] done-phase side effects failed:",

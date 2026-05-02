@@ -225,12 +225,13 @@ pub enum MessagePart {
 
     /// Inline custom-tag reference for things like a large pasted code
     /// block that the composer collapses into a badge. The chat bubble
-    /// renders only the badge label — the verbatim `submit_text` stays
-    /// out of the bubble's plain text.
+    /// renders only the badge label, but carries `submit_text` so hover
+    /// previews can show the verbatim content.
     #[serde(rename = "custom-tag-mention", rename_all = "camelCase")]
     CustomTagMention {
         id: String,
         label: String,
+        submit_text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         kind: Option<String>,
     },

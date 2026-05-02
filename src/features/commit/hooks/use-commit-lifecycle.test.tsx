@@ -8,6 +8,7 @@ import type {
 	WorkspaceDetail,
 	WorkspaceGitActionStatus,
 	WorkspaceGroup,
+	WorkspaceSessionSummary,
 } from "@/lib/api";
 import { pathosQueryKeys } from "@/lib/query-client";
 import { DEFAULT_SETTINGS, SettingsContext } from "@/lib/settings";
@@ -205,6 +206,17 @@ describe("useWorkspaceCommitLifecycle", () => {
 		expect(result.current.pendingPromptForSession).toMatchObject({
 			sessionId: "session-action",
 			modelId: "gpt-5.4-mini",
+		});
+		expect(
+			queryClient
+				.getQueryData<WorkspaceSessionSummary[]>(
+					pathosQueryKeys.workspaceSessions("workspace-1"),
+				)
+				?.find((session) => session.id === "session-action"),
+		).toMatchObject({
+			actionKind: "create-pr",
+			model: "gpt-5.4-mini",
+			title: "Create PR",
 		});
 		expect(onSelectSession).toHaveBeenCalledWith("session-action");
 
@@ -417,7 +429,11 @@ describe("useWorkspaceCommitLifecycle", () => {
 		expect(invalidateQueriesSpy).not.toHaveBeenCalledWith({
 			queryKey: pathosQueryKeys.workspaceChangeRequest("workspace-1"),
 		});
-		expect(pushToast).not.toHaveBeenCalled();
+		expect(pushToast).toHaveBeenCalledWith(
+			"Branch pushed successfully.",
+			"Pushed",
+			"default",
+		);
 	});
 
 	it("shows a destructive workspace toast when push fails", async () => {

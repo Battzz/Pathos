@@ -2124,6 +2124,7 @@ export type CustomTagMentionPart = {
 	type: "custom-tag-mention";
 	id: string;
 	label: string;
+	submitText: string;
 	kind?: string | null;
 };
 export type PlanReviewAllowedPrompt = {

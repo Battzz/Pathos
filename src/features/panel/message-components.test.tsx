@@ -5,6 +5,7 @@ import {
 	render,
 	screen,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ThreadMessageLike } from "@/lib/api";
 import { MemoConversationMessage } from "./message-components";
@@ -256,6 +257,37 @@ describe("MemoConversationMessage plan review", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
 
 		expect(writeTextMock).toHaveBeenCalledWith("Ship the action slot.");
+	});
+
+	it("shows pasted custom-tag content on badge hover", async () => {
+		const user = userEvent.setup();
+		const userMessage: ThreadMessageLike = {
+			id: "user-custom-tag-preview",
+			role: "user",
+			createdAt: "2026-04-12T12:01:00.000Z",
+			content: [
+				{
+					type: "text",
+					id: "user-custom-tag-preview:text-0",
+					text: "Review ",
+				},
+				{
+					type: "custom-tag-mention",
+					id: "user-custom-tag-preview:mention-0",
+					label: "Pasted text",
+					submitText: "Line one from the pasted payload\nLine two",
+					kind: "text",
+				},
+			],
+		};
+
+		render(<ChatUserMessage message={userMessage} />);
+
+		await user.hover(screen.getByText("Pasted text"));
+
+		expect(await screen.findByRole("dialog")).toHaveTextContent(
+			/Line one from the pasted payload\s+Line two/,
+		);
 	});
 
 	it("replays the preceding user message from the turn metadata action", async () => {
