@@ -83,6 +83,11 @@ body {
 	-webkit-overflow-scrolling: touch;
 }
 
+[data-pathos-shell-resizing="true"] [data-pathos-thread-inner] {
+	flex: 0 0 auto;
+	width: var(--pathos-thread-frozen-width);
+}
+
 @keyframes pathos-logo-spin {
 	from {
 		transform: rotate(0deg);
@@ -887,6 +892,26 @@ body {
 
 .workspace-row-selected {
 	background: var(--workspace-sidebar-selected-bg);
+}
+
+.workspace-folder-active {
+	background: color-mix(
+		in oklch,
+		var(--workspace-sidebar-selected-bg) 55%,
+		transparent
+	);
+}
+
+.workspace-folder-active::before {
+	content: "";
+	position: absolute;
+	left: -2px;
+	top: 50%;
+	height: 14px;
+	width: 2px;
+	transform: translateY(-50%);
+	border-radius: 2px;
+	background: color-mix(in oklch, var(--foreground) 55%, transparent);
 }
 
 /* Streamdown theme overrides — minimal, no !important */

@@ -4,6 +4,7 @@ import {
 	LoaderCircle,
 	MessageSquarePlus,
 	MessageSquareX,
+	MoveRight,
 	Plus,
 	Trash2,
 } from "lucide-react";
@@ -12,7 +13,12 @@ import {
 	ContextMenu,
 	ContextMenuContent,
 	ContextMenuItem,
+	ContextMenuRadioGroup,
+	ContextMenuRadioItem,
 	ContextMenuSeparator,
+	ContextMenuSub,
+	ContextMenuSubContent,
+	ContextMenuSubTrigger,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -21,7 +27,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { InlineShortcutDisplay } from "@/features/shortcuts/shortcut-display";
-import type { RepositoryFolder } from "@/lib/api";
+import { DEFAULT_SPACE_ID, type RepositoryFolder, type Space } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { WorkspaceAvatar } from "./avatar";
 
@@ -36,9 +42,12 @@ export type FolderRowProps = {
 	onOpenInFinder?: (repoId: string) => void;
 	onDeleteProjectChats?: (repoId: string) => void;
 	onRemoveProject?: (repoId: string) => void;
+	spaces?: Space[];
+	onMoveProjectToSpace?: (repoId: string, spaceId: string) => void;
 	creatingChat?: boolean;
 	chatOverflowExpanded?: boolean;
 	highlighted?: boolean;
+	active?: boolean;
 };
 
 export const FolderRow = memo(function FolderRow({
@@ -52,20 +61,27 @@ export const FolderRow = memo(function FolderRow({
 	onOpenInFinder,
 	onDeleteProjectChats,
 	onRemoveProject,
+	spaces = [],
+	onMoveProjectToSpace,
 	creatingChat,
 	chatOverflowExpanded,
 	highlighted,
+	active,
 }: FolderRowProps) {
 	const busy = Boolean(creatingChat);
+	const currentSpaceId = folder.spaceId ?? DEFAULT_SPACE_ID;
+	const canMoveProject = Boolean(onMoveProjectToSpace && spaces.length > 1);
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger asChild>
 				<div
 					data-expanded={expanded ? "true" : "false"}
+					data-active-project={active ? "true" : undefined}
 					className={cn(
 						"group/folder relative flex h-8 select-none items-center gap-1 rounded-md pr-1 pl-1.5 text-[13px] font-semibold tracking-[-0.01em] text-foreground/90 transition-colors",
 						"hover:bg-accent/40 hover:text-foreground",
 						"data-[expanded=true]:text-foreground",
+						active && "workspace-folder-active text-foreground",
 						highlighted && "pathos-project-added bg-accent/35",
 					)}
 				>
@@ -178,6 +194,33 @@ export const FolderRow = memo(function FolderRow({
 							<FolderOpen className="size-3.5" strokeWidth={2} />
 							<span>Open in Finder</span>
 						</ContextMenuItem>
+					</>
+				) : null}
+				{canMoveProject ? (
+					<>
+						<ContextMenuSeparator />
+						<ContextMenuSub>
+							<ContextMenuSubTrigger>
+								<MoveRight className="size-3.5" strokeWidth={2} />
+								<span>Move to Space</span>
+							</ContextMenuSubTrigger>
+							<ContextMenuSubContent className="min-w-44">
+								<ContextMenuRadioGroup value={currentSpaceId}>
+									{spaces.map((space) => (
+										<ContextMenuRadioItem
+											key={space.id}
+											value={space.id}
+											disabled={space.id === currentSpaceId}
+											onSelect={() =>
+												onMoveProjectToSpace?.(folder.repoId, space.id)
+											}
+										>
+											<span className="truncate">{space.name}</span>
+										</ContextMenuRadioItem>
+									))}
+								</ContextMenuRadioGroup>
+							</ContextMenuSubContent>
+						</ContextMenuSub>
 					</>
 				) : null}
 				{onRemoveProject ? (

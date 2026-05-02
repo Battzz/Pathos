@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { RepositoryFolder, RepositoryFolderChat, Space } from "@/lib/api";
@@ -51,6 +57,7 @@ function renderSidebar(
 		onDeleteChat?: (sessionId: string) => void;
 		onDeleteProjectChats?: (repoId: string) => void;
 		onRemoveProject?: (repoId: string) => void;
+		onMoveProjectToSpace?: (repoId: string, spaceId: string) => void;
 		onPrefetchChat?: (workspaceId: string, sessionId: string) => void;
 		onSelectChat?: (workspaceId: string, sessionId: string) => void;
 		onSelectSpace?: (spaceId: string) => void;
@@ -61,6 +68,7 @@ function renderSidebar(
 	const onDeleteChat = options.onDeleteChat ?? vi.fn();
 	const onDeleteProjectChats = options.onDeleteProjectChats ?? vi.fn();
 	const onRemoveProject = options.onRemoveProject ?? vi.fn();
+	const onMoveProjectToSpace = options.onMoveProjectToSpace ?? vi.fn();
 	const onCreateGenericChat = options.onCreateGenericChat ?? vi.fn();
 	const onPrefetchChat = options.onPrefetchChat ?? vi.fn();
 	const onSelectChat = options.onSelectChat ?? vi.fn();
@@ -101,6 +109,7 @@ function renderSidebar(
 						onDeleteChat={onDeleteChat}
 						onDeleteProjectChats={onDeleteProjectChats}
 						onRemoveProject={onRemoveProject}
+						onMoveProjectToSpace={onMoveProjectToSpace}
 						isFolderExpanded={() => true}
 						onToggleFolder={vi.fn()}
 						spaces={
@@ -355,5 +364,41 @@ describe("WorkspacesSidebar", () => {
 		fireEvent.click(screen.getByRole("tab", { name: "Side projects" }));
 
 		expect(onSelectSpace).toHaveBeenCalledWith("side");
+	});
+
+	it("can move a project to another space from the project context menu", async () => {
+		const onMoveProjectToSpace = vi.fn();
+		renderSidebar(makeFolder(1), {
+			onMoveProjectToSpace,
+			spaces: [
+				{
+					id: "default",
+					name: "Default",
+					displayOrder: 0,
+					createdAt: "2026-04-30T00:00:00Z",
+					updatedAt: "2026-04-30T00:00:00Z",
+				},
+				{
+					id: "side",
+					name: "Side projects",
+					displayOrder: 1,
+					createdAt: "2026-04-30T00:00:00Z",
+					updatedAt: "2026-04-30T00:00:00Z",
+				},
+			],
+		});
+
+		fireEvent.contextMenu(screen.getByText("helmor"));
+		fireEvent.keyDown(screen.getByText("Move to Space"), { key: "ArrowRight" });
+		await waitFor(() =>
+			expect(
+				screen.getByRole("menuitemradio", { name: "Side projects" }),
+			).toBeInTheDocument(),
+		);
+		fireEvent.click(
+			screen.getByRole("menuitemradio", { name: "Side projects" }),
+		);
+
+		expect(onMoveProjectToSpace).toHaveBeenCalledWith("repo-1", "side");
 	});
 });

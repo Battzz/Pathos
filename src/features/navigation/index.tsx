@@ -130,6 +130,7 @@ export type WorkspacesSidebarProps = {
 	onDeleteProjectChats: (repoId: string) => void;
 	onToggleChatPin?: (chat: RepositoryFolderChat) => void;
 	onRemoveProject: (repoId: string) => void;
+	onMoveProjectToSpace: (repoId: string, spaceId: string) => void;
 	isFolderExpanded: (repoId: string) => boolean;
 	onToggleFolder: (repoId: string) => void;
 	footerControls?: ReactNode;
@@ -168,6 +169,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	onDeleteProjectChats,
 	onToggleChatPin,
 	onRemoveProject,
+	onMoveProjectToSpace,
 	isFolderExpanded,
 	onToggleFolder,
 	footerControls,
@@ -409,6 +411,11 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 									<FolderRow
 										folder={folder}
 										highlighted={recentlyAddedRepoId === folder.repoId}
+										active={folder.chats.some(
+											(chat) =>
+												chat.workspaceId === selectedWorkspaceId &&
+												chat.sessionId === selectedSessionId,
+										)}
 										expanded={isFolderExpanded(folder.repoId)}
 										itemCount={folder.chats.length}
 										onToggle={onToggleFolder}
@@ -423,6 +430,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 										}}
 										onDeleteProjectChats={() => removeProjectChats(folder)}
 										onRemoveProject={() => removeProject(folder)}
+										spaces={spaces}
+										onMoveProjectToSpace={onMoveProjectToSpace}
 										creatingChat={creatingChatRepoId === folder.repoId}
 										chatOverflowExpanded={
 											folder.chats.length > MAX_COLLAPSED_CHATS &&

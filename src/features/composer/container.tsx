@@ -557,28 +557,23 @@ export const WorkspaceComposerContainer = memo(
 					try {
 						const { sessionId: newSessionId } =
 							await createSession(displayedWorkspaceId);
-						await Promise.all([
-							queryClient.invalidateQueries({
-								queryKey:
-									pathosQueryKeys.workspaceSessions(displayedWorkspaceId),
-							}),
-							...(workspaceDetailQuery.data?.repoId
-								? [
-										queryClient.invalidateQueries({
-											queryKey: pathosQueryKeys.repoScripts(
-												workspaceDetailQuery.data.repoId,
-												displayedWorkspaceId,
-											),
-										}),
-									]
-								: []),
-						]);
-						onSwitchSession?.(newSessionId);
 						const newContextKey = getComposerContextKey(
 							displayedWorkspaceId,
 							newSessionId,
 						);
 						onSelectModel(newContextKey, modelId);
+						onSwitchSession?.(newSessionId);
+						void queryClient.invalidateQueries({
+							queryKey: pathosQueryKeys.workspaceSessions(displayedWorkspaceId),
+						});
+						if (workspaceDetailQuery.data?.repoId) {
+							void queryClient.invalidateQueries({
+								queryKey: pathosQueryKeys.repoScripts(
+									workspaceDetailQuery.data.repoId,
+									displayedWorkspaceId,
+								),
+							});
+						}
 						return;
 					} catch {
 						// Fall through to just update model

@@ -11,7 +11,6 @@ import type { ThreadMessageLike } from "@/lib/api";
 import { MemoConversationMessage } from "./message-components";
 import {
 	shouldAnimateStreamingAssistantText,
-	shouldDeferStaticAssistantMarkdown,
 	shouldRenderAssistantTextAsPlain,
 	shouldRenderStreamingAssistantTextAsPlain,
 } from "./message-components/assistant-message";
@@ -610,8 +609,17 @@ describe("assistant text rendering", () => {
 		);
 	});
 
-	it("defers long static markdown so chat switches can paint first", () => {
-		expect(shouldDeferStaticAssistantMarkdown("x".repeat(1199))).toBe(false);
-		expect(shouldDeferStaticAssistantMarkdown("x".repeat(1200))).toBe(true);
+	it("keeps long markdown-looking static content on the markdown renderer path", () => {
+		const longMarkdown = [
+			"Changed:",
+			"- Added [use-session-pane-cache.ts](/tmp/use-session-pane-cache.ts)",
+			"- Updated [container.tsx](/tmp/container.tsx)",
+			"",
+			"`bun run typecheck`",
+			"",
+			"x".repeat(1400),
+		].join("\n");
+
+		expect(shouldRenderAssistantTextAsPlain(longMarkdown)).toBe(false);
 	});
 });

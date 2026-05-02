@@ -31,6 +31,13 @@ describe("useShellPanels", () => {
 	it("resizes through CSS variables during drag and commits React state on mouseup", async () => {
 		const { result } = renderHook(() => useShellPanels());
 		const shell = document.createElement("div");
+		const threadStack = document.createElement("div");
+		Object.defineProperty(threadStack, "clientWidth", {
+			configurable: true,
+			value: 640,
+		});
+		threadStack.setAttribute("data-pathos-thread-stack", "");
+		shell.appendChild(threadStack);
 
 		act(() => {
 			result.current.shellPanelsRef.current = shell;
@@ -43,6 +50,10 @@ describe("useShellPanels", () => {
 			} as unknown as ReactMouseEvent<HTMLDivElement>);
 		});
 		expect(isTerminalFitSuspended()).toBe(true);
+		expect(shell.getAttribute("data-pathos-shell-resizing")).toBe("true");
+		expect(
+			threadStack.style.getPropertyValue("--pathos-thread-frozen-width"),
+		).toBe("640px");
 
 		act(() => {
 			window.dispatchEvent(new MouseEvent("mousemove", { clientX: 150 }));
@@ -60,7 +71,10 @@ describe("useShellPanels", () => {
 			window.dispatchEvent(new MouseEvent("mouseup"));
 		});
 		expect(isTerminalFitSuspended()).toBe(false);
-
+		expect(shell.hasAttribute("data-pathos-shell-resizing")).toBe(false);
+		expect(
+			threadStack.style.getPropertyValue("--pathos-thread-frozen-width"),
+		).toBe("");
 		expect(result.current.sidebarWidth).toBe(DEFAULT_SIDEBAR_WIDTH + 50);
 		await waitFor(() => {
 			expect(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)).toBe(

@@ -3,7 +3,11 @@ import { cleanup, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { WorkspaceDetail, WorkspaceSessionSummary } from "@/lib/api";
+import type {
+	ThreadMessageLike,
+	WorkspaceDetail,
+	WorkspaceSessionSummary,
+} from "@/lib/api";
 import { createPathosQueryClient } from "@/lib/query-client";
 
 vi.mock("@/components/icons", () => ({
@@ -70,6 +74,15 @@ const SESSIONS: WorkspaceSessionSummary[] = [
 	},
 ];
 
+function assistantMessage(id: string, text: string): ThreadMessageLike {
+	return {
+		id,
+		role: "assistant",
+		createdAt: "2026-04-10T00:00:00Z",
+		content: [{ type: "text", id: `${id}:text`, text }],
+	};
+}
+
 function renderPanel(
 	props: Partial<React.ComponentProps<typeof WorkspacePanel>> = {},
 ) {
@@ -115,6 +128,28 @@ describe("WorkspacePanel", () => {
 			screen.getByRole("heading", { name: "Chat with OpenAI" }),
 		).toBeInTheDocument();
 		expect(screen.getByTestId("codex-icon")).toBeInTheDocument();
+	});
+
+	it("keeps the cold placeholder while the selected session pane is not ready", () => {
+		renderPanel({
+			sessionDisplayProviders: {
+				"session-1": "codex",
+			},
+			sessionPanes: [
+				{
+					sessionId: "previous-session",
+					messages: [assistantMessage("previous-message", "Already loaded")],
+					sending: false,
+					hasLoaded: true,
+					presentationState: "cached",
+				},
+			],
+		});
+
+		expect(
+			screen.queryByRole("heading", { name: "Chat with OpenAI" }),
+		).not.toBeInTheDocument();
+		expect(screen.queryByTestId("codex-icon")).not.toBeInTheDocument();
 	});
 
 	it("renders session guidance when no session exists", () => {
@@ -183,5 +218,25 @@ describe("WorkspacePanel", () => {
 		});
 
 		expect(screen.getByText(/Preparing workspace/i)).toBeInTheDocument();
+	});
+
+	it("does not display a cached inactive pane while the selected session loads", () => {
+		renderPanel({
+			loadingSession: true,
+			sessionPanes: [
+				{
+					sessionId: "session-2",
+					messages: [assistantMessage("assistant-2", "old cached answer")],
+					sending: false,
+					hasLoaded: true,
+					presentationState: "cached",
+				},
+			],
+		});
+
+		expect(
+			screen.queryByLabelText("Conversation rows for session session-2"),
+		).not.toBeInTheDocument();
+		expect(screen.queryByText("old cached answer")).not.toBeInTheDocument();
 	});
 });

@@ -8,7 +8,7 @@ import {
 	LoaderCircleIcon,
 	TriangleIcon,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
 	AppendContextButton,
@@ -21,7 +21,6 @@ import {
 	DropdownMenuContent,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
 	Tooltip,
 	TooltipContent,
@@ -38,6 +37,7 @@ import {
 	type ChangeRequestInfo,
 	type ForgeActionItem,
 	type ForgeActionStatus,
+	type ForgeDetection,
 	getWorkspaceForgeCheckInsertText,
 	loadRepoPreferences,
 	type RepoPreferences,
@@ -133,6 +133,9 @@ type WorkspaceActionsProps = {
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
 	changeRequest: ChangeRequestInfo | null;
+	forgeActionStatus?: ForgeActionStatus | null;
+	forgeDetection?: ForgeDetection | null;
+	workspaceGitActionStatus?: WorkspaceGitActionStatus | null;
 };
 
 type ActionsSectionProps = WorkspaceActionsProps & {
@@ -207,6 +210,9 @@ export function ActionsSection({
 	commitButtonMode,
 	commitButtonState,
 	changeRequest,
+	forgeActionStatus,
+	forgeDetection,
+	workspaceGitActionStatus,
 }: ActionsSectionProps) {
 	const model = useWorkspaceActionsModel({
 		workspaceId,
@@ -221,6 +227,9 @@ export function ActionsSection({
 		commitButtonMode,
 		commitButtonState,
 		changeRequest,
+		forgeActionStatus,
+		forgeDetection,
+		workspaceGitActionStatus,
 	});
 	const bottomSpacerHeight = expanded
 		? 0
@@ -259,22 +268,23 @@ export function ActionsSection({
 				</div>
 			</div>
 
-			<ScrollArea
+			<div
 				aria-label="Actions panel body"
 				className={cn(
-					"min-h-0 bg-muted/18 text-[11.5px]",
+					"min-h-0 overflow-y-auto overscroll-contain bg-muted/18 text-[11.5px]",
 					expanded && "flex-1",
 				)}
 				style={
 					expanded
-						? undefined
+						? { contain: "layout paint" }
 						: {
 								height: `var(--pathos-inspector-actions-height, ${bodyHeight}px)`,
+								contain: "layout paint",
 							}
 				}
 			>
 				<ActionsRows model={model} bottomSpacerHeight={bottomSpacerHeight} />
-			</ScrollArea>
+			</div>
 		</section>
 	);
 }
@@ -359,79 +369,122 @@ function useWorkspaceActionsModel({
 	commitButtonMode,
 	commitButtonState,
 	changeRequest,
+	forgeActionStatus,
+	forgeDetection,
+	workspaceGitActionStatus,
 }: WorkspaceActionsProps) {
 	const queryClient = useQueryClient();
 	const [syncPending, setSyncPending] = useState(false);
 	const forgeQuery = useQuery({
 		...workspaceForgeQueryOptions(workspaceId ?? "__none__"),
-		enabled: workspaceId !== null,
+		enabled: workspaceId !== null && forgeDetection === undefined,
 	});
 	// Archived workspaces have no live worktree — polling git/PR status every
 	// 10s would spam errors. App.tsx mirrors this guard.
 	const isArchived = workspaceState === "archived";
 	const gitStatusQuery = useQuery({
 		...workspaceGitActionStatusQueryOptions(workspaceId ?? "__none__"),
-		enabled: workspaceId !== null && !isArchived,
+		enabled:
+			workspaceId !== null &&
+			!isArchived &&
+			workspaceGitActionStatus === undefined,
 	});
 	const forgeStatusQuery = useQuery({
 		...workspaceForgeActionStatusQueryOptions(workspaceId ?? "__none__"),
-		enabled: workspaceId !== null && !isArchived,
+		enabled:
+			workspaceId !== null && !isArchived && forgeActionStatus === undefined,
 	});
-	const gitStatus = gitStatusQuery.data ?? EMPTY_GIT_ACTION_STATUS;
-	const forgeStatus = forgeStatusQuery.data ?? EMPTY_FORGE_ACTION_STATUS;
-	const changeRequestName = forgeQuery.data?.labels.changeRequestName ?? "PR";
-	const providerName = forgeQuery.data?.labels.providerName ?? "Forge";
+	const gitStatus =
+		workspaceGitActionStatus ?? gitStatusQuery.data ?? EMPTY_GIT_ACTION_STATUS;
+	const forgeStatus =
+		forgeActionStatus ?? forgeStatusQuery.data ?? EMPTY_FORGE_ACTION_STATUS;
+	const forgeLabels = forgeDetection?.labels ?? forgeQuery.data?.labels;
+	const changeRequestName = forgeLabels?.changeRequestName ?? "PR";
+	const providerName = forgeLabels?.providerName ?? "Forge";
 	// Auth-flip invalidation lives in the sync bridge — no frontend edge-detect.
-	const gitRows = sortStatusRows(buildGitRows(gitStatus, workspaceRemote));
-	const reviewRows = sortStatusRows(
-		buildReviewRows(
-			forgeStatus,
-			changeRequest,
-			changeRequestName,
-			providerName,
-		),
+	const gitRows = useMemo(
+		() => sortStatusRows(buildGitRows(gitStatus, workspaceRemote)),
+		[gitStatus, workspaceRemote],
 	);
-	const sortedDeployments = sortActionItems(forgeStatus.deployments);
-	const sortedChecks = sortActionItems(forgeStatus.checks);
+	const reviewRows = useMemo(
+		() =>
+			sortStatusRows(
+				buildReviewRows(
+					forgeStatus,
+					changeRequest,
+					changeRequestName,
+					providerName,
+				),
+			),
+		[changeRequest, changeRequestName, forgeStatus, providerName],
+	);
+	const sortedDeployments = useMemo(
+		() => sortActionItems(forgeStatus.deployments),
+		[forgeStatus.deployments],
+	);
+	const sortedChecks = useMemo(
+		() => sortActionItems(forgeStatus.checks),
+		[forgeStatus.checks],
+	);
 	const actionDisabled = commitButtonState === "busy";
 	const canCreateChangeRequest = !isWorkspaceOnDefaultBranch(
 		workspaceBranch,
 		workspaceDefaultBranch,
 	);
-	const notification = getActionsNotification({
-		canCreateChangeRequest,
-		changeRequest,
-		changeRequestName,
-		commitButtonMode,
-		commitButtonState,
-		forgeStatus,
-		gitStatus,
-	});
-	const primaryAction =
-		commitButtonMode === "create-pr" ||
-		commitButtonMode === "open-pr" ||
-		commitButtonMode === "merge"
-			? commitButtonMode === "create-pr" && !canCreateChangeRequest
-				? null
-				: {
-						label: getCommitButtonLabel(
-							commitButtonMode,
-							commitButtonState ?? "idle",
-							changeRequestName,
-						),
-						mode: commitButtonMode,
-						rowLabel:
-							commitButtonMode === "merge"
-								? `${changeRequestName} ready to merge`
-								: commitButtonMode === "open-pr"
-									? `${changeRequestName} closed`
-									: `No ${
-											changeRequestName === "PR"
-												? "pull request"
-												: changeRequestName.toLowerCase()
-										}`,
-					}
-			: null;
+	const notification = useMemo(
+		() =>
+			getActionsNotification({
+				canCreateChangeRequest,
+				changeRequest,
+				changeRequestName,
+				commitButtonMode,
+				commitButtonState,
+				forgeStatus,
+				gitStatus,
+			}),
+		[
+			canCreateChangeRequest,
+			changeRequest,
+			changeRequestName,
+			commitButtonMode,
+			commitButtonState,
+			forgeStatus,
+			gitStatus,
+		],
+	);
+	const primaryAction = useMemo(
+		() =>
+			commitButtonMode === "create-pr" ||
+			commitButtonMode === "open-pr" ||
+			commitButtonMode === "merge"
+				? commitButtonMode === "create-pr" && !canCreateChangeRequest
+					? null
+					: {
+							label: getCommitButtonLabel(
+								commitButtonMode,
+								commitButtonState ?? "idle",
+								changeRequestName,
+							),
+							mode: commitButtonMode,
+							rowLabel:
+								commitButtonMode === "merge"
+									? `${changeRequestName} ready to merge`
+									: commitButtonMode === "open-pr"
+										? `${changeRequestName} closed`
+										: `No ${
+												changeRequestName === "PR"
+													? "pull request"
+													: changeRequestName.toLowerCase()
+											}`,
+						}
+				: null,
+		[
+			canCreateChangeRequest,
+			changeRequestName,
+			commitButtonMode,
+			commitButtonState,
+		],
+	);
 	const queueSyncResolutionPrompt = useCallback(
 		async (result: SyncWorkspaceTargetResponse) => {
 			if (!currentSessionId || !onQueuePendingPromptForSession) {
@@ -524,23 +577,42 @@ function useWorkspaceActionsModel({
 		},
 		[workspaceId],
 	);
-	return {
-		actionDisabled,
-		changeRequestName,
-		gitRows,
-		handleInsertCheck,
-		handleSync,
-		notification,
-		primaryAction,
-		providerName,
-		reviewRows,
-		sortedChecks,
-		sortedDeployments,
-		syncPending,
-		onCommitAction,
-		commitButtonMode,
-		commitButtonState,
-	};
+	return useMemo(
+		() => ({
+			actionDisabled,
+			changeRequestName,
+			gitRows,
+			handleInsertCheck,
+			handleSync,
+			notification,
+			primaryAction,
+			providerName,
+			reviewRows,
+			sortedChecks,
+			sortedDeployments,
+			syncPending,
+			onCommitAction,
+			commitButtonMode,
+			commitButtonState,
+		}),
+		[
+			actionDisabled,
+			changeRequestName,
+			gitRows,
+			handleInsertCheck,
+			handleSync,
+			notification,
+			primaryAction,
+			providerName,
+			reviewRows,
+			sortedChecks,
+			sortedDeployments,
+			syncPending,
+			onCommitAction,
+			commitButtonMode,
+			commitButtonState,
+		],
+	);
 }
 
 type WorkspaceActionsModel = ReturnType<typeof useWorkspaceActionsModel>;
@@ -588,7 +660,7 @@ function getNotificationDotClassName(tone: ActionsNotification["tone"]) {
 	}
 }
 
-function ActionsRows({
+const ActionsRows = memo(function ActionsRows({
 	model,
 	bottomSpacerHeight = 0,
 }: {
@@ -776,7 +848,7 @@ function ActionsRows({
 			)}
 		</>
 	);
-}
+});
 
 function ProviderIcon({ provider }: { provider: ActionProvider }) {
 	if (provider === "vercel") {
@@ -1068,7 +1140,7 @@ function buildReviewRows(
 	return rows;
 }
 
-function ActionStatusRow({
+const ActionStatusRow = memo(function ActionStatusRow({
 	item,
 	onInsertToComposer,
 }: {
@@ -1128,7 +1200,7 @@ function ActionStatusRow({
 			</div>
 		</div>
 	);
-}
+});
 
 function sortActionItems(items: ForgeActionItem[]): ForgeActionItem[] {
 	return [...items].sort((left, right) => {

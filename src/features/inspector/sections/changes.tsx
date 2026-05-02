@@ -44,6 +44,7 @@ import {
 	openPathInFinder,
 	stageWorkspaceFile,
 	unstageWorkspaceFile,
+	type WorkspaceGitActionStatus,
 } from "@/lib/api";
 import type { DiffOpenOptions, InspectorFileItem } from "@/lib/editor-session";
 import { extractError, isRecoverableByPurge } from "@/lib/errors";
@@ -105,6 +106,7 @@ type ChangesSectionProps = {
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
 	changeRequest: ChangeRequestInfo | null;
+	workspaceGitActionStatus?: WorkspaceGitActionStatus | null;
 	/** Cold-fetch indicator owned by App; drives the git-header shimmer. */
 	forgeIsRefreshing?: boolean;
 	fillAvailable?: boolean;
@@ -121,6 +123,7 @@ export function ChangesSection({
 	activeEditorPath,
 	onOpenEditorFile,
 	flashingPaths,
+	workspaceGitActionStatus,
 	fillAvailable = false,
 }: ChangesSectionProps) {
 	const queryClient = useQueryClient();
@@ -129,9 +132,9 @@ export function ChangesSection({
 	const [branchDiffOpen, setBranchDiffOpen] = useState(true);
 	const gitStatusQuery = useQuery({
 		...workspaceGitActionStatusQueryOptions(workspaceId ?? "__none__"),
-		enabled: workspaceId !== null,
+		enabled: workspaceId !== null && workspaceGitActionStatus === undefined,
 	});
-	const gitStatus = gitStatusQuery.data ?? null;
+	const gitStatus = workspaceGitActionStatus ?? gitStatusQuery.data ?? null;
 	const incomingPullRef =
 		gitStatus?.syncStatus === "behind" && gitStatus.behindTargetCount > 0
 			? formatSyncTargetRef(workspaceRemote, gitStatus.syncTargetBranch)

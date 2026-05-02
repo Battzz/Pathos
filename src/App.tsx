@@ -2824,6 +2824,9 @@ function AppShell({
 													commitButtonMode={commitButtonMode}
 													commitButtonState={commitButtonState}
 													changeRequest={workspaceChangeRequest}
+													forgeActionStatus={workspaceForgeActionStatus}
+													forgeDetection={workspaceForge}
+													workspaceGitActionStatus={workspaceGitActionStatus}
 													forgeIsRefreshing={workspaceForgeIsRefreshing}
 													onOpenSettings={handleOpenSettings}
 												/>

@@ -1,7 +1,14 @@
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import { BrainIcon, ChevronRightIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
-import { createContext, memo, useContext, useEffect, useState } from "react";
+import {
+	createContext,
+	memo,
+	useContext,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -81,10 +88,18 @@ export const Reasoning = memo(
 			}
 		}, [isStreaming, startTime, setDuration]);
 
+		const contextValue = useMemo(
+			() => ({
+				lifecycle,
+				isOpen: isOpen ?? false,
+				setIsOpen,
+				duration,
+			}),
+			[lifecycle, isOpen, setIsOpen, duration],
+		);
+
 		return (
-			<ReasoningContext.Provider
-				value={{ lifecycle, isOpen: isOpen ?? false, setIsOpen, duration }}
-			>
+			<ReasoningContext.Provider value={contextValue}>
 				<Collapsible
 					className={cn("flex flex-col", className)}
 					onOpenChange={setIsOpen}
@@ -155,6 +170,13 @@ export type ReasoningContentProps = ComponentProps<
 
 export const ReasoningContent = memo(
 	({ className, children, fontSize, ...props }: ReasoningContentProps) => {
+		const { isOpen } = useReasoning();
+		if (!isOpen) {
+			return (
+				<CollapsibleContent className={cn("pt-1.5", className)} {...props} />
+			);
+		}
+
 		return (
 			<CollapsibleContent className={cn("pt-1.5", className)} {...props}>
 				<pre

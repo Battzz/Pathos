@@ -308,6 +308,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	const handleSelectEffortOption = useCallback(
 		(level: string) => {
 			setToolbarTooltipSuppressed(true);
+			setEffortPickerOpen(false);
 			onSelectEffort(level);
 		},
 		[onSelectEffort],
@@ -315,6 +316,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	const handleSelectModelOption = useCallback(
 		(modelId: string) => {
 			setToolbarTooltipSuppressed(true);
+			setModelPickerOpen(false);
 			onSelectModel(modelId);
 		},
 		[onSelectModel],
@@ -638,88 +640,90 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 											</TooltipContent>
 										</Tooltip>
 
-										<DropdownMenuContent
-											side="top"
-											align="start"
-											sideOffset={4}
-											className="min-w-[13rem]"
-										>
-											<DropdownMenuLabel>Provider</DropdownMenuLabel>
-											{modelSections.map((section) => (
-												<DropdownMenuSub key={section.id}>
-													<DropdownMenuSubTrigger
-														disabled={
-															toolbarDisabled || section.options.length === 0
-														}
-														className="gap-3"
-													>
-														<span className="flex size-4 items-center justify-center text-muted-foreground">
-															<ModelIcon
-																model={section.options[0] ?? null}
-																className="size-4"
-															/>
-														</span>
-														<span className="min-w-0 truncate">
-															{section.label}
-														</span>
-													</DropdownMenuSubTrigger>
-													<DropdownMenuSubContent
-														alignOffset={-24}
-														collisionPadding={12}
-														sideOffset={6}
-														className="mb-3 min-w-[17rem]"
-													>
-														<DropdownMenuLabel>
-															{section.label}
-														</DropdownMenuLabel>
-														<DropdownMenuGroup>
-															{section.options.map((option) => (
-																<DropdownMenuItem
-																	key={option.id}
-																	disabled={toolbarDisabled}
-																	onClick={() => {
-																		handleSelectModelOption(option.id);
-																	}}
-																	className="flex items-center justify-between gap-3"
-																>
-																	<div className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-3">
-																		<span className="flex size-4 items-center justify-center text-muted-foreground">
-																			<ModelIcon
-																				model={option}
-																				className="size-4"
-																			/>
-																		</span>
-																		<span className="truncate font-mono tabular-nums">
-																			{option.label}
-																		</span>
-																	</div>
-																</DropdownMenuItem>
-															))}
-															{section.id === "claude" &&
-															!hasConfiguredClaudeProviderModels ? (
-																<>
-																	<DropdownMenuSeparator />
+										{modelPickerOpen ? (
+											<DropdownMenuContent
+												side="top"
+												align="start"
+												sideOffset={4}
+												className="min-w-[13rem]"
+											>
+												<DropdownMenuLabel>Provider</DropdownMenuLabel>
+												{modelSections.map((section) => (
+													<DropdownMenuSub key={section.id}>
+														<DropdownMenuSubTrigger
+															disabled={
+																toolbarDisabled || section.options.length === 0
+															}
+															className="gap-3"
+														>
+															<span className="flex size-4 items-center justify-center text-muted-foreground">
+																<ModelIcon
+																	model={section.options[0] ?? null}
+																	className="size-4"
+																/>
+															</span>
+															<span className="min-w-0 truncate">
+																{section.label}
+															</span>
+														</DropdownMenuSubTrigger>
+														<DropdownMenuSubContent
+															alignOffset={-24}
+															collisionPadding={12}
+															sideOffset={6}
+															className="mb-3 min-w-[17rem]"
+														>
+															<DropdownMenuLabel>
+																{section.label}
+															</DropdownMenuLabel>
+															<DropdownMenuGroup>
+																{section.options.map((option) => (
 																	<DropdownMenuItem
-																		onClick={handleOpenModelSettings}
-																		className="flex items-center gap-3"
+																		key={option.id}
+																		disabled={toolbarDisabled}
+																		onClick={() => {
+																			handleSelectModelOption(option.id);
+																		}}
+																		className="flex items-center justify-between gap-3"
 																	>
-																		<span className="flex size-4 items-center justify-center text-muted-foreground">
-																			<Plus
-																				className="size-4"
-																				strokeWidth={1.8}
-																			/>
-																		</span>
-																		<span className="font-mono tabular-nums">
-																			Add custom model...
-																		</span>
+																		<div className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-3">
+																			<span className="flex size-4 items-center justify-center text-muted-foreground">
+																				<ModelIcon
+																					model={option}
+																					className="size-4"
+																				/>
+																			</span>
+																			<span className="truncate font-mono tabular-nums">
+																				{option.label}
+																			</span>
+																		</div>
 																	</DropdownMenuItem>
-																</>
-															) : null}
-														</DropdownMenuGroup>
-													</DropdownMenuSubContent>
-												</DropdownMenuSub>
-											))}
-										</DropdownMenuContent>
+																))}
+																{section.id === "claude" &&
+																!hasConfiguredClaudeProviderModels ? (
+																	<>
+																		<DropdownMenuSeparator />
+																		<DropdownMenuItem
+																			onClick={handleOpenModelSettings}
+																			className="flex items-center gap-3"
+																		>
+																			<span className="flex size-4 items-center justify-center text-muted-foreground">
+																				<Plus
+																					className="size-4"
+																					strokeWidth={1.8}
+																				/>
+																			</span>
+																			<span className="font-mono tabular-nums">
+																				Add custom model...
+																			</span>
+																		</DropdownMenuItem>
+																	</>
+																) : null}
+															</DropdownMenuGroup>
+														</DropdownMenuSubContent>
+													</DropdownMenuSub>
+												))}
+											</DropdownMenuContent>
+										) : null}
 									</DropdownMenu>
 
 									{onChangeFastMode && supportsFastMode && (
@@ -814,36 +818,38 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 													</span>
 												</TooltipContent>
 											</Tooltip>
-											<DropdownMenuContent
-												side="top"
-												align="start"
-												sideOffset={4}
-												className="min-w-[11rem]"
-											>
-												<DropdownMenuGroup>
-													<DropdownMenuLabel>Effort</DropdownMenuLabel>
-													{availableEffortLevels.map((level, index) => (
-														<DropdownMenuItem
-															key={level}
-															disabled={toolbarDisabled}
-															onClick={() => handleSelectEffortOption(level)}
-															className={cn(
-																"flex items-center gap-2.5 focus:bg-accent/25",
-																level === effectiveEffort &&
-																	"bg-foreground/[0.04]",
-															)}
-														>
-															<EffortBarsIcon
-																index={index}
-																total={availableEffortLevels.length}
-															/>
-															<span className="capitalize">
-																{level === "xhigh" ? "Extra High" : level}
-															</span>
-														</DropdownMenuItem>
-													))}
-												</DropdownMenuGroup>
-											</DropdownMenuContent>
+											{effortPickerOpen ? (
+												<DropdownMenuContent
+													side="top"
+													align="start"
+													sideOffset={4}
+													className="min-w-[11rem]"
+												>
+													<DropdownMenuGroup>
+														<DropdownMenuLabel>Effort</DropdownMenuLabel>
+														{availableEffortLevels.map((level, index) => (
+															<DropdownMenuItem
+																key={level}
+																disabled={toolbarDisabled}
+																onClick={() => handleSelectEffortOption(level)}
+																className={cn(
+																	"flex items-center gap-2.5 focus:bg-accent/25",
+																	level === effectiveEffort &&
+																		"bg-foreground/[0.04]",
+																)}
+															>
+																<EffortBarsIcon
+																	index={index}
+																	total={availableEffortLevels.length}
+																/>
+																<span className="capitalize">
+																	{level === "xhigh" ? "Extra High" : level}
+																</span>
+															</DropdownMenuItem>
+														))}
+													</DropdownMenuGroup>
+												</DropdownMenuContent>
+											) : null}
 										</DropdownMenu>
 									)}
 

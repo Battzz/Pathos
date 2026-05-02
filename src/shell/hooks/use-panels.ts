@@ -27,6 +27,7 @@ type ResizeState = {
 
 const SIDEBAR_WIDTH_VAR = "--pathos-sidebar-width";
 const INSPECTOR_WIDTH_VAR = "--pathos-inspector-width";
+const THREAD_FROZEN_WIDTH_VAR = "--pathos-thread-frozen-width";
 
 type ShellPanelStyle = CSSProperties & {
 	[SIDEBAR_WIDTH_VAR]: string;
@@ -128,7 +129,22 @@ export function useShellPanels() {
 		};
 		const previousCursor = document.body.style.cursor;
 		const previousUserSelect = document.body.style.userSelect;
+		const shellPanels = shellPanelsRef.current;
+		const threadStacks = shellPanels
+			? Array.from(
+					shellPanels.querySelectorAll<HTMLElement>(
+						"[data-pathos-thread-stack]",
+					),
+				)
+			: [];
 
+		for (const stack of threadStacks) {
+			const width = stack.clientWidth;
+			if (width > 0) {
+				stack.style.setProperty(THREAD_FROZEN_WIDTH_VAR, `${width}px`);
+			}
+		}
+		shellPanels?.setAttribute("data-pathos-shell-resizing", "true");
 		document.body.style.cursor = "ew-resize";
 		document.body.style.userSelect = "none";
 
@@ -140,6 +156,10 @@ export function useShellPanels() {
 				window.cancelAnimationFrame(rafId);
 			}
 			releaseTerminalFit();
+			shellPanels?.removeAttribute("data-pathos-shell-resizing");
+			for (const stack of threadStacks) {
+				stack.style.removeProperty(THREAD_FROZEN_WIDTH_VAR);
+			}
 			document.body.style.cursor = previousCursor;
 			document.body.style.userSelect = previousUserSelect;
 			window.removeEventListener("mousemove", handleMouseMove);

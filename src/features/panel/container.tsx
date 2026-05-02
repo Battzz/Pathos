@@ -34,6 +34,18 @@ import { useSessionPanes } from "./use-session-pane-cache";
 
 const EMPTY_MESSAGES: ThreadMessageLike[] = [];
 
+function isFreshEmptySession(session: WorkspaceSessionSummary | null): boolean {
+	if (!session) {
+		return false;
+	}
+
+	return (
+		session.lastUserMessageAt == null &&
+		session.providerSessionId == null &&
+		session.createdAt === session.updatedAt
+	);
+}
+
 type WorkspacePanelContainerProps = {
 	isShellResizing?: boolean;
 	selectedWorkspaceId: string | null;
@@ -305,6 +317,14 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 	});
 
 	const messages = messagesQuery.data ?? EMPTY_MESSAGES;
+	const threadSession =
+		sessions.find((session) => session.id === threadSessionId) ?? null;
+	const hasResolvedSessionMessages = messagesQuery.data !== undefined;
+	const startedSessionHasEmptyThread =
+		Boolean(threadSessionId) &&
+		hasResolvedSessionMessages &&
+		messages.length === 0 &&
+		!isFreshEmptySession(threadSession);
 	const sessionDisplayProviders = useMemo<Record<string, AgentProvider>>(() => {
 		const modelSections =
 			queryClient.getQueryData<AgentModelSection[]>(
@@ -330,7 +350,8 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 		activeMessages: messages,
 		activeMessagesLoaded:
 			preferredPaneSessionId === threadSessionId &&
-			messagesQuery.data !== undefined,
+			hasResolvedSessionMessages &&
+			!startedSessionHasEmptyThread,
 		activeSessionId: preferredPaneSessionId,
 		queryClient,
 		sending,
@@ -342,7 +363,6 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 	const hasWorkspaceSessions = sessionsQuery.data !== undefined;
 	const hasWorkspaceContent = hasWorkspaceDetail || sessions.length > 0;
 	const hasResolvedWorkspace = hasWorkspaceDetail && hasWorkspaceSessions;
-	const hasResolvedSessionMessages = messagesQuery.data !== undefined;
 
 	const loadingWorkspace =
 		Boolean(displayedWorkspaceId) &&
@@ -365,7 +385,8 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 	// a previous fetch had errored — the user still needs a placeholder, not
 	// EmptyState, until the next fetch succeeds.
 	const loadingSession =
-		Boolean(threadSessionId) && !hasResolvedSessionMessages;
+		Boolean(threadSessionId) &&
+		(!hasResolvedSessionMessages || startedSessionHasEmptyThread);
 	const refreshingSession =
 		Boolean(threadSessionId) &&
 		!loadingSession &&

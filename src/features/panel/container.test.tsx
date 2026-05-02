@@ -695,6 +695,7 @@ describe("WorkspacePanelContainer loading semantics", () => {
 		queryClient.setQueryData(
 			[...pathosQueryKeys.sessionMessages("session-2"), "thread"],
 			[],
+			{ updatedAt: 0 },
 		);
 		queryClient.setQueryData(
 			[...pathosQueryKeys.sessionMessages("session-1"), "thread"],
@@ -795,6 +796,55 @@ describe("WorkspacePanelContainer loading semantics", () => {
 		await waitFor(() => {
 			expect(getSessionPaneIds()).toEqual(["session-1", "session-2"]);
 			expect(getLatestPanelProps().loadingSession).toBe(false);
+		});
+	});
+
+	it("keeps showing the session loader for a started chat with a stale empty thread cache", async () => {
+		const queryClient = createPathosQueryClient();
+		queryClient.setQueryData(
+			pathosQueryKeys.workspaceDetail("workspace-1"),
+			createWorkspaceDetail("workspace-1", "session-2"),
+		);
+		queryClient.setQueryData(pathosQueryKeys.workspaceSessions("workspace-1"), [
+			createWorkspaceSessionSummary("session-1", { active: false }),
+			createWorkspaceSessionSummary("session-2", {
+				active: true,
+				updatedAt: "2026-04-05T00:01:00Z",
+			}),
+		]);
+		queryClient.setQueryData(
+			[...pathosQueryKeys.sessionMessages("session-2"), "thread"],
+			[],
+		);
+		const deferredMessages =
+			createDeferred<ReturnType<typeof createMessages>>();
+		apiMocks.loadSessionThreadMessages.mockReturnValue(
+			deferredMessages.promise,
+		);
+
+		renderWithProviders(
+			<WorkspacePanelContainer
+				selectedWorkspaceId="workspace-1"
+				displayedWorkspaceId="workspace-1"
+				selectedSessionId="session-2"
+				displayedSessionId="session-2"
+				sending={false}
+				onSelectSession={vi.fn()}
+				onResolveDisplayedSession={vi.fn()}
+			/>,
+			{ queryClient },
+		);
+
+		await waitFor(() => {
+			expect(getLatestPanelProps().loadingSession).toBe(true);
+			expect(getSessionPaneIds()).not.toContain("session-2");
+		});
+
+		deferredMessages.resolve(createMessages("session-2"));
+
+		await waitFor(() => {
+			expect(getLatestPanelProps().loadingSession).toBe(false);
+			expect(getSessionPaneIds()).toContain("session-2");
 		});
 	});
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type {
 	CommitButtonState,
 	WorkspaceCommitButtonMode,
@@ -7,7 +7,12 @@ import {
 	type ShortcutHandler,
 	useAppShortcuts,
 } from "@/features/shortcuts/use-app-shortcuts";
-import type { ChangeRequestInfo } from "@/lib/api";
+import type {
+	ChangeRequestInfo,
+	ForgeActionStatus,
+	ForgeDetection,
+	WorkspaceGitActionStatus,
+} from "@/lib/api";
 import type { DiffOpenOptions } from "@/lib/editor-session";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
@@ -54,6 +59,9 @@ type WorkspaceInspectorSidebarProps = {
 	commitButtonMode?: WorkspaceCommitButtonMode;
 	commitButtonState?: CommitButtonState;
 	changeRequest?: ChangeRequestInfo | null;
+	forgeActionStatus?: ForgeActionStatus | null;
+	forgeDetection?: ForgeDetection | null;
+	workspaceGitActionStatus?: WorkspaceGitActionStatus | null;
 	/**
 	 * True only on the first cold fetch of either the PR change request or
 	 * the forge action status — drives the git-header shimmer. Owned by App.
@@ -62,7 +70,7 @@ type WorkspaceInspectorSidebarProps = {
 	onOpenSettings?: (initialSection?: string) => void;
 };
 
-export function WorkspaceInspectorSidebar({
+function WorkspaceInspectorSidebarComponent({
 	workspaceId,
 	workspaceRootPath,
 	workspaceBranch,
@@ -80,6 +88,9 @@ export function WorkspaceInspectorSidebar({
 	commitButtonMode,
 	commitButtonState,
 	changeRequest,
+	forgeActionStatus,
+	forgeDetection,
+	workspaceGitActionStatus,
 	forgeIsRefreshing = false,
 	onOpenSettings,
 }: WorkspaceInspectorSidebarProps) {
@@ -368,6 +379,7 @@ export function WorkspaceInspectorSidebar({
 				commitButtonMode={commitButtonMode}
 				commitButtonState={commitButtonState}
 				changeRequest={changeRequest ?? null}
+				workspaceGitActionStatus={workspaceGitActionStatus}
 				forgeIsRefreshing={forgeIsRefreshing}
 				fillAvailable={!tabsOpen}
 			/>
@@ -396,6 +408,9 @@ export function WorkspaceInspectorSidebar({
 				commitButtonMode={commitButtonMode}
 				commitButtonState={commitButtonState}
 				changeRequest={changeRequest ?? null}
+				forgeActionStatus={forgeActionStatus}
+				forgeDetection={forgeDetection}
+				workspaceGitActionStatus={workspaceGitActionStatus}
 			/>
 
 			<HorizontalResizeHandle
@@ -447,3 +462,7 @@ export function WorkspaceInspectorSidebar({
 		</div>
 	);
 }
+
+export const WorkspaceInspectorSidebar = memo(
+	WorkspaceInspectorSidebarComponent,
+);

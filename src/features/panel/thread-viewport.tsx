@@ -233,9 +233,11 @@ export function ActiveThreadViewport({
 	return (
 		<div
 			ref={stackRef}
+			data-pathos-thread-stack
 			className="relative flex min-h-0 flex-1 overflow-hidden"
 		>
 			<div
+				data-pathos-thread-inner
 				className="relative z-10 flex min-h-0 min-w-0 flex-1"
 				style={frozenThreadStyle}
 			>

@@ -559,6 +559,63 @@ export function useFolderSidebarController({
 		[pushWorkspaceToast, refetchPinnedLists],
 	);
 
+	const handleMoveProjectToSpace = useCallback(
+		async (repoId: string, spaceId: string) => {
+			const folder = folders.find((f) => f.repoId === repoId);
+			if (folder?.spaceId === spaceId) {
+				return;
+			}
+
+			try {
+				await assignRepoToSpace(repoId, spaceId);
+				queryClient.setQueryData<RepositoryFolder[] | undefined>(
+					pathosQueryKeys.repositoryFolders,
+					(current) =>
+						current?.map((item) =>
+							item.repoId === repoId ? { ...item, spaceId } : item,
+						),
+				);
+				refetchFolders();
+
+				const selectedProjectWasMoved =
+					Boolean(selectedWorkspaceId) &&
+					Boolean(
+						folder?.chats.some(
+							(chat) => chat.workspaceId === selectedWorkspaceId,
+						) ||
+							folder?.workspaces.some(
+								(workspace) => workspace.id === selectedWorkspaceId,
+							),
+					);
+				if (selectedProjectWasMoved && spaceId !== activeSpaceId) {
+					onSelectWorkspace(null);
+				}
+
+				pushWorkspaceToast(
+					folder
+						? `${folder.repoName} was moved to another Space.`
+						: "Project moved to another Space.",
+					"Project moved",
+				);
+			} catch (error) {
+				pushWorkspaceToast(
+					describeUnknownError(error, "Unable to move project."),
+					"Move project failed",
+					"destructive",
+				);
+			}
+		},
+		[
+			activeSpaceId,
+			folders,
+			onSelectWorkspace,
+			pushWorkspaceToast,
+			queryClient,
+			refetchFolders,
+			selectedWorkspaceId,
+		],
+	);
+
 	const handleRemoveProject = useCallback(
 		async (repoId: string) => {
 			// Tear down any running terminals across this repo's workspaces.
@@ -636,6 +693,7 @@ export function useFolderSidebarController({
 		handleDeleteProjectChats,
 		handleToggleChatPin,
 		handleRemoveProject,
+		handleMoveProjectToSpace,
 		prefetchChat,
 	};
 }

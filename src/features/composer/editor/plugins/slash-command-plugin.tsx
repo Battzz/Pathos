@@ -51,6 +51,8 @@ import {
 import type { SlashCommandEntry } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+const MAX_VISIBLE_COMMANDS = 50;
+
 class SlashCommandOption extends MenuOption {
 	readonly entry: SlashCommandEntry;
 	constructor(entry: SlashCommandEntry) {
@@ -76,7 +78,7 @@ function filterCommands(
 	commands: readonly SlashCommandEntry[],
 	query: string,
 ): readonly SlashCommandEntry[] {
-	if (!query) return commands;
+	if (!query) return commands.slice(0, MAX_VISIBLE_COMMANDS);
 	const q = query.toLowerCase();
 	// Two-pass: prefix matches first (typing "co" surfaces /commit,
 	// /context, /compact in that order), then any remaining substring
@@ -91,7 +93,7 @@ function filterCommands(
 			substring.push(cmd);
 		}
 	}
-	return [...prefix, ...substring];
+	return [...prefix, ...substring].slice(0, MAX_VISIBLE_COMMANDS);
 }
 
 export function SlashCommandPlugin({

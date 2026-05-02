@@ -115,9 +115,9 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 			)
 		: null;
 	const activePane =
-		sessionPanes.find((pane) => pane.presentationState === "presented") ??
-		sessionPanes[0] ??
-		null;
+		sessionPanes.find((pane) => pane.presentationState === "presented") ?? null;
+	const waitingForSelectedSessionPane =
+		selectedSession !== null && activePane === null;
 	const providerNameBySessionId = useMemo(
 		() =>
 			new Map(
@@ -218,7 +218,9 @@ export const WorkspacePanel = memo(function WorkspacePanel({
 								);
 							})}
 						</div>
-					) : loadingWorkspace || loadingSession ? (
+					) : loadingWorkspace ||
+						loadingSession ||
+						waitingForSelectedSessionPane ? (
 						<ConversationColdPlaceholder />
 					) : (
 						<div className="grid h-full w-full flex-1 place-items-center px-8">

@@ -72,6 +72,7 @@ export const WorkspacesSidebarContainer = memo(
 			handleDeleteProjectChats,
 			handleToggleChatPin,
 			handleRemoveProject,
+			handleMoveProjectToSpace,
 			prefetchChat,
 		} = useFolderSidebarController({
 			selectedWorkspaceId,
@@ -167,6 +168,9 @@ export const WorkspacesSidebarContainer = memo(
 				}}
 				onRemoveProject={(repoId) => {
 					void handleRemoveProject(repoId);
+				}}
+				onMoveProjectToSpace={(repoId, spaceId) => {
+					void handleMoveProjectToSpace(repoId, spaceId);
 				}}
 				isFolderExpanded={isFolderExpanded}
 				onToggleFolder={toggleFolder}
