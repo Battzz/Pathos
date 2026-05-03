@@ -5,6 +5,7 @@ import {
 	getPaneWidthBucket,
 	resolveConversationRowHeight,
 	resolvePaneWidthSnapshot,
+	resolveStreamingFooterPlacement,
 	resolveTauriBottomWindowMetrics,
 } from "./thread-viewport";
 
@@ -93,5 +94,37 @@ describe("resolveTauriBottomWindowMetrics", () => {
 			zoneHeight: 3600,
 			tailHeight: 5400,
 		});
+	});
+});
+
+describe("resolveStreamingFooterPlacement", () => {
+	it("renders the timer in the viewport before the assistant message exists", () => {
+		expect(
+			resolveStreamingFooterPlacement({
+				hasStreamingMessage: false,
+				planReviewActive: false,
+				sending: true,
+			}),
+		).toBe("viewport");
+	});
+
+	it("renders the timer inside the active assistant message once it exists", () => {
+		expect(
+			resolveStreamingFooterPlacement({
+				hasStreamingMessage: true,
+				planReviewActive: false,
+				sending: true,
+			}),
+		).toBe("message");
+	});
+
+	it("hides the timer while plan review is blocking the turn", () => {
+		expect(
+			resolveStreamingFooterPlacement({
+				hasStreamingMessage: true,
+				planReviewActive: true,
+				sending: true,
+			}),
+		).toBeNull();
 	});
 });

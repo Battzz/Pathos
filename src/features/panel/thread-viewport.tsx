@@ -13,7 +13,6 @@ import {
 	useState,
 } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
-import { AsciiLoader } from "@/components/ascii-loader";
 import { Button } from "@/components/ui/button";
 import type { ThreadMessageLike } from "@/lib/api";
 import { PathosProfiler } from "@/lib/dev-react-profiler";
@@ -23,6 +22,7 @@ import { hasUnresolvedPlanReview } from "@/lib/plan-review";
 import { useSettings } from "@/lib/settings";
 import type { WorkspaceScriptType } from "@/lib/workspace-script-actions";
 import { EmptyState, MemoConversationMessage } from "./message-components";
+import { StreamingFooter } from "./streaming-footer";
 
 export type PresentedSessionPane = {
 	sessionId: string;
@@ -110,6 +110,21 @@ export function resolveTauriBottomWindowMetrics({
 				? TAURI_ACTIVE_BOTTOM_TAIL_VIEWPORTS
 				: TAURI_IDLE_BOTTOM_TAIL_VIEWPORTS),
 	};
+}
+
+export function resolveStreamingFooterPlacement({
+	hasStreamingMessage,
+	planReviewActive,
+	sending,
+}: {
+	hasStreamingMessage: boolean;
+	planReviewActive: boolean;
+	sending: boolean;
+}): "message" | "viewport" | null {
+	if (!sending || planReviewActive) {
+		return null;
+	}
+	return hasStreamingMessage ? "message" : "viewport";
 }
 
 export function findFirstRowEndingAtOrAfter(
@@ -357,6 +372,15 @@ function ChatThread({
 
 	const previousSendingRef = useRef(sending);
 	const sendingJustStarted = sending && !previousSendingRef.current;
+	const planReviewActive = useMemo(
+		() => hasUnresolvedPlanReview(threadMessages),
+		[threadMessages],
+	);
+	const streamingFooterPlacement = resolveStreamingFooterPlacement({
+		hasStreamingMessage,
+		planReviewActive,
+		sending,
+	});
 
 	useEffect(() => {
 		previousSendingRef.current = sending;
@@ -399,6 +423,13 @@ function ChatThread({
 					onSubmitEditedMessage={onSubmitEditedMessage}
 					onRedoAssistantMessage={sending ? undefined : onRedoAssistantMessage}
 					itemIndex={index}
+					streamingFooterStartTime={
+						streamingFooterPlacement === "message" &&
+						message.role === "assistant" &&
+						message.streaming === true
+							? sendingStartTime
+							: undefined
+					}
 					previousUserMessage={
 						messageContext.previousUserByIndex[index] ?? null
 					}
@@ -411,7 +442,9 @@ function ChatThread({
 			onRevertMessage,
 			onSubmitEditedMessage,
 			sending,
+			sendingStartTime,
 			sessionId,
+			streamingFooterPlacement,
 		],
 	);
 
@@ -432,9 +465,9 @@ function ChatThread({
 				providerName={providerName}
 				workspaceLabel={workspaceLabel}
 				pinTailRows={pinTailRows}
+				streamingFooterPlacement={streamingFooterPlacement}
 				scrollRef={handleScrollRef}
 				sessionId={sessionId}
-				sending={sending}
 				sendingStartTime={sendingStartTime}
 				stopScroll={stopScroll}
 				usePlainThread={usePlainThread}
@@ -470,10 +503,10 @@ function ConversationViewport({
 	onOpenProject,
 	paneWidth,
 	pinTailRows,
+	streamingFooterPlacement,
 	providerName = null,
 	scrollRef,
 	sessionId,
-	sending,
 	sendingStartTime,
 	stopScroll,
 	usePlainThread,
@@ -492,10 +525,10 @@ function ConversationViewport({
 	onOpenProject?: () => void;
 	paneWidth: number;
 	pinTailRows: boolean;
+	streamingFooterPlacement: "message" | "viewport" | null;
 	providerName?: string | null;
 	scrollRef: React.RefCallback<HTMLElement>;
 	sessionId: string;
-	sending: boolean;
 	sendingStartTime: number;
 	stopScroll: () => void;
 	usePlainThread: boolean;
@@ -512,8 +545,7 @@ function ConversationViewport({
 	);
 
 	const Header: ThreadViewportSlot = ConversationHeaderSpacer;
-	const planReviewActive = useMemo(() => hasUnresolvedPlanReview(data), [data]);
-	const showStreamingFooter = sending && !planReviewActive;
+	const showStreamingFooter = streamingFooterPlacement === "viewport";
 	const streamingIndicatorStartTime = showStreamingFooter
 		? sendingStartTime
 		: undefined;
@@ -551,7 +583,7 @@ function ConversationViewport({
 									</ConversationRowShell>
 								))}
 						{showStreamingFooter ? (
-							<StreamingFooter startTime={sendingStartTime} />
+							<StreamingFooter className="px-5" startTime={sendingStartTime} />
 						) : null}
 						<ConversationBottomSpacer />
 					</div>
@@ -1145,7 +1177,7 @@ function ProgressiveConversationViewport({
 									// synced value.
 								}}
 							>
-								<StreamingFooter startTime={row.startTime} />
+								<StreamingFooter className="px-5" startTime={row.startTime} />
 							</div>
 						);
 					}
@@ -1294,35 +1326,5 @@ function ConversationBottomSpacer() {
 			className="shrink-0"
 			style={{ height: `${CONVERSATION_BOTTOM_SPACER_HEIGHT}px` }}
 		/>
-	);
-}
-
-function StreamingFooter({ startTime }: { startTime: number }) {
-	const [elapsed, setElapsed] = useState(() =>
-		Math.floor((Date.now() - startTime) / 1000),
-	);
-
-	useEffect(() => {
-		const intervalId = window.setInterval(() => {
-			setElapsed(Math.floor((Date.now() - startTime) / 1000));
-		}, 1000);
-		return () => window.clearInterval(intervalId);
-	}, [startTime]);
-
-	const display =
-		elapsed < 60
-			? `${elapsed}s`
-			: `${Math.floor(elapsed / 60)}m ${(elapsed % 60)
-					.toString()
-					.padStart(2, "0")}s`;
-
-	return (
-		<div
-			data-testid="streaming-footer"
-			className="flex items-center gap-1.5 px-5 py-3 text-[12px] tabular-nums text-muted-foreground"
-		>
-			<AsciiLoader className="size-3.5 text-[14px]" />
-			{display}
-		</div>
 	);
 }

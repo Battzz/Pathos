@@ -19,10 +19,16 @@ export function AutoResizePlugin({
 		return editor.registerUpdateListener(() => {
 			const rootEl = editor.getRootElement();
 			if (!rootEl) return;
+			const previousScrollTop = rootEl.scrollTop;
+			const wasPinnedToBottom =
+				rootEl.scrollHeight - rootEl.clientHeight - previousScrollTop <= 2;
+
 			rootEl.style.height = "auto";
 			const next = Math.min(rootEl.scrollHeight, maxHeight);
 			rootEl.style.height = `${Math.max(next, minHeight)}px`;
-			rootEl.scrollTop = rootEl.scrollHeight;
+			rootEl.scrollTop = wasPinnedToBottom
+				? rootEl.scrollHeight
+				: previousScrollTop;
 		});
 	}, [editor, minHeight, maxHeight]);
 

@@ -577,6 +577,40 @@ describe("MemoConversationMessage plan review", () => {
 		// Historical blocks default closed, so the body is not rendered.
 		expect(screen.queryByText("Old thinking content.")).toBeNull();
 	});
+
+	it("renders the streaming elapsed timer inside the active assistant message", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-04-20T12:00:10.000Z"));
+		const message: ThreadMessageLike = {
+			id: "assistant-streaming-timer",
+			role: "assistant",
+			createdAt: "2026-04-20T12:00:00.000Z",
+			streaming: true,
+			content: [
+				{
+					type: "text",
+					id: "assistant-streaming-timer:blk:0",
+					text: "Still working.",
+				},
+			],
+		};
+
+		render(
+			<MemoConversationMessage
+				message={message}
+				sessionId="session-1"
+				itemIndex={0}
+				streamingFooterStartTime={Date.now() - 9000}
+			/>,
+		);
+
+		const messageEl = screen
+			.getByText("Still working.")
+			.closest("[data-message-role='assistant']");
+		expect(messageEl).not.toBeNull();
+		expect(messageEl).toContainElement(screen.getByTestId("streaming-footer"));
+		expect(screen.getByText("9s")).toBeInTheDocument();
+	});
 });
 
 describe("assistant text rendering", () => {
@@ -599,7 +633,7 @@ describe("assistant text rendering", () => {
 	});
 
 	it("avoids expensive streaming markdown work for long responses", () => {
-		expect(shouldAnimateStreamingAssistantText("x".repeat(1500))).toBe(true);
+		expect(shouldAnimateStreamingAssistantText("x".repeat(1500))).toBe(false);
 		expect(shouldAnimateStreamingAssistantText("x".repeat(1501))).toBe(false);
 		expect(shouldRenderStreamingAssistantTextAsPlain("x".repeat(8000))).toBe(
 			false,

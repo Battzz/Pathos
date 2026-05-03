@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
+import { StreamingFooter } from "../streaming-footer";
 import { ImageBlock, PlanReviewCard, TodoList } from "./content-parts";
 import type { RenderedMessage, StreamdownMode } from "./shared";
 import {
@@ -29,14 +30,6 @@ import { AssistantToolCall, CollapsedToolGroup } from "./tool-call";
 
 // --- AssistantText ---
 
-const STREAMING_ANIMATED = {
-	animation: "blurIn" as const,
-	duration: 150,
-	easing: "linear" as const,
-	sep: "word" as const,
-	stagger: 30,
-};
-const MAX_ANIMATED_STREAMING_CHARS = 1500;
 const PLAIN_STREAMING_TEXT_THRESHOLD = 8000;
 
 export function shouldRenderAssistantTextAsPlain(text: string): boolean {
@@ -54,8 +47,8 @@ export function shouldRenderStreamingAssistantTextAsPlain(
 	return text.length > PLAIN_STREAMING_TEXT_THRESHOLD;
 }
 
-export function shouldAnimateStreamingAssistantText(text: string): boolean {
-	return text.length <= MAX_ANIMATED_STREAMING_CHARS;
+export function shouldAnimateStreamingAssistantText(_text: string): boolean {
+	return false;
 }
 
 const AssistantText = memo(function AssistantText({
@@ -73,10 +66,7 @@ const AssistantText = memo(function AssistantText({
 		streaming && shouldRenderStreamingAssistantTextAsPlain(renderedText);
 	const renderPlainText =
 		renderPlainStreamingText || shouldRenderAssistantTextAsPlain(renderedText);
-	const animated =
-		streaming && shouldAnimateStreamingAssistantText(renderedText)
-			? STREAMING_ANIMATED
-			: false;
+	const animated = false;
 
 	return (
 		<div
@@ -177,9 +167,11 @@ function MessageStatusBadge({ reason }: { reason?: string }) {
 export function ChatAssistantMessage({
 	message,
 	streaming,
+	streamingFooterStartTime,
 }: {
 	message: RenderedMessage;
 	streaming: boolean;
+	streamingFooterStartTime?: number;
 }) {
 	const parts = message.content as ExtendedMessagePart[];
 	const { settings } = useSettings();
@@ -246,6 +238,9 @@ export function ChatAssistantMessage({
 				}
 				return null;
 			})}
+			{streamingFooterStartTime !== undefined ? (
+				<StreamingFooter startTime={streamingFooterStartTime} />
+			) : null}
 			{!streaming && message.status?.type === "incomplete" ? (
 				<MessageStatusBadge reason={message.status.reason} />
 			) : null}

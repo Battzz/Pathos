@@ -810,6 +810,11 @@ describe("WorkspacePanelContainer loading semantics", () => {
 			createWorkspaceSessionSummary("session-2", {
 				active: true,
 				updatedAt: "2026-04-05T00:01:00Z",
+				// Session has actually been used: the agent SDK assigned a
+				// provider session id on the first turn. That, not a bumped
+				// `updated_at`, is what tells us the empty thread cache is stale.
+				providerSessionId: "provider-session-2",
+				lastUserMessageAt: "2026-04-05T00:01:00Z",
 			}),
 		]);
 		queryClient.setQueryData(
@@ -846,6 +851,74 @@ describe("WorkspacePanelContainer loading semantics", () => {
 			expect(getLatestPanelProps().loadingSession).toBe(false);
 			expect(getSessionPaneIds()).toContain("session-2");
 		});
+	});
+
+	it("renders the empty state for a brand-new chat whose row has been touched since creation", async () => {
+		// Regression: switching from an existing chat to a freshly created one
+		// must always paint the EmptyState ("Chat with X / Let's get to it"),
+		// never the cold placeholder. Before the fix, any update to the new
+		// session row (model defaulting, status flips, fast-mode toggles, etc.)
+		// fired the `update_sessions_updated_at` SQL trigger, made
+		// `createdAt !== updatedAt`, and flipped `loadingSession` to true —
+		// suppressing the empty state intermittently.
+		const queryClient = createPathosQueryClient();
+		queryClient.setQueryData(
+			pathosQueryKeys.workspaceDetail("workspace-1"),
+			createWorkspaceDetail("workspace-1", "session-new"),
+		);
+		queryClient.setQueryData(pathosQueryKeys.workspaceSessions("workspace-1"), [
+			createWorkspaceSessionSummary("session-1", { active: false }),
+			createWorkspaceSessionSummary("session-new", {
+				active: true,
+				// The only thing that changed since creation is `updated_at`
+				// (e.g. the trigger fired when a default model was assigned).
+				// The user has not interacted yet: no provider session, no
+				// user-message timestamp.
+				createdAt: "2026-04-05T00:00:00Z",
+				updatedAt: "2026-04-05T00:00:01Z",
+				providerSessionId: null,
+				lastUserMessageAt: null,
+			}),
+		]);
+		queryClient.setQueryData(
+			[...pathosQueryKeys.sessionMessages("session-new"), "thread"],
+			[],
+		);
+		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
+
+		renderWithProviders(
+			<WorkspacePanelContainer
+				selectedWorkspaceId="workspace-1"
+				displayedWorkspaceId="workspace-1"
+				selectedSessionId="session-new"
+				displayedSessionId="session-new"
+				sending={false}
+				onSelectSession={vi.fn()}
+				onResolveDisplayedSession={vi.fn()}
+			/>,
+			{ queryClient },
+		);
+
+		await waitFor(() => {
+			expect(getLatestPanelProps().loadingSession).toBe(false);
+			expect(getSessionPaneIds()).toContain("session-new");
+		});
+
+		const newPane = (
+			getLatestPanelProps().sessionPanes as Array<{
+				sessionId: string;
+				messages: ReturnType<typeof createMessages>;
+				hasLoaded: boolean;
+				presentationState: string;
+			}>
+		).find((pane) => pane.sessionId === "session-new");
+
+		// `hasLoaded: true` + `messages: []` is what makes the WorkspacePanel
+		// route to ConversationViewport's EmptyPlaceholder ("Chat with X")
+		// instead of falling through to ConversationColdPlaceholder.
+		expect(newPane?.hasLoaded).toBe(true);
+		expect(newPane?.presentationState).toBe("presented");
+		expect(newPane?.messages).toEqual([]);
 	});
 
 	it("renders sessions in query order", async () => {

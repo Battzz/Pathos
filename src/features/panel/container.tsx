@@ -39,11 +39,16 @@ function isFreshEmptySession(session: WorkspaceSessionSummary | null): boolean {
 		return false;
 	}
 
-	return (
-		session.lastUserMessageAt == null &&
-		session.providerSessionId == null &&
-		session.createdAt === session.updatedAt
-	);
+	// `lastUserMessageAt` and `providerSessionId` both flip definitively the
+	// first time the user actually sends a prompt (the agent SDK assigns the
+	// provider session id on the first turn). We deliberately do NOT compare
+	// `createdAt`/`updatedAt`: the `update_sessions_updated_at` SQL trigger
+	// bumps `updated_at` on any row update — model defaulting, status flips,
+	// fast-mode toggles, etc. — long before the user has typed anything.
+	// Including that check made the gate flap to false intermittently, which
+	// suppressed the "Chat with X" empty state in favour of the cold
+	// placeholder when switching from an existing chat to a new one.
+	return session.lastUserMessageAt == null && session.providerSessionId == null;
 }
 
 type WorkspacePanelContainerProps = {

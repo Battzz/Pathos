@@ -14,6 +14,7 @@ function ConversationMessage({
 	onSubmitEditedMessage,
 	onRedoAssistantMessage,
 	itemIndex,
+	streamingFooterStartTime,
 }: {
 	message: RenderedMessage;
 	previousAssistantMessage?: RenderedMessage | null;
@@ -29,6 +30,7 @@ function ConversationMessage({
 		prompt: string,
 	) => void | Promise<void>;
 	itemIndex: number;
+	streamingFooterStartTime?: number;
 }) {
 	const messageKey = message.id ?? `${message.role}:${itemIndex}`;
 	useEffect(() => {
@@ -48,7 +50,13 @@ function ConversationMessage({
 	}
 
 	if (message.role === "assistant") {
-		return <ChatAssistantMessage message={message} streaming={streaming} />;
+		return (
+			<ChatAssistantMessage
+				message={message}
+				streaming={streaming}
+				streamingFooterStartTime={streamingFooterStartTime}
+			/>
+		);
 	}
 
 	return (
@@ -72,7 +80,8 @@ export const MemoConversationMessage = memo(
 			prev.onRevertMessage === next.onRevertMessage &&
 			prev.onSubmitEditedMessage === next.onSubmitEditedMessage &&
 			prev.onRedoAssistantMessage === next.onRedoAssistantMessage &&
-			prev.itemIndex === next.itemIndex
+			prev.itemIndex === next.itemIndex &&
+			prev.streamingFooterStartTime === next.streamingFooterStartTime
 		);
 	},
 );
